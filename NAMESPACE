@@ -19,6 +19,7 @@ export(compute_treatment_phases)
 export(compute_data_density)
 export(detect_decision_points)
 export(launch_trajectory_dashboard)
+export(generate_patient_report)
 
 S3method(with_connector, omop_connector)
 S3method(with_connector, df_connector)

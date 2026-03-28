@@ -1,0 +1,200 @@
+---
+title: "Patient Trajectory Summary"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: flatly
+    highlight: tango
+    toc: true
+    toc_float:
+      collapsed: false
+    self_contained: true
+params:
+  patient_data:     NULL
+  trajectory:       NULL
+  treatment_phases: NULL
+  decision_pts:     NULL
+  focus_lab:        "ck"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.width = 10, fig.height = 4)
+```
+
+```{r load-data}
+pd   <- params$patient_data
+traj <- params$trajectory
+tx   <- params$treatment_phases
+dps  <- params$decision_pts
+flab <- params$focus_lab
+
+lab_labels <- c(
+  ck = "CK", aldolase = "Aldolase", ast = "AST", alt = "ALT",
+  ldh = "LDH", esr = "ESR", crp = "CRP",
+  anti_jo1 = "Anti-Jo-1", anti_mi2 = "Anti-Mi-2",
+  anti_mda5 = "Anti-MDA5", anti_tif1 = "Anti-TIF1-γ",
+  anti_hmgcr = "Anti-HMGCR"
+)
+lab_label <- lab_labels[flab] %||% toupper(flab)
+```
+
+## Patient Overview
+
+```{r overview}
+all_dates <- c(pd$labs$measurement_date,
+               pd$medications$drug_exposure_start_date)
+all_dates <- sort(all_dates[!is.na(all_dates)])
+span <- if (length(all_dates) >= 2)
+  round(as.numeric(diff(range(all_dates))) / 365.25, 1)
+else NA_real_
+
+summary_df <- data.frame(
+  Domain       = c("Lab results", "Medications (unique)",
+                   "Hospital visits", "Conditions",
+                   "Clinical notes", "Follow-up (years)"),
+  Count        = c(
+    nrow(pd$labs),
+    length(unique(pd$medications$drug_name[!is.na(pd$medications$drug_name)])),
+    nrow(pd$visits),
+    length(unique(pd$conditions$condition_source_value[
+      !is.na(pd$conditions$condition_source_value)])),
+    nrow(pd$notes),
+    if (!is.na(span)) span else "—"
+  ),
+  stringsAsFactors = FALSE
+)
+knitr::kable(summary_df, col.names = c("Domain", "Count"),
+             align = c("l", "r"))
+```
+
+---
+
+## Trajectory Phases — `r lab_label`
+
+```{r traj-plot, fig.height=3.5}
+if (!is.null(traj) && nrow(traj) > 0) {
+  PHASE_COLORS <- c(
+    flare = "#C62828", worsening = "#EF6C00", stable = "#2E7D32",
+    response = "#0277BD", relapse = "#6A1B9A", sparse = "#9E9E9E"
+  )
+  # Simple base-R plot
+  uln_val <- .get_default_uln(flab)
+
+  # Filter focus lab
+  ld <- pd$labs[!is.na(pd$labs$value_as_number) &
+                !is.na(pd$labs$measurement_date), ]
+  lab_ids <- .resolve_lab_concept(flab)
+  if (!is.null(lab_ids) && "measurement_concept_id" %in% names(ld)) {
+    ld <- ld[ld$measurement_concept_id %in% lab_ids, ]
+  }
+
+  if (nrow(ld) > 0) {
+    old_par <- par(mar = c(3, 4, 1, 1))
+    y_max <- max(ld$value_as_number, na.rm = TRUE) * 1.1
+    plot(ld$measurement_date, ld$value_as_number,
+         type = "n", xlab = "", ylab = paste(lab_label, "(U/L)"),
+         ylim = c(0, y_max), xaxt = "n", bty = "l")
+    axis.Date(1, ld$measurement_date, format = "%b %Y", cex.axis = 0.8)
+
+    # Phase bands
+    for (i in seq_len(nrow(traj))) {
+      ph  <- traj$phase[i]
+      col <- PHASE_COLORS[ph]
+      if (is.na(col)) col <- "#BDBDBD"
+      rect(traj$window_start[i], 0, traj$window_end[i], y_max,
+           col = paste0(col, "22"), border = NA)
+    }
+
+    if (!is.na(uln_val)) abline(h = uln_val, lty = 2, col = "#9E9E9E", lwd = 1.2)
+
+    points(ld$measurement_date, ld$value_as_number,
+           pch = 16, col = "#3D6FD4", cex = 0.9)
+
+    if (nrow(ld) >= 4L) {
+      lo <- tryCatch(
+        stats::loess(value_as_number ~ as.numeric(measurement_date),
+                     data = ld, span = 0.4),
+        error = function(e) NULL
+      )
+      if (!is.null(lo)) {
+        xs <- seq(min(ld$measurement_date), max(ld$measurement_date), by = "7 days")
+        ys <- tryCatch(stats::predict(lo,
+          newdata = data.frame(measurement_date = as.numeric(xs))),
+          error = function(e) NULL)
+        if (!is.null(ys)) lines(xs, ys, col = "#3D6FD4", lwd = 2)
+      }
+    }
+
+    legend("topright", legend = names(PHASE_COLORS),
+           fill = paste0(PHASE_COLORS, "44"), border = PHASE_COLORS,
+           cex = 0.65, ncol = 3, bty = "n")
+    par(old_par)
+  } else {
+    cat("No lab values available for", lab_label)
+  }
+} else {
+  cat("No trajectory phases computed.")
+}
+```
+
+```{r traj-table}
+if (!is.null(traj) && nrow(traj) > 0) {
+  out <- traj[, c("window_start","window_end","phase","confidence",
+                  "mean_value","n_obs"), drop = FALSE]
+  out$mean_value <- round(out$mean_value, 1)
+  names(out) <- c("Start","End","Phase","Confidence","Mean Value","N Obs")
+  knitr::kable(out, row.names = FALSE,
+               caption = paste(lab_label, "trajectory phase segments"))
+}
+```
+
+---
+
+## Treatment Timeline
+
+```{r tx-table}
+if (!is.null(tx) && nrow(tx) > 0) {
+  out_tx <- tx[, c("drug_name","drug_family","phase_start","phase_end",
+                   "n_days","n_records"), drop = FALSE]
+  names(out_tx) <- c("Drug","Family","Start","End","Days","Records")
+  out_tx <- out_tx[order(out_tx$Start), ]
+  knitr::kable(out_tx, row.names = FALSE, caption = "Treatment episodes")
+}
+```
+
+---
+
+## Decision Points
+
+```{r dp-table}
+if (!is.null(dps) && nrow(dps) > 0) {
+  out_dp <- dps[, c("date","event_type","label","confidence","source_domain"),
+                drop = FALSE]
+  out_dp$event_type <- gsub("_", " ", tools::toTitleCase(out_dp$event_type))
+  names(out_dp) <- c("Date","Type","Description","Confidence","Source")
+  knitr::kable(out_dp, row.names = FALSE, caption = "Clinical decision points")
+} else {
+  cat("No decision points detected.")
+}
+```
+
+---
+
+## Hospitalizations
+
+```{r visits-table}
+if (nrow(pd$visits) > 0) {
+  v_cols <- intersect(c("visit_start_date","visit_end_date","visit_type",
+                         "discharge_disposition"), names(pd$visits))
+  out_v  <- pd$visits[, v_cols, drop = FALSE]
+  out_v  <- out_v[order(out_v$visit_start_date, decreasing = TRUE), ]
+  knitr::kable(out_v, row.names = FALSE, caption = "Visit history")
+} else {
+  cat("No visit records.")
+}
+```
+
+---
+
+*Generated by TrajectoryDashboard — `r Sys.time()`*

@@ -46,6 +46,7 @@ fetch_patient_data <- function(connector,
 
   person_id <- as.integer(person_id)
   end_date  <- end_date %||% format(Sys.Date(), "%Y-%m-%d")
+  .log_access(person_id, "fetch_patient_data")
 
   result <- list(
     labs         = .empty_labs(),

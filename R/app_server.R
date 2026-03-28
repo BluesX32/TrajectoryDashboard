@@ -217,6 +217,79 @@ trajectory_server <- function(connector) {
     output$macro_trajectory_plot <- plotly::renderPlotly({
       shiny::req(labs_filtered(), trajectory())
 
+      # ── Enzyme Panel Mode: multi-lab % ULN overlay ──────────────────
+      if (isTRUE(input$enzyme_panel_mode)) {
+        enzyme_keys <- c("ck","aldolase","ast","alt","ldh")
+        enzyme_colors <- c(ck="#3D6FD4", aldolase="#E65100", ast="#2E7D32",
+                           alt="#6A1B9A", ldh="#C62828")
+        enzyme_labels <- c(ck="CK", aldolase="Aldolase", ast="AST",
+                           alt="ALT", ldh="LDH")
+        efig <- plotly::plot_ly(source = "macro_plot", type = "scatter",
+                                 mode = "markers", x = as.Date(character(0)),
+                                 y = numeric(0), showlegend = FALSE)
+        for (ek in enzyme_keys) {
+          e_ids <- .resolve_lab_concept(ek)
+          e_uln <- .get_default_uln(ek)
+          edf   <- labs_filtered()
+          if (!is.null(e_ids) && "measurement_concept_id" %in% names(edf)) {
+            edf <- edf[edf$measurement_concept_id %in% e_ids, ]
+          }
+          edf <- edf[!is.na(edf$value_as_number) & !is.na(edf$measurement_date), ]
+          if (nrow(edf) == 0 || is.na(e_uln) || e_uln <= 0) next
+          pct <- edf$value_as_number / e_uln * 100
+          ecol <- enzyme_colors[ek]
+          efig <- plotly::add_trace(efig, type = "scatter", mode = "markers",
+            x = edf$measurement_date, y = pct,
+            marker = list(size = 5, color = ecol, opacity = 0.8),
+            name = enzyme_labels[ek], showlegend = TRUE,
+            hovertemplate = paste0(
+              "<b>%{x|%Y-%m-%d}</b><br>",
+              enzyme_labels[ek], ": %{y:.0f}% ULN<extra></extra>")
+          )
+          if (nrow(edf) >= 4L) {
+            lo_e <- tryCatch(stats::loess(pct ~ as.numeric(edf$measurement_date),
+                                          span = 0.4), error = function(e) NULL)
+            if (!is.null(lo_e)) {
+              pd_e <- seq(min(edf$measurement_date), max(edf$measurement_date), by = "7 days")
+              pv_e <- tryCatch(stats::predict(lo_e,
+                newdata = data.frame(
+                  `edf$measurement_date` = as.numeric(pd_e))), error = function(e) NULL)
+              if (!is.null(pv_e)) {
+                efig <- plotly::add_trace(efig, type = "scatter", mode = "lines",
+                  x = pd_e, y = pv_e,
+                  line = list(color = ecol, width = 2),
+                  showlegend = FALSE, hoverinfo = "none",
+                  legendgroup = ek)
+              }
+            }
+          }
+        }
+        efig <- plotly::layout(efig,
+          shapes = list(list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+                             y0 = 100, y1 = 100,
+                             line = list(color = "#9E9E9E", dash = "dash", width = 1.5))),
+          xaxis = list(title = "", showgrid = FALSE, tickformat = "%b %Y",
+                       tickfont = list(size = 11, color = "#5A6482")),
+          yaxis = list(title = "% of ULN", rangemode = "tozero",
+                       showgrid = TRUE, gridcolor = "#EEF0F6",
+                       tickfont = list(size = 11, color = "#5A6482")),
+          hovermode = "x unified",
+          hoverlabel = list(bgcolor = "#1A2744", font = list(color="#fff", size=12),
+                            bordercolor = "#243055"),
+          margin = list(t = 8, b = 8, l = 52, r = 12),
+          showlegend = TRUE,
+          legend = list(orientation = "h", y = -0.15,
+                        font = list(size = 10, color = "#5A6482")),
+          paper_bgcolor = "#FFFFFF", plot_bgcolor = "#FFFFFF",
+          font = list(family = "Inter, sans-serif")
+        )
+        efig <- plotly::event_register(efig, "plotly_relayout")
+        return(plotly::config(efig, displayModeBar = TRUE,
+                              modeBarButtonsToRemove = c("lasso2d","select2d",
+                                                         "toggleSpikelines"),
+                              responsive = TRUE))
+      }
+
       concept_id <- .resolve_lab_concept(input$focus_lab %||% "ck")
       uln        <- .get_default_uln(input$focus_lab %||% "ck")
 
@@ -325,6 +398,53 @@ trajectory_server <- function(connector) {
         }
       }
 
+      # Prednisone pred-equiv step line (secondary y-axis)
+      has_steroid_line <- FALSE
+      steroid_meds <- meds_filtered()
+      if (nrow(steroid_meds) > 0 && "drug_family" %in% names(steroid_meds)) {
+        cs_meds <- steroid_meds[
+          !is.na(steroid_meds$drug_family) &
+          steroid_meds$drug_family == "Corticosteroids", ]
+      } else {
+        cs_meds <- data.frame()
+      }
+      if (nrow(cs_meds) > 0) {
+        # Build step-function series from start/end + quantity
+        # Use quantity as daily dose proxy; fall back to 10 mg (nominal) if missing
+        dose_col <- if ("quantity" %in% names(cs_meds)) cs_meds$quantity else NULL
+        start_col <- safe_as_date(cs_meds$drug_exposure_start_date)
+        end_col   <- safe_as_date(cs_meds$drug_exposure_end_date)
+        end_col[is.na(end_col)] <- start_col[is.na(end_col)]
+
+        # Build step x/y by sorting episodes
+        ord <- order(start_col)
+        sx  <- start_col[ord]; ex <- end_col[ord]
+        sy  <- if (!is.null(dose_col)) as.numeric(dose_col[ord]) else rep(10, length(ord))
+        sy[is.na(sy) | sy <= 0] <- 10
+
+        # Interleave start and end points for a step shape
+        step_x <- as.Date(c(rbind(sx, ex + 1L)))
+        step_y <- c(rbind(sy, sy))
+
+        fig <- plotly::add_trace(
+          fig,
+          type   = "scatter",
+          mode   = "lines",
+          x      = step_x,
+          y      = step_y,
+          yaxis  = "y2",
+          line   = list(color = "#EF5350", width = 2, shape = "hv"),
+          fill   = "tozeroy",
+          fillcolor = "rgba(239,83,80,0.10)",
+          name   = "Pred-equiv (mg)",
+          showlegend = TRUE,
+          hovertemplate = paste0(
+            "%{x|%Y-%m-%d}: %{y:.0f} mg pred-equiv<extra></extra>"
+          )
+        )
+        has_steroid_line <- TRUE
+      }
+
       fig <- plotly::layout(
         fig,
         xaxis      = list(
@@ -343,20 +463,36 @@ trajectory_server <- function(connector) {
           tickfont   = list(size = 11, color = "#5A6482"),
           titlefont  = list(size = 11, color = "#9099B3")
         ),
+        yaxis2     = if (has_steroid_line) list(
+          title       = "Pred-equiv (mg)",
+          overlaying  = "y",
+          side        = "right",
+          showgrid    = FALSE,
+          rangemode   = "tozero",
+          tickfont    = list(size = 10, color = "#EF5350"),
+          titlefont   = list(size = 10, color = "#EF5350")
+        ) else list(),
         hovermode     = "x unified",
         hoverlabel    = list(
           bgcolor   = "#1A2744",
           font      = list(color = "#fff", size = 12),
           bordercolor = "#243055"
         ),
-        margin        = list(t = 8, b = 8, l = 52, r = 12),
-        showlegend    = FALSE,
+        margin        = list(t = 8, b = 8,
+                             l = 52, r = if (has_steroid_line) 52 else 12),
+        showlegend    = has_steroid_line,
+        legend        = list(orientation = "h", y = -0.12,
+                             font = list(size = 10, color = "#5A6482")),
         paper_bgcolor = "#FFFFFF",
         plot_bgcolor  = "#FFFFFF",
         font          = list(family = "Inter, sans-serif")
       )
 
-      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
+      fig <- plotly::event_register(fig, "plotly_relayout")
+      plotly::config(fig, displayModeBar = TRUE,
+                     modeBarButtonsToRemove = c("lasso2d", "select2d",
+                                                "toggleSpikelines"),
+                     responsive = TRUE)
     })
 
     # -------------------------------------------------------------------------
@@ -505,6 +641,110 @@ trajectory_server <- function(connector) {
         }
       }
 
+      # Row 3: Condition / diagnosis tick marks
+      if (nrow(pd$conditions) > 0) {
+        conds <- pd$conditions[!is.na(pd$conditions$condition_start_date), ]
+        if (nrow(conds) > 0) {
+          # Color by first letter of ICD code (chapter)
+          icd_chapter_color <- function(src) {
+            ch <- toupper(substr(gsub("[^A-Za-z]", "", src), 1L, 1L))
+            switch(ch,
+              M = "#EF6C00",  # Musculoskeletal — orange
+              J = "#0288D1",  # Respiratory — sky blue
+              I = "#C62828",  # Circulatory — red
+              K = "#2E7D32",  # Digestive — green
+              G = "#7B1FA2",  # Neurological — purple
+              "#9E9E9E"       # Other — grey
+            )
+          }
+          colors_cond <- sapply(
+            conds$condition_source_value %||% rep("", nrow(conds)),
+            icd_chapter_color
+          )
+          fig <- plotly::add_trace(
+            fig,
+            type   = "scatter",
+            mode   = "markers",
+            x      = conds$condition_start_date,
+            y      = rep(1.85, nrow(conds)),
+            marker = list(
+              symbol = "line-ns",
+              size   = 12,
+              color  = colors_cond,
+              line   = list(width = 2, color = colors_cond)
+            ),
+            name       = "Conditions",
+            showlegend = TRUE,
+            legendgroup = "conditions",
+            hovertemplate = paste0(
+              "<b>",
+              ifelse(!is.na(conds$condition_name) & conds$condition_name != "",
+                     conds$condition_name, conds$condition_source_value),
+              "</b><br>",
+              format(conds$condition_start_date, "%Y-%m-%d"), "<br>",
+              "ICD: ", conds$condition_source_value,
+              "<extra></extra>"
+            )
+          )
+        }
+      }
+
+      # Row 4: Focus lab scatter colored by phase
+      if (nrow(trajectory()) > 0) {
+        phases_traj <- trajectory()
+        lab_focus2  <- labs_filtered()
+        cid2 <- .resolve_lab_concept(input$focus_lab %||% "ck")
+        if (!is.null(cid2) && "measurement_concept_id" %in% names(lab_focus2)) {
+          lab_focus2 <- lab_focus2[lab_focus2$measurement_concept_id %in% cid2, ]
+        }
+        lab_focus2 <- lab_focus2[!is.na(lab_focus2$value_as_number) &
+                                 !is.na(lab_focus2$measurement_date), ]
+
+        if (nrow(lab_focus2) > 0 && nrow(phases_traj) > 0) {
+          uln2   <- .get_default_uln(input$focus_lab %||% "ck")
+          cap    <- if (!is.na(uln2) && uln2 > 0) 5 * uln2 else max(lab_focus2$value_as_number)
+          lo2    <- if (!is.na(uln2) && uln2 > 0) 0 else min(lab_focus2$value_as_number)
+          rng    <- cap - lo2
+          # Normalise to y-band 0.35–0.65
+          y_norm <- 0.35 + 0.30 * pmin(pmax((lab_focus2$value_as_number - lo2) / rng, 0), 1)
+
+          # Assign phase by interval
+          phase_idx <- findInterval(
+            as.integer(lab_focus2$measurement_date),
+            as.integer(phases_traj$window_start)
+          )
+          phase_idx <- pmax(pmin(phase_idx, nrow(phases_traj)), 1L)
+          pt_phases <- phases_traj$phase[phase_idx]
+          pt_colors <- PHASE_COLORS[pt_phases]
+          pt_colors[is.na(pt_colors)] <- "#9E9E9E"
+
+          fig <- plotly::add_trace(
+            fig,
+            type   = "scatter",
+            mode   = "markers",
+            x      = lab_focus2$measurement_date,
+            y      = y_norm,
+            marker = list(
+              size   = 5,
+              color  = pt_colors,
+              opacity = 0.9,
+              line   = list(width = 0)
+            ),
+            name       = toupper(input$focus_lab %||% "Lab"),
+            showlegend = TRUE,
+            legendgroup = "lab_scatter",
+            hovertemplate = paste0(
+              "<b>", format(lab_focus2$measurement_date, "%Y-%m-%d"), "</b><br>",
+              toupper(input$focus_lab %||% "Lab"), ": ",
+              round(lab_focus2$value_as_number, 1),
+              if (!is.na(uln2)) paste0(" (ULN: ", uln2, ")") else "",
+              "<br>Phase: ", pt_phases,
+              "<extra></extra>"
+            )
+          )
+        }
+      }
+
       # Row: Decision points as diamond markers
       if (input$show_dp && !is.null(dps) && nrow(dps) > 0) {
         dp_y_map <- c(
@@ -556,9 +796,9 @@ trajectory_server <- function(connector) {
 
       # Y-axis tick labels
       all_y_labels <- list(
-        list(y = 5.0, label = "Hospital"),
-        list(y = 4.0, label = "Hosp"),
-        list(y = 1.0, label = "Events")
+        list(y = 5.0,  label = "Hospital"),
+        list(y = 1.85, label = "Diagnoses"),
+        list(y = 0.5,  label = toupper(input$focus_lab %||% "Lab"))
       )
       for (fam in names(family_y)) {
         all_y_labels[[length(all_y_labels) + 1L]] <- list(
@@ -603,6 +843,22 @@ trajectory_server <- function(connector) {
     # -------------------------------------------------------------------------
     # Selected event detail (Layer 3) — click handler
     # -------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # X-axis zoom sync: macro_plot relayout → event_layer
+    # -------------------------------------------------------------------------
+    shiny::observeEvent(plotly::event_data("plotly_relayout", source = "macro_plot"), {
+      rel <- plotly::event_data("plotly_relayout", source = "macro_plot")
+      if (is.null(rel)) return()
+      xmin <- rel[["xaxis.range[0]"]] %||% rel[["xaxis.range[0]"]]
+      xmax <- rel[["xaxis.range[1]"]] %||% rel[["xaxis.range[1]"]]
+      # autorange reset
+      if (!is.null(rel[["xaxis.autorange"]]) && isTRUE(rel[["xaxis.autorange"]])) {
+        session$sendCustomMessage("syncXAxis", list(xmin = NULL, xmax = NULL))
+      } else if (!is.null(xmin) && !is.null(xmax)) {
+        session$sendCustomMessage("syncXAxis", list(xmin = xmin, xmax = xmax))
+      }
+    })
+
     selected_event <- shiny::reactiveVal(NULL)
 
     shiny::observeEvent(plotly::event_data("plotly_click", source = "event_layer"), {
@@ -839,6 +1095,203 @@ trajectory_server <- function(connector) {
                                     Sys.Date(), ".csv"),
       content  = function(file) {
         utils::write.csv(trajectory(), file, row.names = FALSE)
+      }
+    )
+
+    # -------------------------------------------------------------------------
+    # Enzyme Panel: multi-lab % ULN overlay (Layer 1 when enzyme_panel_mode=TRUE)
+    # Rendered into macro_trajectory_plot when the toggle is on
+    # The macro_trajectory_plot render already uses input$enzyme_panel_mode
+    # via the reactive graph — handled by injecting a branch in that render block
+    # -------------------------------------------------------------------------
+    # NOTE: enzyme_panel_mode branch is integrated into macro_trajectory_plot below
+    # via shiny::reactive guard — see the renderPlotly block which reads
+    # input$enzyme_panel_mode and replaces the single-lab plot with the overlay.
+
+    # -------------------------------------------------------------------------
+    # ILD Monitoring Panel
+    # -------------------------------------------------------------------------
+    output$ild_panel_plot <- plotly::renderPlotly({
+      shiny::req(labs_filtered())
+      ld <- labs_filtered()
+
+      fvc_ids  <- .resolve_lab_concept("fvc")
+      dlco_ids <- .resolve_lab_concept("dlco")
+
+      fvc_df  <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date) &
+                    "measurement_concept_id" %in% names(ld) &
+                    ld$measurement_concept_id %in% (fvc_ids %||% integer(0)), ]
+      dlco_df <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date) &
+                    "measurement_concept_id" %in% names(ld) &
+                    ld$measurement_concept_id %in% (dlco_ids %||% integer(0)), ]
+
+      fig <- plotly::plot_ly(
+        type = "scatter", mode = "markers",
+        x = as.Date(character(0)), y = numeric(0), showlegend = FALSE
+      )
+
+      if (nrow(fvc_df) > 0) {
+        fig <- plotly::add_trace(fig, type = "scatter", mode = "lines+markers",
+          x = fvc_df$measurement_date, y = fvc_df$value_as_number,
+          name = "FVC (% pred)", yaxis = "y",
+          line = list(color = "#0277BD", width = 2),
+          marker = list(size = 6, color = "#0277BD"),
+          hovertemplate = "%{x|%Y-%m-%d}: FVC %{y:.0f}%<extra></extra>"
+        )
+      }
+      if (nrow(dlco_df) > 0) {
+        fig <- plotly::add_trace(fig, type = "scatter", mode = "lines+markers",
+          x = dlco_df$measurement_date, y = dlco_df$value_as_number,
+          name = "DLCO (% pred)", yaxis = "y",
+          line = list(color = "#6A1B9A", width = 2, dash = "dash"),
+          marker = list(size = 6, color = "#6A1B9A"),
+          hovertemplate = "%{x|%Y-%m-%d}: DLCO %{y:.0f}%<extra></extra>"
+        )
+      }
+
+      fig <- plotly::layout(fig,
+        xaxis  = list(title = "", showgrid = FALSE, tickformat = "%b %Y",
+                      tickfont = list(size = 10, color = "#5A6482")),
+        yaxis  = list(title = "% Predicted", range = c(0, 120),
+                      tickfont = list(size = 10, color = "#5A6482"),
+                      showgrid = TRUE, gridcolor = "#EEF0F6"),
+        shapes = list(
+          list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+               y0 = 70, y1 = 70, line = list(color = "#EF6C00", dash = "dot", width = 1)),
+          list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+               y0 = 50, y1 = 50, line = list(color = "#C62828", dash = "dot", width = 1))
+        ),
+        hovermode = "x unified",
+        margin    = list(t = 8, b = 8, l = 52, r = 12),
+        legend    = list(orientation = "h", y = -0.25,
+                         font = list(size = 10, color = "#5A6482")),
+        paper_bgcolor = "#FFFFFF", plot_bgcolor = "#FFFFFF",
+        font = list(family = "Inter, sans-serif")
+      )
+      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
+    })
+
+    # -------------------------------------------------------------------------
+    # Antibody timeline + table (Layer 3 Tab 6)
+    # -------------------------------------------------------------------------
+    .antibody_labs <- shiny::reactive({
+      shiny::req(patient_data())
+      ld  <- patient_data()$labs
+      abx_ids <- unlist(c(
+        MYOSITIS_LAB_CONCEPTS[c("anti_jo1","anti_mi2","anti_mda5","anti_tif1",
+                                "anti_hmgcr","anti_srs","anti_nxp2","anti_pm_scl")]
+      ))
+      dr <- input$date_range
+      ld <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date), ]
+      if ("measurement_concept_id" %in% names(ld)) {
+        ld <- ld[ld$measurement_concept_id %in% abx_ids, ]
+      }
+      if (!is.null(dr) && length(dr) == 2 && !anyNA(dr)) {
+        ld <- ld[ld$measurement_date >= dr[1] & ld$measurement_date <= dr[2], ]
+      }
+      ld
+    })
+
+    output$antibody_timeline <- plotly::renderPlotly({
+      abx <- .antibody_labs()
+      fig <- plotly::plot_ly(
+        type = "scatter", mode = "markers",
+        x = as.Date(character(0)), y = character(0), showlegend = FALSE
+      )
+      if (nrow(abx) > 0) {
+        lab_name_col <- if ("measurement_name" %in% names(abx)) "measurement_name" else
+                        "measurement_source_value"
+        ab_name <- abx[[lab_name_col]] %||% "Antibody"
+        positive <- abx$value_as_number > 1.0
+        colors   <- ifelse(positive, "#C62828", "#2E7D32")
+        sizes    <- pmin(6 + abx$value_as_number * 2, 20)
+
+        fig <- plotly::add_trace(fig,
+          type   = "scatter", mode = "markers",
+          x      = abx$measurement_date,
+          y      = ab_name,
+          marker = list(size = sizes, color = colors, opacity = 0.85,
+                        line = list(width = 1, color = "#fff")),
+          hovertemplate = paste0(
+            "<b>", ab_name, "</b><br>",
+            format(abx$measurement_date, "%Y-%m-%d"), "<br>",
+            "Value: ", round(abx$value_as_number, 2),
+            ifelse(positive, " \u2192 Positive", " \u2192 Negative"),
+            "<extra></extra>"
+          ),
+          showlegend = FALSE
+        )
+      }
+      fig <- plotly::layout(fig,
+        xaxis  = list(title = "", showgrid = FALSE, tickformat = "%b %Y",
+                      tickfont = list(size = 10)),
+        yaxis  = list(title = "", autorange = "reversed",
+                      tickfont = list(size = 10, color = "#5A6482")),
+        hovermode = "closest",
+        margin    = list(t = 4, b = 4, l = 120, r = 12),
+        paper_bgcolor = "#FFFFFF", plot_bgcolor = "#FFFFFF",
+        font = list(family = "Inter, sans-serif")
+      )
+      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
+    })
+
+    output$antibody_table <- DT::renderDataTable({
+      abx <- .antibody_labs()
+      if (nrow(abx) == 0) return(NULL)
+      lab_name_col <- if ("measurement_name" %in% names(abx)) "measurement_name" else
+                      "measurement_source_value"
+      out <- data.frame(
+        Date      = format(abx$measurement_date, "%Y-%m-%d"),
+        Antibody  = abx[[lab_name_col]] %||% NA,
+        Value     = round(abx$value_as_number, 2),
+        Reference = paste0("\u2264 ", abx$range_high %||% 1.0),
+        Result    = ifelse(abx$value_as_number > 1.0, "Positive", "Negative"),
+        stringsAsFactors = FALSE
+      )
+      out <- out[order(out$Date, decreasing = TRUE), ]
+      DT::datatable(out,
+        options  = list(pageLength = 10, dom = "ftip",
+                        language = list(search = "Filter:")),
+        class    = "compact hover",
+        rownames = FALSE
+      ) |>
+        DT::formatStyle("Result",
+          color = DT::styleEqual(c("Positive","Negative"),
+                                  c("#C62828", "#2E7D32")),
+          fontWeight = "bold"
+        )
+    })
+
+    # -------------------------------------------------------------------------
+    # Download: Clinical Summary HTML Report
+    # -------------------------------------------------------------------------
+    output$dl_report <- shiny::downloadHandler(
+      filename = function() paste0("trajectory_report_",
+                                    input$person_id, "_", Sys.Date(), ".html"),
+      content  = function(file) {
+        shiny::req(patient_data(), trajectory())
+        tryCatch(
+          generate_patient_report(
+            patient_data     = patient_data(),
+            trajectory       = trajectory(),
+            treatment_phases = treatment_phases(),
+            decision_pts     = if (!is.null(decision_points()) &&
+                                      nrow(decision_points()) > 0)
+                               decision_points()
+                             else tibble::tibble(date = as.Date(character(0)),
+                                                 event_type = character(0),
+                                                 label = character(0),
+                                                 evidence_summary = character(0),
+                                                 confidence = character(0),
+                                                 source_domain = character(0)),
+            focus_lab        = input$focus_lab %||% "ck",
+            output_file      = file
+          ),
+          error = function(e) {
+            shiny::showNotification(paste("Report error:", e$message),
+                                    type = "error", duration = 10)
+          }
+        )
       }
     )
   }

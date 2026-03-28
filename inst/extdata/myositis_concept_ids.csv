@@ -1,0 +1,51 @@
+domain,concept_key,concept_id,concept_name,uln,unit
+lab,ck,4013722,Creatine kinase [Enzymatic activity/volume] in Serum or Plasma,200,U/L
+lab,ck,37397513,Creatine kinase [Enzymatic activity/volume] in Serum,200,U/L
+lab,ck,3013682,Creatine kinase [Enzymatic activity/volume] in Blood,200,U/L
+lab,aldolase,4013725,Aldolase [Enzymatic activity/volume] in Serum or Plasma,7.6,U/L
+lab,aldolase,3015198,Aldolase [Enzymatic activity/volume] in Serum,7.6,U/L
+lab,ast,3013682,Aspartate aminotransferase [Enzymatic activity/volume] in Serum or Plasma,40,U/L
+lab,ast,4146380,Aspartate aminotransferase [Enzymatic activity/volume] in Blood,40,U/L
+lab,alt,3006923,Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma,56,U/L
+lab,alt,4146377,Alanine aminotransferase [Enzymatic activity/volume] in Blood,56,U/L
+lab,ldh,3019550,Lactate dehydrogenase [Enzymatic activity/volume] in Serum or Plasma,250,U/L
+lab,ldh,4149519,Lactate dehydrogenase [Enzymatic activity/volume] in Blood,250,U/L
+lab,esr,3009542,Erythrocyte sedimentation rate,20,mm/h
+lab,crp,3020460,C reactive protein [Mass/volume] in Serum or Plasma,10,mg/L
+lab,crp,3034963,C reactive protein [Mass/volume] in Blood,10,mg/L
+lab,anti_jo1,3032688,Aminoacyl tRNA synthetase (Jo-1) Ab [Units/volume] in Serum,1,AI
+lab,anti_jo1,4085799,Anti-Jo-1 antibody,1,AI
+lab,anti_jo1,36304841,Jo-1 IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_mi2,4265555,Mi-2 IgG Ab [Units/volume] in Serum,1,AI
+lab,anti_mi2,36304842,Mi-2 antibody,1,AI
+lab,anti_mda5,36304843,MDA5 IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_tif1,36304844,TIF1-gamma IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_hmgcr,36661370,HMGCR IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_srs,36659435,SRP IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_nxp2,36304845,NXP2 IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,anti_pm_scl,36304846,PM-Scl IgG Ab [Units/volume] in Serum by Immunoassay,1,AI
+lab,fvc,3030501,FVC [Volume] in Pulmonary system by Spirometry,,% predicted
+lab,dlco,3016502,DLCO [Volume/time] in Pulmonary system,,% predicted
+drug,prednisone,1518254,Prednisone,,
+drug,prednisolone,1550557,Prednisolone,,
+drug,prednisolone,40224172,Prednisolone acetate,,
+drug,methylprednisolone,1506270,Methylprednisolone,,
+drug,dexamethasone,1518005,Dexamethasone,,
+drug,hydrocortisone,975125,Hydrocortisone,,
+drug,azathioprine,1513103,Azathioprine,,
+drug,methotrexate,1305058,Methotrexate,,
+drug,mycophenolate,19041542,Mycophenolate mofetil,,
+drug,hydroxychloroquine,1777087,Hydroxychloroquine,,
+drug,cyclosporine,19011459,Cyclosporine,,
+drug,cyclophosphamide,1310149,Cyclophosphamide,,
+drug,tacrolimus,950637,Tacrolimus,,
+drug,rituximab,1314273,Rituximab,,
+drug,ivig,528323,Immune globulin,,
+drug,ivig,35605670,Intravenous immunoglobulin,,
+drug,tocilizumab,40161532,Tocilizumab,,
+drug,tofacitinib,42873985,Tofacitinib,,
+drug,baricitinib,1510408,Baricitinib,,
+drug,ruxolitinib,42899491,Ruxolitinib,,
+drug,abatacept,40175801,Abatacept,,
+drug,nintedanib,44818493,Nintedanib,,
+drug,pirfenidone,45776887,Pirfenidone,,

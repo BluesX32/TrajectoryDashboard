@@ -1,0 +1,50 @@
+# docker-compose.yml — TrajectoryDashboard deployment
+#
+# Usage:
+#   1. Copy .env.example → .env and fill in your OMOP CDM connection settings.
+#   2. docker compose up -d
+#   3. Open http://localhost:3838/TrajectoryDashboard/
+#
+# The shiny-server image is used; the package is installed from the
+# mounted source directory at container start via install.R.
+
+version: "3.9"
+
+services:
+
+  trajectory-dashboard:
+    image: rocker/shiny:4.3.2
+    container_name: trajectory_dashboard
+    restart: unless-stopped
+    ports:
+      - "3838:3838"
+    volumes:
+      # Mount package source — container installs it on start
+      - ../..:/srv/TrajectoryDashboard:ro
+      # Shiny server config
+      - ./shiny-server.conf:/etc/shiny-server/shiny-server.conf:ro
+      # Persistent audit log (create file first: touch audit.log)
+      - ./audit.log:/var/log/trajectory_audit.log
+    environment:
+      # OMOP connection (override with real values or use .env)
+      - SQL_SERVER=${SQL_SERVER:-}
+      - SQL_DATABASE=${SQL_DATABASE:-OMOP_CDM}
+      - SQL_CDM_SCHEMA=${SQL_CDM_SCHEMA:-dbo}
+      - SQL_DBMS=${SQL_DBMS:-sql server}
+      - SQL_USER=${SQL_USER:-}
+      - SQL_PASSWORD=${SQL_PASSWORD:-}
+      - USE_WINDOWS_AUTH=${USE_WINDOWS_AUTH:-false}
+      # Audit logging
+      - TD_AUDIT_LOG_PATH=/var/log/trajectory_audit.log
+      - TD_AUDIT_USER=${TD_AUDIT_USER:-shiny}
+    command: >
+      bash -c "
+        Rscript -e \"install.packages('remotes', repos='https://cloud.r-project.org')\" &&
+        Rscript -e \"remotes::install_local('/srv/TrajectoryDashboard', dependencies=TRUE)\" &&
+        /usr/bin/shiny-server
+      "
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3838/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

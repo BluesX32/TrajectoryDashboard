@@ -96,24 +96,35 @@ trajectory_ui <- function(person_ids = NULL) {
             "Primary Lab", icon = shiny::icon("flask"), startExpanded = TRUE,
             shiny::tags$div(
               style = "padding: 4px 10px 8px;",
-              shiny::selectInput(
-                "focus_lab", NULL,
-                choices = c(
-                  "CK (Creatine Kinase)"  = "ck",
-                  "Aldolase"              = "aldolase",
-                  "AST"                   = "ast",
-                  "ALT"                   = "alt",
-                  "LDH"                   = "ldh",
-                  "ESR"                   = "esr",
-                  "CRP"                   = "crp",
-                  "Anti-Jo-1"             = "anti_jo1",
-                  "Anti-Mi-2"             = "anti_mi2",
-                  "Anti-MDA5"             = "anti_mda5",
-                  "Anti-TIF1-\u03b3"      = "anti_tif1",
-                  "Anti-HMGCR"            = "anti_hmgcr"
+              shiny::checkboxInput(
+                "enzyme_panel_mode",
+                shiny::span(
+                  shiny::icon("layer-group", style = "margin-right:5px;"),
+                  "Enzyme Panel (% ULN)"
                 ),
-                selected = "ck",
-                width    = "100%"
+                value = FALSE
+              ),
+              shiny::conditionalPanel(
+                "!input.enzyme_panel_mode",
+                shiny::selectInput(
+                  "focus_lab", NULL,
+                  choices = c(
+                    "CK (Creatine Kinase)"  = "ck",
+                    "Aldolase"              = "aldolase",
+                    "AST"                   = "ast",
+                    "ALT"                   = "alt",
+                    "LDH"                   = "ldh",
+                    "ESR"                   = "esr",
+                    "CRP"                   = "crp",
+                    "Anti-Jo-1"             = "anti_jo1",
+                    "Anti-Mi-2"             = "anti_mi2",
+                    "Anti-MDA5"             = "anti_mda5",
+                    "Anti-TIF1-\u03b3"      = "anti_tif1",
+                    "Anti-HMGCR"            = "anti_hmgcr"
+                  ),
+                  selected = "ck",
+                  width    = "100%"
+                )
               )
             )
           ),
@@ -152,6 +163,8 @@ trajectory_ui <- function(person_ids = NULL) {
                                    value = TRUE),
               shiny::checkboxInput("show_visits", "Show hospitalizations",
                                    value = TRUE),
+              shiny::checkboxInput("show_ild",    "Show ILD panel (FVC/DLCO)",
+                                   value = FALSE),
               shiny::tags$div(
                 style = "margin-top: 8px;",
                 shiny::sliderInput(
@@ -195,6 +208,21 @@ trajectory_ui <- function(person_ids = NULL) {
             if (btn) {
               var box = btn.closest(".box");
               if (box && box.classList.contains("collapsed-box")) btn.click();
+            }
+          });
+
+          Shiny.addCustomMessageHandler("syncXAxis", function(msg) {
+            var el = document.getElementById("event_layer_plot");
+            if (el && el._fullLayout) {
+              var update = {};
+              if (msg.xmin !== null && msg.xmax !== null) {
+                update["xaxis.range[0]"] = msg.xmin;
+                update["xaxis.range[1]"] = msg.xmax;
+                update["xaxis.autorange"] = false;
+              } else {
+                update["xaxis.autorange"] = true;
+              }
+              Plotly.relayout(el, update);
             }
           });
         '))
@@ -305,6 +333,45 @@ trajectory_ui <- function(person_ids = NULL) {
                         "Conditions"),
             shiny::div(style = "padding-top: 8px;",
                        DT::dataTableOutput("condition_table"))
+          ),
+
+          shiny::tabPanel(
+            shiny::span(shiny::icon("microscope", style = "margin-right:5px;"),
+                        "Antibodies"),
+            shiny::div(style = "padding-top: 8px;",
+                       plotly::plotlyOutput("antibody_timeline", height = "200px"),
+                       shiny::div(style = "margin-top: 12px;",
+                                  DT::dataTableOutput("antibody_table")))
+          )
+        )
+      ),
+
+      # ── Layer 4: ILD Monitoring Panel (optional) ────────────────────
+      shiny::conditionalPanel(
+        "input.show_ild",
+        shinydashboard::box(
+          title       = shiny::tags$span(
+            shiny::icon("lungs", style = "margin-right:6px;"),
+            "ILD Monitoring \u2014 FVC / DLCO"
+          ),
+          status      = "primary",
+          solidHeader = TRUE,
+          collapsible = TRUE,
+          width       = 12,
+          plotly::plotlyOutput("ild_panel_plot", height = "160px")
+        )
+      ),
+
+      # ── Download Report ─────────────────────────────────────────────
+      shiny::conditionalPanel(
+        "output.patient_loaded",
+        shiny::div(
+          style = "text-align:right; margin-bottom: 16px;",
+          shiny::downloadButton(
+            "dl_report", "Download Clinical Summary",
+            icon  = shiny::icon("file-download"),
+            class = "btn-load",
+            style = "display:inline-flex; align-items:center; gap:6px; width:auto;"
           )
         )
       )
