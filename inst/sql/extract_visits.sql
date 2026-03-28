@@ -26,7 +26,7 @@ LEFT JOIN @vocab_schema.concept c
     ON vo.visit_concept_id = c.concept_id
 
 LEFT JOIN @vocab_schema.concept dc
-    ON vo.discharge_to_concept_id = dc.concept_id
+    ON vo.discharged_to_concept_id = dc.concept_id
 
 LEFT JOIN @vocab_schema.concept ac
     ON vo.admitted_from_concept_id = ac.concept_id
