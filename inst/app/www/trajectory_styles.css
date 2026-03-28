@@ -1,0 +1,148 @@
+/* trajectory_styles.css — TrajectoryDashboard custom styles */
+
+/* Phase colour variables */
+:root {
+  --phase-flare:     #D32F2F;
+  --phase-worsening: #F57C00;
+  --phase-stable:    #388E3C;
+  --phase-response:  #0288D1;
+  --phase-relapse:   #7B1FA2;
+  --phase-sparse:    #BDBDBD;
+}
+
+/* ------------------------------------------------------------------ */
+/* Sidebar tweaks                                                       */
+/* ------------------------------------------------------------------ */
+.sidebar .shiny-input-container {
+  color: #ddd;
+}
+
+.sidebar .btn-primary {
+  background-color: #1565C0;
+  border-color:     #1565C0;
+}
+
+.sidebar .btn-default.btn-block {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard boxes                                                      */
+/* ------------------------------------------------------------------ */
+.box.box-primary > .box-header {
+  background-color: #1565C0;
+  color: white;
+}
+
+.box.box-warning > .box-header {
+  background-color: #E65100;
+  color: white;
+}
+
+.box.box-info > .box-header {
+  background-color: #01579B;
+  color: white;
+}
+
+/* ------------------------------------------------------------------ */
+/* Phase legend pills                                                   */
+/* ------------------------------------------------------------------ */
+.phase-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.phase-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #555;
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.phase-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Event detail card                                                    */
+/* ------------------------------------------------------------------ */
+.event-detail-card {
+  border-left: 4px solid #1565C0;
+  padding: 12px 16px;
+  background: #f8f9ff;
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.event-detail-card h4 {
+  margin-top: 0;
+  color: #1A237E;
+}
+
+.badge-success  { background-color: #388E3C; }
+.badge-warning  { background-color: #F57C00; }
+.badge-danger   { background-color: #D32F2F; }
+.badge-default  { background-color: #9E9E9E; }
+.badge-info     { background-color: #0288D1; }
+
+/* ------------------------------------------------------------------ */
+/* Note cards                                                           */
+/* ------------------------------------------------------------------ */
+.note-card {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: white;
+}
+
+.note-card strong {
+  color: #424242;
+  font-size: 12px;
+}
+
+.note-card p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #616161;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------------ */
+/* Alert box styles                                                     */
+/* ------------------------------------------------------------------ */
+.alert-info {
+  background-color: #E3F2FD;
+  border-color:     #90CAF9;
+  color:            #1565C0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Plotly container sizing                                              */
+/* ------------------------------------------------------------------ */
+.plotly-container {
+  width: 100% !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Responsive: narrow screens                                           */
+/* ------------------------------------------------------------------ */
+@media (max-width: 768px) {
+  .main-sidebar {
+    width: 200px !important;
+  }
+  .content-wrapper,
+  .main-footer {
+    margin-left: 200px !important;
+  }
+}
