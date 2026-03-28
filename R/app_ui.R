@@ -185,10 +185,19 @@ trajectory_ui <- function(person_ids = NULL) {
     # -------------------------------------------------------------------
     shinydashboard::dashboardBody(
 
-      # Inject stylesheet
+      # Inject stylesheet and JS helpers
       shiny::tags$head(
         shiny::tags$link(rel = "stylesheet", type = "text/css",
-                         href = "trajectory_styles.css")
+                         href = "trajectory_styles.css"),
+        shiny::tags$script(shiny::HTML('
+          Shiny.addCustomMessageHandler("expandDetailBox", function(msg) {
+            var btn = document.querySelector("#detail_box .box-header [data-widget=collapse]");
+            if (btn) {
+              var box = btn.closest(".box");
+              if (box && box.classList.contains("collapsed-box")) btn.click();
+            }
+          });
+        '))
       ),
 
       # ── Welcome banner (no patient loaded) ─────────────────────────

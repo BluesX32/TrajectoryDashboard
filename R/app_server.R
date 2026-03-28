@@ -228,7 +228,15 @@ trajectory_server <- function(connector) {
 
       phases <- trajectory()
 
-      fig <- plotly::plot_ly(source = "macro_plot")
+      # Start with an invisible anchor trace
+      fig <- plotly::plot_ly(
+        source     = "macro_plot",
+        type       = "scatter",
+        mode       = "markers",
+        x          = as.Date(character(0)),
+        y          = numeric(0),
+        showlegend = FALSE
+      )
 
       # Phase background shading
       for (i in seq_len(nrow(phases))) {
@@ -236,22 +244,22 @@ trajectory_server <- function(connector) {
         color <- PHASE_COLORS[ph]
         if (is.na(color)) color <- "#BDBDBD"
 
-        # Sparse: use hatched pattern via semi-transparent grey
         fill_color <- if (ph == "sparse")
           "rgba(189,189,189,0.25)"
         else
-          paste0(.hex_to_rgba(color, 0.15))
+          .hex_to_rgba(color, 0.15)
 
         fig <- plotly::add_trace(
           fig,
           type      = "scatter",
-          mode      = "none",
+          mode      = "lines",
           x         = c(phases$window_start[i], phases$window_end[i],
-                        phases$window_end[i], phases$window_start[i]),
-          y         = c(-Inf, -Inf, Inf, Inf),
+                        phases$window_end[i], phases$window_start[i],
+                        phases$window_start[i]),
+          y         = c(-1e9, -1e9, 1e9, 1e9, -1e9),
           fill      = "toself",
           fillcolor = fill_color,
-          line      = list(width = 0),
+          line      = list(width = 0, color = "rgba(0,0,0,0)"),
           showlegend = FALSE,
           hoverinfo  = "none",
           name      = ph
@@ -407,7 +415,15 @@ trajectory_server <- function(connector) {
       # Build subplot: hospitalizations, meds, conditions, focus labs, DPs
       # Use a single plotly figure with shape annotations for simplicity
 
-      fig <- plotly::plot_ly(source = "event_layer")
+      # Start with an invisible anchor trace (suppresses "no trace type" warning)
+      fig <- plotly::plot_ly(
+        source     = "event_layer",
+        type       = "scatter",
+        mode       = "markers",
+        x          = as.Date(character(0)),
+        y          = numeric(0),
+        showlegend = FALSE
+      )
 
       # Row: Hospitalizations
       if (input$show_visits && nrow(pd$visits) > 0) {
@@ -420,19 +436,20 @@ trajectory_server <- function(connector) {
             fig <- plotly::add_trace(
               fig,
               type      = "scatter",
-              mode      = "none",
+              mode      = "lines",
               x         = c(v$visit_start_date, v$visit_end_date,
-                            v$visit_end_date, v$visit_start_date),
-              y         = c(4.6, 4.6, 5.4, 5.4),
+                            v$visit_end_date, v$visit_start_date,
+                            v$visit_start_date),
+              y         = c(4.6, 4.6, 5.4, 5.4, 4.6),
               fill      = "toself",
               fillcolor = "rgba(117,117,117,0.35)",
-              line      = list(width = 0),
+              line      = list(width = 0, color = "rgba(0,0,0,0)"),
               name      = "Hospitalization",
               showlegend = i == 1,
               legendgroup = "visits",
               hovertemplate = paste0(
                 "<b>", v$visit_type, "</b><br>",
-                format(v$visit_start_date, "%Y-%m-%d"), " — ",
+                format(v$visit_start_date, "%Y-%m-%d"), " \u2014 ",
                 format(v$visit_end_date, "%Y-%m-%d"),
                 "<extra></extra>"
               ),
@@ -449,34 +466,36 @@ trajectory_server <- function(connector) {
         drug_families
       )
       family_colors <- c(
-        Corticosteroids = "#EF5350", Azathioprine = "#7E57C2",
-        Methotrexate    = "#26A69A", Mycophenolate = "#FF7043",
-        IVIG            = "#42A5F5", Rituximab     = "#66BB6A",
-        "JAK inhibitors"= "#EC407A", Other         = "#8D6E63"
+        Corticosteroids  = "#EF5350", Azathioprine = "#7E57C2",
+        Methotrexate     = "#26A69A", Mycophenolate = "#FF7043",
+        IVIG             = "#42A5F5", Rituximab     = "#66BB6A",
+        "JAK inhibitors" = "#EC407A", "Other IST"   = "#8D6E63"
       )
 
       if (nrow(tx) > 0) {
         for (i in seq_len(nrow(tx))) {
           ep <- tx[i, ]
-          y0 <- family_y[ep$drug_family] %||% 2.0
+          y0  <- family_y[ep$drug_family] %||% 2.0
           col <- family_colors[ep$drug_family] %||% "#9E9E9E"
 
           fig <- plotly::add_trace(
             fig,
             type      = "scatter",
-            mode      = "none",
+            mode      = "lines",
             x         = c(ep$phase_start, ep$phase_end,
-                          ep$phase_end, ep$phase_start),
-            y         = c(y0 - 0.25, y0 - 0.25, y0 + 0.25, y0 + 0.25),
+                          ep$phase_end, ep$phase_start,
+                          ep$phase_start),
+            y         = c(y0 - 0.25, y0 - 0.25, y0 + 0.25, y0 + 0.25,
+                          y0 - 0.25),
             fill      = "toself",
-            fillcolor = paste0(.hex_to_rgba(col, 0.7)),
-            line      = list(width = 0),
+            fillcolor = .hex_to_rgba(col, 0.75),
+            line      = list(width = 0, color = "rgba(0,0,0,0)"),
             name      = ep$drug_family,
-            showlegend = (i == 1 || tx$drug_family[i] != tx$drug_family[i - 1]),
+            showlegend = (i == 1L || tx$drug_family[i] != tx$drug_family[i - 1L]),
             legendgroup = ep$drug_family,
             hovertemplate = paste0(
               "<b>", ep$drug_name, "</b><br>",
-              format(ep$phase_start, "%Y-%m-%d"), " — ",
+              format(ep$phase_start, "%Y-%m-%d"), " \u2014 ",
               format(ep$phase_end, "%Y-%m-%d"),
               " (", ep$n_days, " days)",
               "<extra></extra>"
@@ -577,6 +596,7 @@ trajectory_server <- function(connector) {
         font          = list(family = "Inter, sans-serif")
       )
 
+      fig <- plotly::event_register(fig, "plotly_click")
       plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
     })
 
@@ -589,11 +609,8 @@ trajectory_server <- function(connector) {
       click <- plotly::event_data("plotly_click", source = "event_layer")
       if (!is.null(click)) {
         selected_event(click)
-        # Expand the detail box via JS
-        shinyjs::runjs('
-          var box = document.querySelector("#detail_box .box-header .btn");
-          if (box && box.getAttribute("aria-expanded") === "false") box.click();
-        ')
+        # Expand the detail box without shinyjs
+        session$sendCustomMessage("expandDetailBox", list())
       }
     })
 
