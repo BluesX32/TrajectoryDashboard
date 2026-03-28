@@ -122,17 +122,63 @@ trajectory_server <- function(connector) {
     })
 
     # -------------------------------------------------------------------------
+    # Patient summary stats bar
+    # -------------------------------------------------------------------------
+    output$patient_summary_bar <- shiny::renderUI({
+      pd <- patient_data()
+      if (is.null(pd)) return(NULL)
+
+      n_labs   <- nrow(pd$labs)
+      n_meds   <- length(unique(pd$medications$drug_name[
+                    !is.na(pd$medications$drug_name)]))
+      n_visits <- nrow(pd$visits)
+      n_conds  <- length(unique(pd$conditions$condition_source_value[
+                    !is.na(pd$conditions$condition_source_value)]))
+      n_notes  <- nrow(pd$notes)
+
+      all_dates <- c(pd$labs$measurement_date,
+                     pd$medications$drug_exposure_start_date)
+      all_dates <- all_dates[!is.na(all_dates)]
+      span_yrs  <- if (length(all_dates) >= 2L) {
+        round(as.numeric(diff(range(all_dates))) / 365.25, 1)
+      } else NA_real_
+
+      make_stat <- function(icon_name, value, label) {
+        shiny::div(
+          class = "summary-stat",
+          shiny::div(class = "stat-icon", shiny::icon(icon_name)),
+          shiny::div(class = "stat-value", value),
+          shiny::div(class = "stat-label", label)
+        )
+      }
+
+      shiny::div(
+        class = "patient-summary-bar",
+        make_stat("vial",        n_labs,   "Lab Results"),
+        make_stat("pills",       n_meds,   "Medications"),
+        make_stat("hospital",    n_visits, "Visits"),
+        make_stat("diagnoses",   n_conds,  "Conditions"),
+        make_stat("file-medical",n_notes,  "Notes"),
+        if (!is.na(span_yrs))
+          make_stat("calendar-alt", span_yrs, "Years Follow-up")
+      )
+    })
+
+    # -------------------------------------------------------------------------
     # Layer 1 title
     # -------------------------------------------------------------------------
     output$layer1_title <- shiny::renderUI({
       lab_label <- switch(input$focus_lab %||% "ck",
         ck = "CK", aldolase = "Aldolase", ast = "AST", alt = "ALT",
         ldh = "LDH", esr = "ESR", crp = "CRP",
-        anti_jo1 = "Anti-Jo1", anti_mi2 = "Anti-Mi2",
-        anti_mda5 = "Anti-MDA5", anti_tif1 = "Anti-TIF1",
+        anti_jo1 = "Anti-Jo-1", anti_mi2 = "Anti-Mi-2",
+        anti_mda5 = "Anti-MDA5", anti_tif1 = "Anti-TIF1-\u03b3",
         anti_hmgcr = "Anti-HMGCR", "Lab"
       )
-      paste0("Macro Trajectory — ", lab_label)
+      shiny::tagList(
+        shiny::icon("chart-line", style = "margin-right:7px;"),
+        paste0("Macro Trajectory \u2014 ", lab_label)
+      )
     })
 
     # -------------------------------------------------------------------------
@@ -144,22 +190,25 @@ trajectory_server <- function(connector) {
 
       if (length(phases_present) == 0) return(NULL)
 
-      legend_items <- lapply(phases_present, function(ph) {
+      phase_labels <- c(
+        flare = "Flare", worsening = "Worsening", stable = "Stable",
+        response = "Response", relapse = "Relapse", sparse = "Sparse"
+      )
+
+      pills <- lapply(phases_present, function(ph) {
         color <- PHASE_COLORS[ph]
         if (is.na(color)) color <- "#999"
-        shiny::span(
-          style = paste0("display:inline-block; margin:3px 8px;"),
-          shiny::span(
-            style = paste0("display:inline-block; width:14px; height:14px;",
-                           "background:", color, "; border-radius:2px;",
-                           "vertical-align:middle; margin-right:3px;")
+        shiny::tags$span(
+          class = "phase-pill",
+          shiny::tags$span(
+            class = "phase-swatch",
+            style = paste0("background:", color, ";")
           ),
-          shiny::span(style = "font-size:12px; color:#555;",
-                       stringr::str_to_title(ph))
+          phase_labels[ph] %||% tools::toTitleCase(ph)
         )
       })
 
-      shiny::div(style = "padding: 4px 10px;", legend_items)
+      shiny::div(class = "phase-legend", pills)
     })
 
     # -------------------------------------------------------------------------
@@ -229,7 +278,8 @@ trajectory_server <- function(connector) {
           mode       = "markers",
           x          = lab_focus$measurement_date,
           y          = lab_focus$value_as_number,
-          marker     = list(size = 7, color = "#1565C0", opacity = 0.8),
+          marker     = list(size = 6, color = "#3D6FD4", opacity = 0.85,
+                            line = list(width = 1, color = "#1A2744")),
           name       = input$focus_lab,
           hovertemplate = paste0(
             "<b>%{x|%Y-%m-%d}</b><br>",
@@ -259,7 +309,7 @@ trajectory_server <- function(connector) {
                 fig,
                 type = "scatter", mode = "lines",
                 x    = pred_dates, y = pred_vals,
-                line = list(color = "#1565C0", width = 2.5),
+                line = list(color = "#3D6FD4", width = 2.5),
                 name = "Trend", hoverinfo = "none", showlegend = FALSE
               )
             }
@@ -269,17 +319,36 @@ trajectory_server <- function(connector) {
 
       fig <- plotly::layout(
         fig,
-        xaxis      = list(title = "", showgrid = FALSE),
-        yaxis      = list(title = if (!is.na(uln)) "U/L" else "Value",
-                          rangemode = "tozero"),
-        hovermode  = "x unified",
-        margin     = list(t = 10, b = 10, l = 50, r = 10),
-        showlegend = FALSE,
-        paper_bgcolor = "white",
-        plot_bgcolor  = "white"
+        xaxis      = list(
+          title      = "",
+          showgrid   = FALSE,
+          showline   = FALSE,
+          tickfont   = list(size = 11, color = "#5A6482"),
+          tickformat = "%b %Y"
+        ),
+        yaxis      = list(
+          title      = if (!is.na(uln)) "U/L" else "Value",
+          rangemode  = "tozero",
+          showgrid   = TRUE,
+          gridcolor  = "#EEF0F6",
+          gridwidth  = 1,
+          tickfont   = list(size = 11, color = "#5A6482"),
+          titlefont  = list(size = 11, color = "#9099B3")
+        ),
+        hovermode     = "x unified",
+        hoverlabel    = list(
+          bgcolor   = "#1A2744",
+          font      = list(color = "#fff", size = 12),
+          bordercolor = "#243055"
+        ),
+        margin        = list(t = 8, b = 8, l = 52, r = 12),
+        showlegend    = FALSE,
+        paper_bgcolor = "#FFFFFF",
+        plot_bgcolor  = "#FFFFFF",
+        font          = list(family = "Inter, sans-serif")
       )
 
-      plotly::config(fig, displayModeBar = FALSE)
+      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
     })
 
     # -------------------------------------------------------------------------
@@ -289,8 +358,8 @@ trajectory_server <- function(connector) {
       shiny::req(density())
 
       dens   <- density()
-      colors <- c(high = "#43A047", medium = "#FB8C00",
-                  low  = "#EF5350", none  = "#E0E0E0")
+      colors <- c(high = "#2E7D32", medium = "#EF6C00",
+                  low  = "#C62828", none  = "#E8EDF6")
 
       fig <- plotly::plot_ly(
         x          = dens$bin_start,
@@ -309,13 +378,13 @@ trajectory_server <- function(connector) {
         xaxis       = list(showticklabels = FALSE, showgrid = FALSE, zeroline = FALSE),
         yaxis       = list(showticklabels = FALSE, showgrid = FALSE, zeroline = FALSE,
                            fixedrange = TRUE),
-        bargap      = 0.05,
-        margin      = list(t = 0, b = 0, l = 50, r = 10),
-        paper_bgcolor = "white",
-        plot_bgcolor  = "white"
+        bargap        = 0.04,
+        margin        = list(t = 0, b = 0, l = 52, r = 12),
+        paper_bgcolor = "#FFFFFF",
+        plot_bgcolor  = "#FFFFFF"
       )
 
-      plotly::config(fig, displayModeBar = FALSE)
+      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
     })
 
     # -------------------------------------------------------------------------
@@ -495,13 +564,20 @@ trajectory_server <- function(connector) {
           range     = c(0.3, 6)
         ),
         hovermode  = "closest",
-        margin     = list(t = 10, b = 40, l = 120, r = 10),
-        legend     = list(orientation = "h", y = -0.15),
-        paper_bgcolor = "white",
-        plot_bgcolor  = "white"
+        hoverlabel = list(
+          bgcolor    = "#1A2744",
+          font       = list(color = "#fff", size = 12),
+          bordercolor = "#243055"
+        ),
+        margin        = list(t = 8, b = 36, l = 120, r = 12),
+        legend        = list(orientation = "h", y = -0.18,
+                             font = list(size = 11, color = "#5A6482")),
+        paper_bgcolor = "#FFFFFF",
+        plot_bgcolor  = "#FFFFFF",
+        font          = list(family = "Inter, sans-serif")
       )
 
-      plotly::config(fig, displayModeBar = FALSE)
+      plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
     })
 
     # -------------------------------------------------------------------------
@@ -523,7 +599,10 @@ trajectory_server <- function(connector) {
 
     output$layer3_title <- shiny::renderUI({
       ev <- selected_event()
-      if (is.null(ev)) "Detail" else "Detail — Click an event to explore"
+      shiny::tagList(
+        shiny::icon("search", style = "margin-right:7px;"),
+        if (is.null(ev)) "Event Detail" else "Event Detail"
+      )
     })
 
     output$selected_event_detail <- shiny::renderUI({
@@ -532,8 +611,14 @@ trajectory_server <- function(connector) {
 
       if (is.null(ev) || is.null(dps) || nrow(dps) == 0) {
         return(shiny::div(
-          class = "alert alert-info",
-          "Click an event marker in the Events & Treatments panel to see details here."
+          class = "welcome-banner",
+          style = "margin: 4px 0;",
+          shiny::div(class = "banner-icon",
+                     shiny::icon("mouse-pointer")),
+          shiny::div(
+            shiny::tags$h4("No event selected"),
+            shiny::tags$p("Click any event marker or treatment bar in the Events & Treatments panel to see details here.")
+          )
         ))
       }
 
@@ -544,23 +629,42 @@ trajectory_server <- function(connector) {
       closest_idx <- which.min(abs(as.integer(dps$date) - as.integer(click_date)))
       dp <- dps[closest_idx, ]
 
-      conf_class <- switch(dp$confidence,
-        high   = "success", medium = "warning",
-        low    = "danger",  none   = "default", "info")
+      event_icon <- switch(dp$event_type,
+        admission        = "hospital",
+        escalation_point = "arrow-up",
+        taper_point      = "arrow-down",
+        medication_change = "pills",
+        workup_point     = "vial",
+        referral_point   = "user-md",
+        "calendar-check"
+      )
 
       shiny::div(
         class = "event-detail-card",
-        style = "padding: 15px;",
-        shiny::h4(dp$label),
-        shiny::p(shiny::strong("Date: "), format(dp$date, "%B %d, %Y")),
-        shiny::p(shiny::strong("Type: "), gsub("_", " ", dp$event_type)),
-        shiny::span(
-          class = paste0("badge badge-", conf_class),
-          paste0("Confidence: ", dp$confidence)
+        shiny::h4(
+          shiny::icon(event_icon, style = "margin-right:8px; color:#3D6FD4;"),
+          dp$label,
+          shiny::tags$span(class = paste0("phase-badge ", dp$confidence),
+                           tools::toTitleCase(dp$confidence))
         ),
-        shiny::hr(),
-        shiny::p(shiny::em(dp$evidence_summary)),
-        shiny::p(shiny::strong("Source: "), dp$source_domain)
+        shiny::div(
+          class = "meta-row",
+          shiny::div(class = "meta-item",
+                     shiny::icon("calendar"),
+                     format(dp$date, "%B %d, %Y")),
+          shiny::div(class = "meta-item",
+                     shiny::icon("tag"),
+                     gsub("_", " ", tools::toTitleCase(dp$event_type))),
+          shiny::div(class = "meta-item",
+                     shiny::icon("database"),
+                     dp$source_domain)
+        ),
+        shiny::div(
+          class = "evidence-section",
+          shiny::icon("info-circle",
+                      style = "color:#3D6FD4; margin-right:6px;"),
+          dp$evidence_summary
+        )
       )
     })
 
@@ -578,8 +682,14 @@ trajectory_server <- function(connector) {
                                  names(df))
       DT::datatable(
         df[, display_cols, drop = FALSE],
-        options = list(pageLength = 15, scrollX = TRUE,
-                       order = list(list(0, "desc"))),
+        options  = list(
+          pageLength = 15,
+          scrollX    = TRUE,
+          order      = list(list(0, "desc")),
+          dom        = "ftip",
+          language   = list(search = "Filter:")
+        ),
+        class    = "compact hover",
         rownames = FALSE
       )
     })
@@ -595,8 +705,14 @@ trajectory_server <- function(connector) {
                                  names(df))
       DT::datatable(
         df[, display_cols, drop = FALSE],
-        options = list(pageLength = 15, scrollX = TRUE,
-                       order = list(list(0, "desc"))),
+        options  = list(
+          pageLength = 15,
+          scrollX    = TRUE,
+          order      = list(list(0, "desc")),
+          dom        = "ftip",
+          language   = list(search = "Filter:")
+        ),
+        class    = "compact hover",
         rownames = FALSE
       )
     })
@@ -612,7 +728,13 @@ trajectory_server <- function(connector) {
                                  names(df))
       DT::datatable(
         df[, display_cols, drop = FALSE],
-        options = list(pageLength = 15, scrollX = TRUE),
+        options  = list(
+          pageLength = 15,
+          scrollX    = TRUE,
+          dom        = "ftip",
+          language   = list(search = "Filter:")
+        ),
+        class    = "compact hover",
         rownames = FALSE
       )
     })
@@ -629,33 +751,47 @@ trajectory_server <- function(connector) {
       }
 
       if (nrow(notes) == 0) {
-        return(shiny::div(class = "alert alert-info", "No notes in this time period."))
+        return(shiny::div(
+          class = "welcome-banner",
+          style = "margin: 4px 0;",
+          shiny::div(class = "banner-icon", shiny::icon("file-medical")),
+          shiny::div(
+            shiny::tags$h4("No notes available"),
+            shiny::tags$p("No clinical notes found for the selected time period.")
+          )
+        ))
       }
 
       notes <- notes[order(notes$note_date, decreasing = TRUE), ]
 
       note_cards <- lapply(seq_len(nrow(notes)), function(i) {
-        note <- notes[i, ]
-        preview <- if (!is.na(note$note_text) && nchar(note$note_text) > 0)
-          substr(note$note_text, 1, 250)
-        else
-          "(No text)"
+        note    <- notes[i, ]
+        has_text <- !is.na(note$note_text) && nchar(note$note_text) > 0
+        preview  <- if (has_text) substr(note$note_text, 1, 280) else "(No text)"
+        truncated <- has_text && nchar(note$note_text) > 280
 
-        shinydashboard::box(
-          title  = paste0(format(note$note_date, "%Y-%m-%d"),
-                          " — ", note$note_type),
-          status = "default",
-          collapsible = TRUE,
-          collapsed   = TRUE,
-          width  = 12,
-          shiny::p(preview,
-                   if (nchar(note$note_text %||% "") > 250) "..." else ""),
-          if (nchar(note$note_text %||% "") > 250) {
-            shiny::div(
-              shiny::hr(),
-              shiny::p(note$note_text)
+        shiny::div(
+          class = "note-card",
+          shiny::div(
+            class = "note-card-header",
+            shiny::span(class = "note-type",
+                        note$note_type %||% "Note"),
+            shiny::span(class = "note-date",
+                        format(note$note_date, "%b %d, %Y"))
+          ),
+          shiny::tags$p(
+            if (truncated) paste0(preview, "\u2026") else preview
+          ),
+          if (truncated) shiny::tags$details(
+            shiny::tags$summary(
+              style = "font-size:11px; color:#3D6FD4; cursor:pointer; margin-top:6px;",
+              "Show full note"
+            ),
+            shiny::tags$p(
+              style = "margin-top:8px; font-size:12px; color:#1C2340; line-height:1.65;",
+              note$note_text
             )
-          }
+          )
         )
       })
 
