@@ -507,7 +507,9 @@ trajectory_server <- function(connector) {
         showlegend = FALSE
       )
 
-      # Phase background shading
+      # Phase background shading — use layout shapes with yref="paper" so the
+      # rectangles span the full plot height without inflating the y-axis range.
+      phase_shapes <- vector("list", nrow(phases))
       for (i in seq_len(nrow(phases))) {
         ph    <- phases$phase[i]
         color <- PHASE_COLORS[ph]
@@ -518,20 +520,17 @@ trajectory_server <- function(connector) {
         else
           .hex_to_rgba(color, 0.15)
 
-        fig <- plotly::add_trace(
-          fig,
-          type      = "scatter",
-          mode      = "lines",
-          x         = c(phases$window_start[i], phases$window_end[i],
-                        phases$window_end[i], phases$window_start[i],
-                        phases$window_start[i]),
-          y         = c(-1e9, -1e9, 1e9, 1e9, -1e9),
-          fill      = "toself",
+        phase_shapes[[i]] <- list(
+          type      = "rect",
+          xref      = "x",
+          yref      = "paper",
+          x0        = phases$window_start[i],
+          x1        = phases$window_end[i],
+          y0        = 0,
+          y1        = 1,
           fillcolor = fill_color,
           line      = list(width = 0, color = "rgba(0,0,0,0)"),
-          showlegend = FALSE,
-          hoverinfo  = "none",
-          name      = ph
+          layer     = "below"
         )
       }
 
@@ -713,6 +712,7 @@ trajectory_server <- function(connector) {
 
       fig <- plotly::layout(
         fig,
+        shapes     = phase_shapes,
         xaxis      = list(
           title      = "",
           showgrid   = FALSE,
