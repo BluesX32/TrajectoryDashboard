@@ -279,11 +279,14 @@ trajectory_ui <- function(person_ids = NULL) {
         # Thin data-density strip
         shiny::div(
           class = "density-bar-wrap",
-          plotly::plotlyOutput("density_bar", height = "40px")
+          plotly::plotlyOutput("density_bar", height = "36px")
         ),
 
         # Main trajectory
-        plotly::plotlyOutput("macro_trajectory_plot", height = "240px"),
+        shiny::div(
+          class = "plot-wrap",
+          plotly::plotlyOutput("macro_trajectory_plot", height = "32vh")
+        ),
 
         # Phase legend
         shiny::uiOutput("phase_legend")
@@ -300,7 +303,10 @@ trajectory_ui <- function(person_ids = NULL) {
         collapsible = TRUE,
         width       = 12,
 
-        plotly::plotlyOutput("event_layer_plot", height = "290px")
+        shiny::div(
+          class = "plot-wrap",
+          plotly::plotlyOutput("event_layer_plot", height = "30vh")
+        )
       ),
 
       # ── Layer 3: Detail Drawer ──────────────────────────────────────
@@ -356,7 +362,8 @@ trajectory_ui <- function(person_ids = NULL) {
             shiny::span(shiny::icon("microscope", style = "margin-right:5px;"),
                         "Antibodies"),
             shiny::div(style = "padding-top: 8px;",
-                       plotly::plotlyOutput("antibody_timeline", height = "200px"),
+                       shiny::div(class = "plot-wrap",
+                         plotly::plotlyOutput("antibody_timeline", height = "22vh")),
                        shiny::div(style = "margin-top: 12px;",
                                   DT::dataTableOutput("antibody_table")))
           ),
@@ -368,7 +375,8 @@ trajectory_ui <- function(person_ids = NULL) {
                        shiny::p(style = "font-size:11px;color:#9099B3;margin-bottom:8px;",
                          "CBC (WBC, Lymphocytes) and cardiac biomarkers (Troponin-I, BNP).",
                          "Dashed red lines = danger thresholds."),
-                       plotly::plotlyOutput("safety_monitoring_plot", height = "300px"))
+                       shiny::div(class = "plot-wrap",
+                         plotly::plotlyOutput("safety_monitoring_plot", height = "32vh")))
           )
         )
       ),
@@ -385,7 +393,9 @@ trajectory_ui <- function(person_ids = NULL) {
           solidHeader = TRUE,
           collapsible = TRUE,
           width       = 12,
-          plotly::plotlyOutput("ild_panel_plot", height = "160px")
+          shiny::div(class = "plot-wrap",
+            plotly::plotlyOutput("ild_panel_plot", height = "16vh")
+          )
         )
       ),
 
