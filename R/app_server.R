@@ -21,6 +21,9 @@ trajectory_server <- function(connector) {
       if (inherits(connector, "omop_connector") && !is.null(connector$conn)) {
         tryCatch(
           {
+            old_opt <- getOption("rstudio.connectionObserver.errorsSuppressed", FALSE)
+            options(rstudio.connectionObserver.errorsSuppressed = TRUE)
+            on.exit(options(rstudio.connectionObserver.errorsSuppressed = old_opt), add = TRUE)
             DatabaseConnector::disconnect(connector$conn)
             message("\u2713 DB disconnected — browser window closed (session ended).")
           },
@@ -35,6 +38,9 @@ trajectory_server <- function(connector) {
       if (inherits(connector, "omop_connector") && !is.null(connector$conn)) {
         tryCatch(
           {
+            old_opt <- getOption("rstudio.connectionObserver.errorsSuppressed", FALSE)
+            options(rstudio.connectionObserver.errorsSuppressed = TRUE)
+            on.exit(options(rstudio.connectionObserver.errorsSuppressed = old_opt), add = TRUE)
             DatabaseConnector::disconnect(connector$conn)
             message("\u2713 DB disconnected — Shiny app stopped.")
           },
@@ -1224,7 +1230,8 @@ trajectory_server <- function(connector) {
     # -------------------------------------------------------------------------
     # X-axis zoom sync: macro_plot relayout → event_layer
     # -------------------------------------------------------------------------
-    shiny::observeEvent(plotly::event_data("plotly_relayout", source = "macro_plot"), {
+    shiny::observeEvent(plotly::event_data("plotly_relayout", source = "macro_plot"),
+                        ignoreInit = TRUE, ignoreNULL = TRUE, {
       rel <- plotly::event_data("plotly_relayout", source = "macro_plot")
       if (is.null(rel)) return()
       xmin <- rel[["xaxis.range[0]"]] %||% rel[["xaxis.range[0]"]]
@@ -1239,7 +1246,8 @@ trajectory_server <- function(connector) {
 
     selected_event <- shiny::reactiveVal(NULL)
 
-    shiny::observeEvent(plotly::event_data("plotly_click", source = "event_layer"), {
+    shiny::observeEvent(plotly::event_data("plotly_click", source = "event_layer"),
+                        ignoreInit = TRUE, ignoreNULL = TRUE, {
       click <- plotly::event_data("plotly_click", source = "event_layer")
       if (!is.null(click)) {
         selected_event(click)
