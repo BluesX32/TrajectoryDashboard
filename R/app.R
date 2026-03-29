@@ -63,9 +63,6 @@ launch_trajectory_dashboard <- function(connector      = NULL,
   .require_pkg("plotly")
   .require_pkg("DT")
 
-  # Optionally load shinyjs for programmatic box expansion
-  has_shinyjs <- requireNamespace("shinyjs", quietly = TRUE)
-
   # Fall back to synthetic data
   if (is.null(connector)) {
     synth_path <- system.file("extdata", "synthetic_patient_data.rds",
@@ -105,14 +102,9 @@ launch_trajectory_dashboard <- function(connector      = NULL,
   ui     <- trajectory_ui(person_ids = person_ids)
   server <- trajectory_server(connector = connector)
 
-  app_list <- list(ui = ui, server = server)
-  if (has_shinyjs) {
-    app_list$ui <- shinyjs::useShinyjs(html = app_list$ui)
-  }
-
   shiny::shinyApp(
-    ui      = app_list$ui,
-    server  = app_list$server,
+    ui      = ui,
+    server  = server,
     options = list(
       port           = port,
       launch.browser = launch_browser
