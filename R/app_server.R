@@ -479,7 +479,6 @@ trajectory_server <- function(connector) {
           paper_bgcolor = "#FFFFFF", plot_bgcolor = "#FFFFFF",
           font = list(family = "Inter, sans-serif")
         )
-        efig <- plotly::event_register(efig, "plotly_relayout")
         return(plotly::config(efig, displayModeBar = TRUE,
                               modeBarButtonsToRemove = c("lasso2d","select2d",
                                                          "toggleSpikelines"),
@@ -754,7 +753,6 @@ trajectory_server <- function(connector) {
         font          = list(family = "Inter, sans-serif")
       )
 
-      fig <- plotly::event_register(fig, "plotly_relayout")
       plotly::config(fig, displayModeBar = TRUE,
                      modeBarButtonsToRemove = c("lasso2d", "select2d",
                                                 "toggleSpikelines"),
@@ -1225,27 +1223,8 @@ trajectory_server <- function(connector) {
 
     # -------------------------------------------------------------------------
     # Selected event detail (Layer 3) — click handler
-    # -------------------------------------------------------------------------
-    # -------------------------------------------------------------------------
-    # X-axis zoom sync: macro_plot relayout → event_layer
-    # -------------------------------------------------------------------------
-    shiny::observeEvent(
-      {
-        shiny::req(patient_data())
-        plotly::event_data("plotly_relayout", source = "macro_plot")
-      },
-      ignoreInit = TRUE, ignoreNULL = TRUE, {
-      rel <- plotly::event_data("plotly_relayout", source = "macro_plot")
-      if (is.null(rel)) return()
-      xmin <- rel[["xaxis.range[0]"]] %||% rel[["xaxis.range[0]"]]
-      xmax <- rel[["xaxis.range[1]"]] %||% rel[["xaxis.range[1]"]]
-      # autorange reset
-      if (!is.null(rel[["xaxis.autorange"]]) && isTRUE(rel[["xaxis.autorange"]])) {
-        session$sendCustomMessage("syncXAxis", list(xmin = NULL, xmax = NULL))
-      } else if (!is.null(xmin) && !is.null(xmax)) {
-        session$sendCustomMessage("syncXAxis", list(xmin = xmin, xmax = xmax))
-      }
-    })
+    # X-axis sync is handled entirely client-side in app_ui.R (three-way JS sync).
+    # The R-side observer + sendCustomMessage round-trip is no longer used.
 
     selected_event <- shiny::reactiveVal(NULL)
 

@@ -220,6 +220,7 @@ trajectory_ui <- function(person_ids = NULL) {
         shiny::tags$link(rel = "stylesheet", type = "text/css",
                          href = "trajectory_styles.css"),
         shiny::tags$script(shiny::HTML('
+          // ── Detail drawer expand ────────────────────────────────────────────
           Shiny.addCustomMessageHandler("expandDetailBox", function(msg) {
             var btn = document.querySelector("#detail_box .box-header [data-widget=collapse]");
             if (btn) {
@@ -228,20 +229,57 @@ trajectory_ui <- function(person_ids = NULL) {
             }
           });
 
-          Shiny.addCustomMessageHandler("syncXAxis", function(msg) {
-            var el = document.getElementById("event_layer_plot");
-            if (el && el._fullLayout) {
-              var update = {};
-              if (msg.xmin !== null && msg.xmax !== null) {
-                update["xaxis.range[0]"] = msg.xmin;
-                update["xaxis.range[1]"] = msg.xmax;
-                update["xaxis.autorange"] = false;
-              } else {
-                update["xaxis.autorange"] = true;
-              }
-              Plotly.relayout(el, update);
+          // ── Three-way x-axis sync ───────────────────────────────────────────
+          // Locks density_bar, macro_trajectory_plot, and event_layer_plot to
+          // the same x range at all times.  Pure client-side — no R round-trip.
+          (function() {
+            var PLOTS = ["density_bar", "macro_trajectory_plot", "event_layer_plot"];
+            var _lock  = false;
+
+            function syncAll(sourceId, update) {
+              if (_lock) return;
+              _lock = true;
+              PLOTS.forEach(function(id) {
+                if (id === sourceId) return;
+                var el = document.getElementById(id);
+                if (el && el._fullLayout) Plotly.relayout(el, update);
+              });
+              _lock = false;
             }
-          });
+
+            function attachListener(el) {
+              if (!el || !el._fullLayout) return;
+              // Store handler reference so we can swap it on re-render
+              if (el._xSyncHandler) {
+                try { el.removeListener("plotly_relayout", el._xSyncHandler); } catch(e) {}
+              }
+              el._xSyncHandler = function(ed) {
+                if (_lock) return;
+                if (ed["xaxis.range[0]"] !== undefined &&
+                    ed["xaxis.range[1]"] !== undefined) {
+                  syncAll(el.id, {
+                    "xaxis.range[0]": ed["xaxis.range[0]"],
+                    "xaxis.range[1]": ed["xaxis.range[1]"],
+                    "xaxis.autorange": false
+                  });
+                } else if (ed["xaxis.autorange"] === true) {
+                  syncAll(el.id, {"xaxis.autorange": true});
+                }
+              };
+              el.on("plotly_relayout", el._xSyncHandler);
+            }
+
+            function attachAll() {
+              PLOTS.forEach(function(id) {
+                attachListener(document.getElementById(id));
+              });
+            }
+
+            // Re-attach whenever any timeline plot is (re)rendered by Shiny
+            $(document).on("shiny:value", function(e) {
+              if (PLOTS.indexOf(e.name) !== -1) setTimeout(attachAll, 150);
+            });
+          })();
         '))
       ),
 
