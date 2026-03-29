@@ -1160,11 +1160,10 @@ trajectory_server <- function(connector) {
         for (ti in seq_len(nrow(tox))) {
           tf    <- tox[ti, ]
           t_col <- if (tf$severity == "alert") "#C62828" else "#EF6C00"
-          # y position: find the drug's family y-level + small offset
-          fam_guess <- meds_filtered()
-          fam_guess <- fam_guess[!is.na(fam_guess$drug_exposure_start_date) &
-                                    safe_as_date(fam_guess$drug_exposure_start_date) <=
-                                    tf$date, ]
+          # y position: find the drug's family y-level + small offset.
+          # Use tx (treatment_phases) which already has drug_family.
+          fam_guess <- tx[!is.na(tx$phase_start) & tx$phase_start <= tf$date &
+                            !is.na(tx$drug_family), ]
           fam_y_off <- if (nrow(fam_guess) > 0 && !is.null(family_y) &&
                             length(family_y) > 0) {
             fam_nm <- fam_guess$drug_family[nrow(fam_guess)]
@@ -1230,8 +1229,12 @@ trajectory_server <- function(connector) {
     # -------------------------------------------------------------------------
     # X-axis zoom sync: macro_plot relayout → event_layer
     # -------------------------------------------------------------------------
-    shiny::observeEvent(plotly::event_data("plotly_relayout", source = "macro_plot"),
-                        ignoreInit = TRUE, ignoreNULL = TRUE, {
+    shiny::observeEvent(
+      {
+        shiny::req(patient_data())
+        plotly::event_data("plotly_relayout", source = "macro_plot")
+      },
+      ignoreInit = TRUE, ignoreNULL = TRUE, {
       rel <- plotly::event_data("plotly_relayout", source = "macro_plot")
       if (is.null(rel)) return()
       xmin <- rel[["xaxis.range[0]"]] %||% rel[["xaxis.range[0]"]]
@@ -1246,8 +1249,12 @@ trajectory_server <- function(connector) {
 
     selected_event <- shiny::reactiveVal(NULL)
 
-    shiny::observeEvent(plotly::event_data("plotly_click", source = "event_layer"),
-                        ignoreInit = TRUE, ignoreNULL = TRUE, {
+    shiny::observeEvent(
+      {
+        shiny::req(patient_data())
+        plotly::event_data("plotly_click", source = "event_layer")
+      },
+      ignoreInit = TRUE, ignoreNULL = TRUE, {
       click <- plotly::event_data("plotly_click", source = "event_layer")
       if (!is.null(click)) {
         selected_event(click)
