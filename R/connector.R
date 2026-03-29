@@ -200,19 +200,44 @@ with_connector.omop_connector <- function(connector, fn, ...) {
   .check_db_packages()
 
   if (!is.null(connector$conn)) {
-    active <- connector
-    if (is.null(active$dbms))
-      active$dbms <- DatabaseConnector::dbms(active$conn)
-    return(fn(active, ...))
+    # Attempt to use the stored persistent connection.
+    # If the server has dropped it (idle timeout, network reset, etc.)
+    # the JDBC driver throws "The connection is closed." — catch that,
+    # discard the dead connection, and fall through to reconnect below.
+    result <- tryCatch(
+      {
+        active <- connector
+        if (is.null(active$dbms))
+          active$dbms <- DatabaseConnector::dbms(active$conn)
+        fn(active, ...)
+      },
+      error = function(e) {
+        if (.is_closed_connection_error(e))
+          structure(list(), class = "td_reconnect_needed")
+        else
+          stop(e)
+      }
+    )
+    if (!inherits(result, "td_reconnect_needed")) return(result)
+    # Connection was stale — clean up before reconnecting
+    tryCatch(DatabaseConnector::disconnect(connector$conn),
+             error = function(e) NULL)
   }
 
-  # Lazy path: open, run, close.
+  # Open a fresh connection, run fn, then close regardless of outcome.
   conn <- DatabaseConnector::connect(connector$connectionDetails)
   on.exit(DatabaseConnector::disconnect(conn), add = TRUE)
   active       <- connector
   active$conn  <- conn
   active$dbms  <- DatabaseConnector::dbms(conn)
   fn(active, ...)
+}
+
+# Recognise "connection is closed" errors from JDBC / DatabaseConnector
+.is_closed_connection_error <- function(e) {
+  msg <- conditionMessage(e)
+  grepl("connection is closed|connection.*closed|closed.*connection|no operations allowed",
+        msg, ignore.case = TRUE, perl = TRUE)
 }
 
 #' @export
