@@ -232,9 +232,19 @@ trajectory_ui <- function(person_ids = NULL) {
           // ── Three-way x-axis sync ───────────────────────────────────────────
           // Locks density_bar, macro_trajectory_plot, and event_layer_plot to
           // the same x range at all times.  Pure client-side — no R round-trip.
+          //
+          // Key design choices:
+          //   removeAllListeners — guarantees a clean slate even when plotly
+          //     rebuilds its internal EventEmitter on re-render, making stale
+          //     handler references unreliable.
+          //   Debounced attachAll — shiny:value fires for every output update
+          //     (titles, tables, badges …).  Without debounce, attachAll would
+          //     run dozens of times per patient load and could still leave
+          //     multiple listeners if the 150 ms timeouts overlap a re-render.
           (function() {
             var PLOTS = ["density_bar", "macro_trajectory_plot", "event_layer_plot"];
-            var _lock  = false;
+            var _lock        = false;
+            var _attachTimer = null;
 
             function syncAll(sourceId, update) {
               if (_lock) return;
@@ -249,11 +259,10 @@ trajectory_ui <- function(person_ids = NULL) {
 
             function attachListener(el) {
               if (!el || !el._fullLayout) return;
-              // Store handler reference so we can swap it on re-render
-              if (el._xSyncHandler) {
-                try { el.removeListener("plotly_relayout", el._xSyncHandler); } catch(e) {}
-              }
-              el._xSyncHandler = function(ed) {
+              // Wipe ALL plotly_relayout listeners before adding ours so that
+              // repeated re-renders never accumulate duplicate handlers.
+              try { el.removeAllListeners("plotly_relayout"); } catch(e) {}
+              el.on("plotly_relayout", function(ed) {
                 if (_lock) return;
                 if (ed["xaxis.range[0]"] !== undefined &&
                     ed["xaxis.range[1]"] !== undefined) {
@@ -265,8 +274,7 @@ trajectory_ui <- function(person_ids = NULL) {
                 } else if (ed["xaxis.autorange"] === true) {
                   syncAll(el.id, {"xaxis.autorange": true});
                 }
-              };
-              el.on("plotly_relayout", el._xSyncHandler);
+              });
             }
 
             function attachAll() {
@@ -275,9 +283,15 @@ trajectory_ui <- function(person_ids = NULL) {
               });
             }
 
-            // Re-attach whenever any timeline plot is (re)rendered by Shiny
+            // Debounced re-attach: runs once after all Shiny outputs settle,
+            // not once per output (which would be 10-20× per patient load).
+            function scheduleAttach() {
+              clearTimeout(_attachTimer);
+              _attachTimer = setTimeout(attachAll, 200);
+            }
+
             $(document).on("shiny:value", function(e) {
-              if (PLOTS.indexOf(e.name) !== -1) setTimeout(attachAll, 150);
+              if (PLOTS.indexOf(e.name) !== -1) scheduleAttach();
             });
           })();
         '))
