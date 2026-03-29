@@ -108,19 +108,34 @@ trajectory_ui <- function(person_ids = NULL) {
                 "!input.enzyme_panel_mode",
                 shiny::selectInput(
                   "focus_lab", NULL,
-                  choices = c(
-                    "CK (Creatine Kinase)"  = "ck",
-                    "Aldolase"              = "aldolase",
-                    "AST"                   = "ast",
-                    "ALT"                   = "alt",
-                    "LDH"                   = "ldh",
-                    "ESR"                   = "esr",
-                    "CRP"                   = "crp",
-                    "Anti-Jo-1"             = "anti_jo1",
-                    "Anti-Mi-2"             = "anti_mi2",
-                    "Anti-MDA5"             = "anti_mda5",
-                    "Anti-TIF1-\u03b3"      = "anti_tif1",
-                    "Anti-HMGCR"            = "anti_hmgcr"
+                  choices = list(
+                    "Muscle Enzymes" = c(
+                      "CK (Creatine Kinase)" = "ck",
+                      "Aldolase"             = "aldolase",
+                      "AST"                  = "ast",
+                      "ALT"                  = "alt",
+                      "LDH"                  = "ldh"
+                    ),
+                    "Inflammatory" = c(
+                      "ESR"                  = "esr",
+                      "CRP"                  = "crp"
+                    ),
+                    "Myositis Antibodies" = c(
+                      "Anti-Jo-1"            = "anti_jo1",
+                      "Anti-Mi-2"            = "anti_mi2",
+                      "Anti-MDA5"            = "anti_mda5",
+                      "Anti-TIF1-\u03b3"     = "anti_tif1",
+                      "Anti-HMGCR"           = "anti_hmgcr"
+                    ),
+                    "Cardiac & Safety" = c(
+                      "Ferritin"             = "ferritin",
+                      "Troponin-I"           = "troponin_i",
+                      "BNP"                  = "bnp",
+                      "WBC"                  = "wbc",
+                      "Lymphocytes"          = "lymphocytes",
+                      "Hemoglobin"           = "hemoglobin",
+                      "Creatinine"           = "creatinine"
+                    )
                   ),
                   selected = "ck",
                   width    = "100%"
@@ -164,6 +179,8 @@ trajectory_ui <- function(person_ids = NULL) {
               shiny::checkboxInput("show_visits", "Show hospitalizations",
                                    value = TRUE),
               shiny::checkboxInput("show_ild",    "Show ILD panel (FVC/DLCO)",
+                                   value = FALSE),
+              shiny::checkboxInput("show_gaps",   "Highlight DMARD gaps (\u226530 d)",
                                    value = FALSE),
               shiny::tags$div(
                 style = "margin-top: 8px;",
@@ -342,6 +359,16 @@ trajectory_ui <- function(person_ids = NULL) {
                        plotly::plotlyOutput("antibody_timeline", height = "200px"),
                        shiny::div(style = "margin-top: 12px;",
                                   DT::dataTableOutput("antibody_table")))
+          ),
+
+          shiny::tabPanel(
+            shiny::span(shiny::icon("shield-halved", style = "margin-right:5px;"),
+                        "Safety"),
+            shiny::div(style = "padding-top: 8px;",
+                       shiny::p(style = "font-size:11px;color:#9099B3;margin-bottom:8px;",
+                         "CBC (WBC, Lymphocytes) and cardiac biomarkers (Troponin-I, BNP).",
+                         "Dashed red lines = danger thresholds."),
+                       plotly::plotlyOutput("safety_monitoring_plot", height = "300px"))
           )
         )
       ),

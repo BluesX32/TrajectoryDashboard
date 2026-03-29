@@ -242,3 +242,186 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases) {
   rownames(out) <- NULL
   tibble::as_tibble(out)
 }
+
+#' Detect drug toxicity events
+#'
+#' Scans labs and medications for co-occurrences suggesting drug toxicity:
+#' \describe{
+#'   \item{Hepatotoxicity}{ALT or AST > 3× ULN while MTX or AZA is active ±30 d.}
+#'   \item{Lymphopenia}{Lymphocytes < 0.5 K/µL while any immunosuppressant active.}
+#'   \item{Creatinine rise}{Creatinine > 25% increase from prior while CNI active.}
+#' }
+#'
+#' @param labs_df Lab tibble from [fetch_patient_data()]`$labs`.
+#' @param meds_df Medications tibble from [fetch_patient_data()]`$medications`,
+#'   with a `drug_family` column (added by [compute_treatment_phases()] or
+#'   [.standardize_drug_family()]).
+#' @return A tibble with columns `date`, `drug_name`, `toxicity_type`,
+#'   `value`, `threshold`, `severity` ("warning" or "alert").
+#' @noRd
+detect_toxicity_flags <- function(labs_df, meds_df) {
+
+  empty_out <- tibble::tibble(
+    date          = as.Date(character(0)),
+    drug_name     = character(0),
+    toxicity_type = character(0),
+    value         = numeric(0),
+    threshold     = numeric(0),
+    severity      = character(0)
+  )
+
+  if (nrow(labs_df) == 0L || nrow(meds_df) == 0L) return(empty_out)
+  if (!"drug_family" %in% names(meds_df)) return(empty_out)
+
+  result <- list()
+
+  # ---------------------------------------------------------------------------
+  # 1. Hepatotoxicity: ALT/AST > 3× ULN while MTX or AZA is active (±30 days)
+  # ---------------------------------------------------------------------------
+  hepatotoxic_drugs <- c("Methotrexate", "Azathioprine")
+  hep_meds <- meds_df[!is.na(meds_df$drug_family) &
+                         meds_df$drug_family %in% hepatotoxic_drugs &
+                         !is.na(meds_df$drug_exposure_start_date), ]
+
+  alt_ids <- .resolve_lab_concept("alt")
+  ast_ids <- .resolve_lab_concept("ast")
+  alt_uln <- .get_default_uln("alt")   # 56
+  ast_uln <- .get_default_uln("ast")   # 40
+
+  liver_labs <- labs_df[
+    !is.na(labs_df$measurement_concept_id) &
+      labs_df$measurement_concept_id %in% c(alt_ids, ast_ids) &
+      !is.na(labs_df$value_as_number) &
+      !is.na(labs_df$measurement_date), ]
+
+  if (nrow(hep_meds) > 0 && nrow(liver_labs) > 0) {
+    for (li in seq_len(nrow(liver_labs))) {
+      lab_row <- liver_labs[li, ]
+      is_alt  <- lab_row$measurement_concept_id %in% alt_ids
+      uln_v   <- if (is_alt) alt_uln else ast_uln
+      lab_nm  <- if (is_alt) "ALT" else "AST"
+      if (is.na(uln_v) || uln_v <= 0) next
+      ratio   <- lab_row$value_as_number / uln_v
+      if (ratio < 3) next
+
+      # Check if any hepatotoxic drug was active within ±30 days of this lab
+      lab_dt  <- lab_row$measurement_date
+      overlap <- hep_meds[
+        !is.na(hep_meds$drug_exposure_start_date) & {
+          s <- safe_as_date(hep_meds$drug_exposure_start_date)
+          e <- safe_as_date(hep_meds$drug_exposure_end_date)
+          e[is.na(e)] <- s[is.na(e)] + 30L
+          (lab_dt >= s - 30L) & (lab_dt <= e + 30L)
+        }, ]
+
+      if (nrow(overlap) > 0) {
+        result[[length(result) + 1L]] <- data.frame(
+          date          = lab_dt,
+          drug_name     = overlap$drug_name[1L] %||% overlap$drug_family[1L],
+          toxicity_type = paste0("Hepatotoxicity (", lab_nm, ")"),
+          value         = lab_row$value_as_number,
+          threshold     = uln_v * 3,
+          severity      = if (ratio >= 5) "alert" else "warning",
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+
+  # ---------------------------------------------------------------------------
+  # 2. Lymphopenia: lymphocytes < 0.5 K/µL while any immunosuppressant active
+  # ---------------------------------------------------------------------------
+  ist_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
+                    "Rituximab", "JAK inhibitors", "Other IST", "Corticosteroids")
+  ist_meds <- meds_df[!is.na(meds_df$drug_family) &
+                         meds_df$drug_family %in% ist_families &
+                         !is.na(meds_df$drug_exposure_start_date), ]
+
+  lymp_ids <- .resolve_lab_concept("lymphocytes")
+  lymp_labs <- labs_df[
+    !is.na(labs_df$measurement_concept_id) &
+      !is.null(lymp_ids) &
+      labs_df$measurement_concept_id %in% lymp_ids &
+      !is.na(labs_df$value_as_number) &
+      labs_df$value_as_number < 0.5 &
+      !is.na(labs_df$measurement_date), ]
+
+  if (nrow(ist_meds) > 0 && nrow(lymp_labs) > 0) {
+    for (li in seq_len(nrow(lymp_labs))) {
+      lab_row <- lymp_labs[li, ]
+      lab_dt  <- lab_row$measurement_date
+      overlap <- ist_meds[{
+        s <- safe_as_date(ist_meds$drug_exposure_start_date)
+        e <- safe_as_date(ist_meds$drug_exposure_end_date)
+        e[is.na(e)] <- s[is.na(e)] + 30L
+        (lab_dt >= s - 14L) & (lab_dt <= e + 14L)
+      }, ]
+      if (nrow(overlap) > 0) {
+        result[[length(result) + 1L]] <- data.frame(
+          date          = lab_dt,
+          drug_name     = overlap$drug_name[1L] %||% overlap$drug_family[1L],
+          toxicity_type = "Lymphopenia",
+          value         = lab_row$value_as_number,
+          threshold     = 0.5,
+          severity      = if (lab_row$value_as_number < 0.2) "alert" else "warning",
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+
+  # ---------------------------------------------------------------------------
+  # 3. Creatinine rise > 25% from personal baseline while CNI active
+  # ---------------------------------------------------------------------------
+  cni_families <- c("Other IST")  # cyclosporine/tacrolimus fall here
+  cni_meds <- meds_df[
+    !is.na(meds_df$drug_name) &
+      grepl("cyclosporine|tacrolimus", tolower(meds_df$drug_name %||% "")) &
+      !is.na(meds_df$drug_exposure_start_date), ]
+
+  creat_ids <- .resolve_lab_concept("creatinine")
+  creat_labs <- labs_df[
+    !is.na(labs_df$measurement_concept_id) &
+      !is.null(creat_ids) &
+      labs_df$measurement_concept_id %in% creat_ids &
+      !is.na(labs_df$value_as_number) &
+      !is.na(labs_df$measurement_date), ]
+
+  if (nrow(cni_meds) > 0 && nrow(creat_labs) >= 2L) {
+    creat_labs <- creat_labs[order(creat_labs$measurement_date), ]
+    baseline   <- stats::median(creat_labs$value_as_number[
+      seq_len(min(3L, nrow(creat_labs)))], na.rm = TRUE)
+    for (li in seq_len(nrow(creat_labs))) {
+      lab_row <- creat_labs[li, ]
+      if (is.na(baseline) || baseline <= 0) next
+      pct_rise <- (lab_row$value_as_number - baseline) / baseline
+      if (pct_rise < 0.25) next
+      lab_dt  <- lab_row$measurement_date
+      overlap <- cni_meds[{
+        s <- safe_as_date(cni_meds$drug_exposure_start_date)
+        e <- safe_as_date(cni_meds$drug_exposure_end_date)
+        e[is.na(e)] <- s[is.na(e)] + 30L
+        (lab_dt >= s) & (lab_dt <= e + 30L)
+      }, ]
+      if (nrow(overlap) > 0) {
+        result[[length(result) + 1L]] <- data.frame(
+          date          = lab_dt,
+          drug_name     = overlap$drug_name[1L] %||% "CNI",
+          toxicity_type = paste0("Creatinine rise (+", round(pct_rise * 100), "%)"),
+          value         = lab_row$value_as_number,
+          threshold     = baseline * 1.25,
+          severity      = if (pct_rise >= 0.5) "alert" else "warning",
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+
+  if (length(result) == 0L) return(empty_out)
+  out <- do.call(rbind, result)
+  out$date <- as.Date(out$date, origin = "1970-01-01")
+  out <- out[!duplicated(paste(out$date, out$toxicity_type)), ]
+  out <- out[order(out$date), ]
+  rownames(out) <- NULL
+  tibble::as_tibble(out)
+}

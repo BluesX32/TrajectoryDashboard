@@ -38,7 +38,16 @@ MYOSITIS_LAB_CONCEPTS <- list(
 
   # Pulmonary function (for ILD monitoring)
   fvc        = c(3030501L),                        # FVC
-  dlco       = c(3016502L)                         # DLCO
+  dlco       = c(3016502L),                        # DLCO
+
+  # --- Safety monitoring / cardiac (verify concept IDs against local OMOP) ---
+  ferritin   = c(3013272L, 3007461L),              # Ferritin (MAS warning in MDA5+)
+  troponin_i = c(3016723L, 4208432L),              # Troponin-I (cardiac myositis)
+  bnp        = c(3028437L),                        # BNP (cardiac myositis)
+  wbc        = c(3010813L),                        # White blood cell count
+  lymphocytes = c(3004327L),                       # Lymphocyte count (cytopenia watch)
+  hemoglobin = c(3000963L),                        # Hemoglobin (anemia of inflammation)
+  creatinine = c(3051825L, 3016723L)               # Creatinine (renal safety)
 )
 
 # Default upper limits of normal (ULN) for labs without OMOP range_high data
@@ -60,7 +69,16 @@ MYOSITIS_LAB_CONCEPTS <- list(
   anti_nxp2  = 1.0,
   anti_pm_scl = 1.0,
   fvc        = NA_real_,
-  dlco       = NA_real_
+  dlco       = NA_real_,
+
+  # Safety monitoring
+  ferritin   = 200,     # ng/mL (MAS concern threshold is much higher, ~1500; ULN is ~200)
+  troponin_i = 0.04,    # ng/mL (99th percentile URL)
+  bnp        = 100,     # pg/mL
+  wbc        = 10.5,    # K/µL
+  lymphocytes = 3.4,    # K/µL (lower reference ~1.0; danger threshold 0.5)
+  hemoglobin = NA_real_, # g/dL (sex-dependent; no universal default)
+  creatinine = 1.2      # mg/dL (sex-combined approximate)
 )
 
 # ---------------------------------------------------------------------------

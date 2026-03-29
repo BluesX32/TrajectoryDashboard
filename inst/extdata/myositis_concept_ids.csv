@@ -49,3 +49,12 @@ drug,ruxolitinib,42899491,Ruxolitinib,,
 drug,abatacept,40175801,Abatacept,,
 drug,nintedanib,44818493,Nintedanib,,
 drug,pirfenidone,45776887,Pirfenidone,,
+lab,ferritin,3013272,Ferritin [Mass/volume] in Serum or Plasma,200,ng/mL
+lab,ferritin,3007461,Ferritin [Mass/volume] in Blood,200,ng/mL
+lab,troponin_i,3016723,Troponin I.cardiac [Mass/volume] in Serum or Plasma,0.04,ng/mL
+lab,troponin_i,4208432,Troponin I [Mass/volume] in Serum or Plasma,0.04,ng/mL
+lab,bnp,3028437,Natriuretic peptide B [Mass/volume] in Serum or Plasma,100,pg/mL
+lab,wbc,3010813,Leukocytes [#/volume] in Blood by Automated count,10.5,K/uL
+lab,lymphocytes,3004327,Lymphocytes [#/volume] in Blood by Automated count,3.4,K/uL
+lab,hemoglobin,3000963,Hemoglobin [Mass/volume] in Blood,,g/dL
+lab,creatinine,3051825,Creatinine [Mass/volume] in Serum or Plasma,1.2,mg/dL

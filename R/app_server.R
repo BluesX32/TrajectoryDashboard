@@ -121,6 +121,21 @@ trajectory_server <- function(connector) {
       detect_decision_points(patient_data(), trajectory(), treatment_phases())
     })
 
+    toxicity_flags <- shiny::reactive({
+      shiny::req(patient_data())
+      pd_t <- patient_data()
+      if (nrow(pd_t$labs) == 0L || nrow(pd_t$medications) == 0L)
+        return(tibble::tibble(date=as.Date(character(0)), drug_name=character(0),
+                               toxicity_type=character(0), value=numeric(0),
+                               threshold=numeric(0), severity=character(0)))
+      # Attach drug_family to medications if not already present
+      meds_t <- pd_t$medications
+      if (!"drug_family" %in% names(meds_t) && "drug_name" %in% names(meds_t)) {
+        meds_t$drug_family <- .standardize_drug_family(meds_t$drug_name)
+      }
+      detect_toxicity_flags(pd_t$labs, meds_t)
+    })
+
     # -------------------------------------------------------------------------
     # Patient summary stats bar
     # -------------------------------------------------------------------------
@@ -143,14 +158,85 @@ trajectory_server <- function(connector) {
         round(as.numeric(diff(range(all_dates))) / 365.25, 1)
       } else NA_real_
 
-      make_stat <- function(icon_name, value, label) {
+      # Cumulative corticosteroid exposure (grams pred-equiv)
+      cumul_steroid_g <- NA_real_
+      if (nrow(pd$medications) > 0 && "drug_family" %in% names(pd$medications)) {
+        cs <- pd$medications[
+          !is.na(pd$medications$drug_family) &
+            pd$medications$drug_family == "Corticosteroids" &
+            !is.na(pd$medications$drug_exposure_start_date), ]
+        if (nrow(cs) > 0) {
+          s_date <- safe_as_date(cs$drug_exposure_start_date)
+          e_date <- safe_as_date(cs$drug_exposure_end_date)
+          e_date[is.na(e_date)] <- s_date[is.na(e_date)]
+          dur_days <- pmax(as.integer(e_date - s_date) + 1L, 1L)
+          dose_mg  <- if ("quantity" %in% names(cs)) as.numeric(cs$quantity) else rep(NA_real_, nrow(cs))
+          dose_mg[is.na(dose_mg) | dose_mg <= 0] <- 10  # nominal 10 mg fallback
+          cumul_steroid_g <- round(sum(dose_mg * dur_days, na.rm = TRUE) / 1000, 1)
+        }
+      }
+
+      make_stat <- function(icon_name, value, label, extra_class = "") {
         shiny::div(
-          class = "summary-stat",
+          class = paste("summary-stat", extra_class),
           shiny::div(class = "stat-icon", shiny::icon(icon_name)),
           shiny::div(class = "stat-value", value),
           shiny::div(class = "stat-label", label)
         )
       }
+
+      # --- Last-values status row ------------------------------------------
+      # Show most recent value + trend (↑/↓/↔) + color for key labs.
+      .last_val_tile <- function(lab_key, lab_label, uln_val) {
+        ids  <- .resolve_lab_concept(lab_key)
+        if (is.null(ids)) return(NULL)
+        sub  <- pd$labs[!is.na(pd$labs$measurement_concept_id) &
+                          pd$labs$measurement_concept_id %in% ids &
+                          !is.na(pd$labs$value_as_number), ]
+        if (nrow(sub) == 0L) return(NULL)
+        sub  <- sub[order(sub$measurement_date, decreasing = TRUE), ]
+        val  <- sub$value_as_number[1L]
+        dt   <- format(sub$measurement_date[1L], "%b %d, %Y")
+        # Trend: compare to previous value
+        arrow <- if (nrow(sub) >= 2L) {
+          prev <- sub$value_as_number[2L]
+          if      (val > prev * 1.05)  "\u2197"   # rising
+          else if (val < prev * 0.95)  "\u2198"   # falling
+          else                          "\u2192"   # stable
+        } else "\u2022"   # only one point
+        # Color tier
+        tile_class <- if (!is.na(uln_val) && uln_val > 0) {
+          ratio <- val / uln_val
+          if      (ratio <= 1.0)  "lv-normal"
+          else if (ratio <= 3.0)  "lv-warn"
+          else                    "lv-alert"
+        } else "lv-normal"
+
+        shiny::div(
+          class = paste("last-val-tile", tile_class),
+          shiny::div(class = "lv-label", lab_label),
+          shiny::div(class = "lv-value",
+            shiny::span(formatC(val, format = "fg", digits = 3)),
+            shiny::span(class = "lv-arrow", arrow)
+          ),
+          shiny::div(class = "lv-date", dt)
+        )
+      }
+
+      lv_tiles <- Filter(Negate(is.null), list(
+        .last_val_tile("ck",          "CK",         200),
+        .last_val_tile("crp",         "CRP",         10),
+        .last_val_tile("ferritin",    "Ferritin",   200),
+        .last_val_tile("troponin_i",  "Troponin-I", 0.04),
+        .last_val_tile("lymphocytes", "Lymph",      3.4),
+        .last_val_tile("fvc",         "FVC%",       NA_real_)
+      ))
+
+      steroid_tile_class <- if (!is.na(cumul_steroid_g)) {
+        if      (cumul_steroid_g < 1)  "stat-safe"
+        else if (cumul_steroid_g < 5)  "stat-warn"
+        else                           "stat-alert"
+      } else ""
 
       shiny::div(
         class = "patient-summary-bar",
@@ -160,7 +246,14 @@ trajectory_server <- function(connector) {
         make_stat("diagnoses",   n_conds,  "Conditions"),
         make_stat("file-medical",n_notes,  "Notes"),
         if (!is.na(span_yrs))
-          make_stat("calendar-alt", span_yrs, "Years Follow-up")
+          make_stat("calendar-alt", span_yrs, "Years Follow-up"),
+        if (!is.na(cumul_steroid_g))
+          make_stat("syringe",
+                    paste0(cumul_steroid_g, " g"),
+                    "Cumul. Steroids",
+                    steroid_tile_class),
+        if (length(lv_tiles) > 0L)
+          shiny::div(class = "last-val-row", lv_tiles)
       )
     })
 
@@ -173,11 +266,75 @@ trajectory_server <- function(connector) {
         ldh = "LDH", esr = "ESR", crp = "CRP",
         anti_jo1 = "Anti-Jo-1", anti_mi2 = "Anti-Mi-2",
         anti_mda5 = "Anti-MDA5", anti_tif1 = "Anti-TIF1-\u03b3",
-        anti_hmgcr = "Anti-HMGCR", "Lab"
+        anti_hmgcr = "Anti-HMGCR",
+        ferritin = "Ferritin", troponin_i = "Troponin-I", bnp = "BNP",
+        wbc = "WBC", lymphocytes = "Lymphocytes", hemoglobin = "Hemoglobin",
+        creatinine = "Creatinine", "Lab"
       )
+      # Time-in-target badges (only when sufficient data)
+      tit_badges <- NULL
+      traj_v <- tryCatch(trajectory(), error = function(e) NULL)
+      labs_v <- tryCatch(labs_filtered(), error = function(e) NULL)
+      meds_v <- tryCatch(meds_filtered(), error = function(e) NULL)
+
+      if (!is.null(traj_v) && nrow(traj_v) >= 2L &&
+          !is.null(labs_v) && nrow(labs_v) >= 6L) {
+        uln_v <- .get_default_uln(input$focus_lab %||% "ck")
+        cid_v <- .resolve_lab_concept(input$focus_lab %||% "ck")
+        lab_sub <- labs_v[!is.na(labs_v$measurement_concept_id) &
+                            labs_v$measurement_concept_id %in% cid_v &
+                            !is.na(labs_v$value_as_number), ]
+        if (!is.na(uln_v) && uln_v > 0 && nrow(lab_sub) >= 6L) {
+          pct_normal <- round(mean(lab_sub$value_as_number <= uln_v,
+                                   na.rm = TRUE) * 100)
+          tit_lab_badge <- shiny::tags$span(
+            class = paste("tit-badge",
+                          if (pct_normal >= 70) "tit-good"
+                          else if (pct_normal >= 40) "tit-warn"
+                          else "tit-alert"),
+            paste0(pct_normal, "% in range")
+          )
+
+          # Steroid ≤ 7.5 mg/day: check most recent corticosteroid episode dose
+          tit_steroid_badge <- NULL
+          if (!is.null(meds_v) && nrow(meds_v) > 0 &&
+              "drug_family" %in% names(meds_v)) {
+            cs_v <- meds_v[!is.na(meds_v$drug_family) &
+                             meds_v$drug_family == "Corticosteroids" &
+                             "quantity" %in% names(meds_v) &
+                             !is.na(meds_v$quantity), ]
+            if (nrow(cs_v) > 0) {
+              cs_v <- cs_v[order(safe_as_date(cs_v$drug_exposure_start_date),
+                                  decreasing = TRUE), ]
+              last_dose <- as.numeric(cs_v$quantity[1L])
+              if (!is.na(last_dose)) {
+                tit_steroid_badge <- shiny::tags$span(
+                  class = paste("tit-badge",
+                                if (last_dose <= 7.5) "tit-good"
+                                else if (last_dose <= 20) "tit-warn"
+                                else "tit-alert"),
+                  paste0(last_dose, " mg/d steroid")
+                )
+              }
+            }
+          }
+          tit_badges <- shiny::div(
+            class = "tit-badges",
+            tit_lab_badge,
+            tit_steroid_badge
+          )
+        }
+      }
+
       shiny::tagList(
-        shiny::icon("chart-line", style = "margin-right:7px;"),
-        paste0("Macro Trajectory \u2014 ", lab_label)
+        shiny::div(
+          class = "layer1-title-row",
+          shiny::span(
+            shiny::icon("chart-line", style = "margin-right:7px;"),
+            paste0("Macro Trajectory \u2014 ", lab_label)
+          ),
+          tit_badges
+        )
       )
     })
 
@@ -339,14 +496,43 @@ trajectory_server <- function(connector) {
         )
       }
 
-      # ULN horizontal line
-      if (!is.na(uln)) {
+      # Normal range band + ULN line
+      # Prefer range_low/range_high from the data; fall back to default ULN.
+      rng_low_val  <- NA_real_
+      rng_high_val <- NA_real_
+      if (nrow(lab_focus) > 0) {
+        if ("range_low"  %in% names(lab_focus))
+          rng_low_val  <- stats::median(lab_focus$range_low[!is.na(lab_focus$range_low)],
+                                        na.rm = TRUE)
+        if ("range_high" %in% names(lab_focus))
+          rng_high_val <- stats::median(lab_focus$range_high[!is.na(lab_focus$range_high)],
+                                        na.rm = TRUE)
+      }
+      eff_uln <- if (!is.na(rng_high_val) && rng_high_val > 0) rng_high_val else uln
+
+      x_range <- if (nrow(lab_focus) > 0)
+        range(lab_focus$measurement_date) else c(Sys.Date(), Sys.Date())
+
+      # Shaded green normal range band (when both bounds are available)
+      if (!is.na(rng_low_val) && !is.na(eff_uln) && rng_low_val < eff_uln) {
         fig <- plotly::add_trace(
-          fig,
-          type = "scatter", mode = "lines",
-          x    = if (nrow(lab_focus) > 0) range(lab_focus$measurement_date) else Sys.Date(),
-          y    = c(uln, uln),
-          line = list(color = "#999", dash = "dash", width = 1.5),
+          fig, type = "scatter", mode = "lines",
+          x         = c(x_range[1], x_range[2], x_range[2], x_range[1], x_range[1]),
+          y         = c(rng_low_val, rng_low_val, eff_uln, eff_uln, rng_low_val),
+          fill      = "toself",
+          fillcolor = "rgba(76,175,80,0.07)",
+          line      = list(width = 0, color = "rgba(0,0,0,0)"),
+          showlegend = FALSE, hoverinfo = "none", name = "Normal Range"
+        )
+      }
+
+      # ULN dashed line
+      if (!is.na(eff_uln)) {
+        fig <- plotly::add_trace(
+          fig, type = "scatter", mode = "lines",
+          x    = x_range,
+          y    = c(eff_uln, eff_uln),
+          line = list(color = "#757575", dash = "dash", width = 1.5),
           name = "ULN", showlegend = FALSE, hoverinfo = "none"
         )
       }
@@ -395,6 +581,47 @@ trajectory_server <- function(connector) {
               )
             }
           }
+        }
+      }
+
+      # Lab normalization milestone markers (green stars)
+      # For each flare/worsening phase, mark the first observation where value ≤ ULN.
+      if (!is.na(eff_uln) && nrow(phases) > 0 && nrow(lab_focus) > 0) {
+        active_phases <- phases[phases$phase %in% c("flare", "worsening"), ]
+        norm_dates_v   <- as.Date(character(0))
+        norm_vals_v    <- numeric(0)
+        norm_days_v    <- integer(0)
+        for (ap_i in seq_len(nrow(active_phases))) {
+          phase_start <- active_phases$window_start[ap_i]
+          phase_end   <- active_phases$window_end[ap_i]
+          post <- lab_focus[!is.na(lab_focus$measurement_date) &
+                              lab_focus$measurement_date > phase_end &
+                              !is.na(lab_focus$value_as_number) &
+                              lab_focus$value_as_number <= eff_uln, ]
+          if (nrow(post) > 0) {
+            first_row      <- post[which.min(post$measurement_date), ]
+            norm_dates_v   <- c(norm_dates_v, first_row$measurement_date)
+            norm_vals_v    <- c(norm_vals_v,  first_row$value_as_number)
+            norm_days_v    <- c(norm_days_v,
+                                as.integer(first_row$measurement_date - phase_start))
+          }
+        }
+        if (length(norm_dates_v) > 0) {
+          fig <- plotly::add_trace(
+            fig, type = "scatter", mode = "markers",
+            x          = norm_dates_v,
+            y          = norm_vals_v,
+            customdata = norm_days_v,
+            marker     = list(symbol = "star", size = 14, color = "#2E7D32",
+                              line = list(color = "#FFFFFF", width = 1.5)),
+            name       = "Normalized",
+            showlegend = TRUE,
+            hovertemplate = paste0(
+              "<b>%{x|%Y-%m-%d}</b><br>",
+              "\u2713 Lab normalized \u2014 %{customdata}d from flare start",
+              "<extra></extra>"
+            )
+          )
         }
       }
 
@@ -560,6 +787,86 @@ trajectory_server <- function(connector) {
         y          = numeric(0),
         showlegend = FALSE
       )
+
+      # DMARD gap bands (optional, toggled by show_gaps checkbox)
+      # Highlight contiguous periods ≥ 30 days with no non-steroid DMARD active.
+      if (isTRUE(input$show_gaps) && !is.null(dr) && length(dr) == 2L && !anyNA(dr)) {
+        all_meds <- patient_data()$medications
+        non_steroid_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
+                                   "IVIG", "Rituximab", "JAK inhibitors")
+        if (nrow(all_meds) > 0 && "drug_family" %in% names(all_meds)) {
+          dmard_eps <- all_meds[
+            !is.na(all_meds$drug_family) &
+              all_meds$drug_family %in% non_steroid_families &
+              !is.na(all_meds$drug_exposure_start_date), ]
+          # Build a daily presence vector over the full follow-up window
+          day_seq  <- seq.Date(as.Date(dr[1]), as.Date(dr[2]), by = "day")
+          covered  <- logical(length(day_seq))
+          if (nrow(dmard_eps) > 0) {
+            for (di in seq_len(nrow(dmard_eps))) {
+              ep_s <- safe_as_date(dmard_eps$drug_exposure_start_date[di])
+              ep_e <- safe_as_date(dmard_eps$drug_exposure_end_date[di])
+              if (is.na(ep_s)) next
+              if (is.na(ep_e)) ep_e <- ep_s + 30L
+              idx <- day_seq >= ep_s & day_seq <= ep_e
+              covered[idx] <- TRUE
+            }
+          }
+          # Find gap runs ≥ 30 days
+          run_start <- NULL
+          for (gi in seq_along(day_seq)) {
+            if (!covered[gi] && is.null(run_start)) {
+              run_start <- day_seq[gi]
+            } else if (covered[gi] && !is.null(run_start)) {
+              gap_end  <- day_seq[gi - 1L]
+              gap_days <- as.integer(gap_end - run_start) + 1L
+              if (gap_days >= 30L) {
+                fig <- plotly::add_trace(fig,
+                  type = "scatter", mode = "lines",
+                  x = c(run_start, gap_end, gap_end, run_start, run_start),
+                  y = c(0.3, 0.3, 5.8, 5.8, 0.3),
+                  fill = "toself",
+                  fillcolor = "rgba(255,152,0,0.07)",
+                  line = list(width = 0, color = "rgba(0,0,0,0)"),
+                  showlegend = FALSE, hoverinfo = "none",
+                  name = "DMARD gap"
+                )
+                # Invisible trace just for hover tooltip
+                fig <- plotly::add_trace(fig,
+                  type = "scatter", mode = "markers",
+                  x = c(run_start + floor(gap_days / 2L)),
+                  y = c(5.6),
+                  marker = list(size = 0, opacity = 0),
+                  showlegend = FALSE,
+                  hovertemplate = paste0(
+                    "\u26a0 No DMARD: ",
+                    format(run_start, "%b %d, %Y"), " \u2014 ",
+                    format(gap_end,   "%b %d, %Y"),
+                    " (", gap_days, " days)<extra></extra>"
+                  )
+                )
+              }
+              run_start <- NULL
+            }
+          }
+          # Handle gap extending to end of window
+          if (!is.null(run_start)) {
+            gap_end  <- tail(day_seq, 1L)
+            gap_days <- as.integer(gap_end - run_start) + 1L
+            if (gap_days >= 30L) {
+              fig <- plotly::add_trace(fig,
+                type = "scatter", mode = "lines",
+                x = c(run_start, gap_end, gap_end, run_start, run_start),
+                y = c(0.3, 0.3, 5.8, 5.8, 0.3),
+                fill = "toself",
+                fillcolor = "rgba(255,152,0,0.07)",
+                line = list(width = 0, color = "rgba(0,0,0,0)"),
+                showlegend = FALSE, hoverinfo = "none"
+              )
+            }
+          }
+        }
+      }
 
       # Row: Hospitalizations
       if (input$show_visits && nrow(pd$visits) > 0) {
@@ -807,6 +1114,44 @@ trajectory_server <- function(connector) {
       }
       y_vals   <- sapply(all_y_labels, `[[`, "y")
       y_labels <- sapply(all_y_labels, `[[`, "label")
+
+      # Drug toxicity warning markers (triangles overlaid on med bars)
+      tox <- toxicity_flags()
+      if (!is.null(tox) && nrow(tox) > 0) {
+        for (ti in seq_len(nrow(tox))) {
+          tf    <- tox[ti, ]
+          t_col <- if (tf$severity == "alert") "#C62828" else "#EF6C00"
+          # y position: find the drug's family y-level + small offset
+          fam_guess <- meds_filtered()
+          fam_guess <- fam_guess[!is.na(fam_guess$drug_exposure_start_date) &
+                                    safe_as_date(fam_guess$drug_exposure_start_date) <=
+                                    tf$date, ]
+          fam_y_off <- if (nrow(fam_guess) > 0 && !is.null(family_y) &&
+                            length(family_y) > 0) {
+            fam_nm <- fam_guess$drug_family[nrow(fam_guess)]
+            (family_y[fam_nm] %||% 2.5) + 0.25
+          } else 2.75
+          fig <- plotly::add_trace(
+            fig, type = "scatter", mode = "markers",
+            x          = tf$date,
+            y          = fam_y_off,
+            marker     = list(symbol = "triangle-up", size = 11,
+                              color = t_col,
+                              line = list(color = "#fff", width = 1)),
+            name       = tf$toxicity_type,
+            showlegend = (ti == 1L),
+            legendgroup = "toxicity",
+            hovertemplate = paste0(
+              "\u26a0 ", tf$toxicity_type, "<br>",
+              "<b>", format(tf$date, "%Y-%m-%d"), "</b><br>",
+              "Value: ", round(tf$value, 2),
+              " (threshold: ", round(tf$threshold, 2), ")<br>",
+              "Drug: ", tf$drug_name,
+              "<extra></extra>"
+            )
+          )
+        }
+      }
 
       fig <- plotly::layout(
         fig,
@@ -1260,6 +1605,187 @@ trajectory_server <- function(connector) {
                                   c("#C62828", "#2E7D32")),
           fontWeight = "bold"
         )
+    })
+
+    # -------------------------------------------------------------------------
+    # Safety Monitoring tab: CBC + cardiac biomarkers
+    # -------------------------------------------------------------------------
+    output$safety_monitoring_plot <- plotly::renderPlotly({
+      shiny::req(labs_filtered())
+      ld <- labs_filtered()
+
+      # ── Collect CBC series ────────────────────────────────────────────
+      .safety_series <- function(key) {
+        ids <- .resolve_lab_concept(key)
+        if (is.null(ids)) return(NULL)
+        sub <- ld[!is.na(ld$measurement_concept_id) &
+                    ld$measurement_concept_id %in% ids &
+                    !is.na(ld$value_as_number) &
+                    !is.na(ld$measurement_date), ]
+        if (nrow(sub) == 0L) return(NULL)
+        sub[order(sub$measurement_date), ]
+      }
+
+      wbc_df   <- .safety_series("wbc")
+      lymp_df  <- .safety_series("lymphocytes")
+      trop_df  <- .safety_series("troponin_i")
+      bnp_df   <- .safety_series("bnp")
+
+      has_cbc     <- !is.null(wbc_df) || !is.null(lymp_df)
+      has_cardiac <- !is.null(trop_df) || !is.null(bnp_df)
+
+      if (!has_cbc && !has_cardiac) {
+        empty <- plotly::plot_ly(type = "scatter", mode = "markers",
+          x = as.Date(character(0)), y = numeric(0)) |>
+          plotly::layout(
+            annotations = list(list(
+              text = "No CBC or cardiac biomarker data for this patient.",
+              xref = "paper", yref = "paper", x = 0.5, y = 0.5,
+              showarrow = FALSE,
+              font = list(size = 13, color = "#9099B3")
+            )),
+            paper_bgcolor = "#FFFFFF", plot_bgcolor = "#FFFFFF",
+            font = list(family = "Inter, sans-serif")
+          )
+        return(plotly::config(empty, displayModeBar = FALSE, responsive = TRUE))
+      }
+
+      # Build subplot rows
+      row_list  <- list()
+      n_rows    <- 0L
+
+      if (has_cbc) {
+        n_rows <- n_rows + 1L
+        cbc_fig <- plotly::plot_ly(type = "scatter", mode = "markers",
+                                    x = as.Date(character(0)), y = numeric(0),
+                                    showlegend = FALSE)
+
+        if (!is.null(wbc_df)) {
+          wbc_col <- ifelse(wbc_df$value_as_number < 3.0, "#C62828", "#2E7D32")
+          cbc_fig <- plotly::add_trace(cbc_fig,
+            type = "scatter", mode = "lines+markers",
+            x = wbc_df$measurement_date, y = wbc_df$value_as_number,
+            line   = list(color = "#1565C0", width = 1.5),
+            marker = list(size = 6, color = wbc_col,
+                          line = list(width = 0.5, color = "#fff")),
+            name = "WBC (K/\u00b5L)", showlegend = TRUE,
+            hovertemplate = "<b>%{x|%Y-%m-%d}</b><br>WBC: %{y:.1f} K/\u00b5L<extra></extra>"
+          )
+        }
+        if (!is.null(lymp_df)) {
+          lymp_col <- ifelse(lymp_df$value_as_number < 0.5, "#C62828",
+                      ifelse(lymp_df$value_as_number < 1.0, "#EF6C00", "#2E7D32"))
+          cbc_fig <- plotly::add_trace(cbc_fig,
+            type = "scatter", mode = "lines+markers",
+            x = lymp_df$measurement_date, y = lymp_df$value_as_number,
+            line   = list(color = "#6A1B9A", width = 1.5),
+            marker = list(size = 6, color = lymp_col,
+                          line = list(width = 0.5, color = "#fff")),
+            name = "Lymphocytes (K/\u00b5L)", showlegend = TRUE,
+            hovertemplate = "<b>%{x|%Y-%m-%d}</b><br>Lymph: %{y:.2f} K/\u00b5L<extra></extra>"
+          )
+        }
+        # Danger threshold lines
+        cbc_fig <- plotly::layout(cbc_fig,
+          shapes = list(
+            list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+                 y0 = 3.0, y1 = 3.0,
+                 line = list(color = "#C62828", dash = "dash", width = 1)),
+            list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+                 y0 = 0.5, y1 = 0.5,
+                 line = list(color = "#C62828", dash = "dot", width = 1))
+          ),
+          annotations = list(
+            list(text = "WBC 3.0 threshold", x = 1, xref = "paper",
+                 y = 3.0, yref = "y", showarrow = FALSE,
+                 font = list(size = 9, color = "#C62828"), xanchor = "right"),
+            list(text = "Lymph 0.5 danger", x = 1, xref = "paper",
+                 y = 0.5, yref = "y", showarrow = FALSE,
+                 font = list(size = 9, color = "#C62828"), xanchor = "right")
+          ),
+          yaxis = list(title = "Count (K/\u00b5L)", rangemode = "tozero",
+                       tickfont = list(size = 10, color = "#5A6482"),
+                       titlefont = list(size = 10, color = "#5A6482")),
+          xaxis = list(showgrid = FALSE, tickformat = "%b %Y",
+                       tickfont = list(size = 10, color = "#5A6482"))
+        )
+        row_list[[n_rows]] <- cbc_fig
+      }
+
+      if (has_cardiac) {
+        n_rows <- n_rows + 1L
+        card_fig <- plotly::plot_ly(type = "scatter", mode = "markers",
+                                     x = as.Date(character(0)), y = numeric(0),
+                                     showlegend = FALSE)
+        if (!is.null(trop_df)) {
+          trop_col <- ifelse(trop_df$value_as_number > 0.04, "#C62828", "#2E7D32")
+          card_fig <- plotly::add_trace(card_fig,
+            type = "scatter", mode = "markers",
+            x = trop_df$measurement_date, y = trop_df$value_as_number,
+            marker = list(size = 8, color = trop_col,
+                          symbol = "circle",
+                          line = list(width = 1, color = "#fff")),
+            name = "Troponin-I (ng/mL)", showlegend = TRUE,
+            hovertemplate = "<b>%{x|%Y-%m-%d}</b><br>Troponin-I: %{y:.3f} ng/mL<extra></extra>"
+          )
+          card_fig <- plotly::layout(card_fig,
+            shapes = list(list(type = "line", x0 = 0, x1 = 1, xref = "paper",
+                               y0 = 0.04, y1 = 0.04,
+                               line = list(color = "#C62828", dash = "dash", width = 1))),
+            annotations = list(list(text = "URL 0.04", x = 1, xref = "paper",
+                                    y = 0.04, yref = "y", showarrow = FALSE,
+                                    font = list(size = 9, color = "#C62828"),
+                                    xanchor = "right"))
+          )
+        }
+        if (!is.null(bnp_df)) {
+          card_fig <- plotly::add_trace(card_fig,
+            type = "scatter", mode = "markers",
+            x = bnp_df$measurement_date, y = bnp_df$value_as_number,
+            yaxis = "y2",
+            marker = list(size = 7, color = "#E65100", symbol = "diamond"),
+            name = "BNP (pg/mL)", showlegend = TRUE,
+            hovertemplate = "<b>%{x|%Y-%m-%d}</b><br>BNP: %{y:.0f} pg/mL<extra></extra>"
+          )
+          card_fig <- plotly::layout(card_fig,
+            yaxis2 = list(title = "BNP (pg/mL)", overlaying = "y", side = "right",
+                          rangemode = "tozero", showgrid = FALSE,
+                          tickfont = list(size = 10, color = "#E65100"),
+                          titlefont = list(size = 10, color = "#E65100"))
+          )
+        }
+        card_fig <- plotly::layout(card_fig,
+          yaxis = list(title = "Troponin-I (ng/mL)", rangemode = "tozero",
+                       tickfont = list(size = 10, color = "#5A6482"),
+                       titlefont = list(size = 10, color = "#5A6482")),
+          xaxis = list(showgrid = FALSE, tickformat = "%b %Y",
+                       tickfont = list(size = 10, color = "#5A6482"))
+        )
+        row_list[[n_rows]] <- card_fig
+      }
+
+      if (length(row_list) == 1L) {
+        sfig <- row_list[[1L]]
+      } else {
+        sfig <- plotly::subplot(row_list, nrows = length(row_list),
+                                 shareX = TRUE, titleX = FALSE, titleY = TRUE,
+                                 margin = 0.06)
+      }
+
+      sfig <- plotly::layout(sfig,
+        hovermode     = "x unified",
+        hoverlabel    = list(bgcolor = "#1A2744",
+                             font = list(color = "#fff", size = 11),
+                             bordercolor = "#243055"),
+        margin        = list(t = 8, b = 8, l = 58, r = 58),
+        showlegend    = TRUE,
+        legend        = list(orientation = "h", y = -0.18,
+                             font = list(size = 10, color = "#5A6482")),
+        paper_bgcolor = "#FFFFFF",
+        plot_bgcolor  = "#FFFFFF",
+        font          = list(family = "Inter, sans-serif")
+      )
+      plotly::config(sfig, displayModeBar = FALSE, responsive = TRUE)
     })
 
     # -------------------------------------------------------------------------

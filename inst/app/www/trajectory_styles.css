@@ -334,6 +334,91 @@ body,
   margin-bottom: 6px;
 }
 
+.summary-stat.stat-safe { border-top: 3px solid #2E7D32; }
+.summary-stat.stat-warn { border-top: 3px solid #EF6C00; }
+.summary-stat.stat-warn .stat-value { color: #E65100; }
+.summary-stat.stat-alert { border-top: 3px solid #C62828; background: #FFF5F5; }
+.summary-stat.stat-alert .stat-value { color: #C62828; }
+
+/* Layer 1 title row with time-in-target badges                       */
+/* ------------------------------------------------------------------ */
+.layer1-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.tit-badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.tit-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+.tit-good  { background: #E8F5E9; color: #2E7D32; border: 1px solid #A5D6A7; }
+.tit-warn  { background: #FFF3E0; color: #E65100; border: 1px solid #FFCC80; }
+.tit-alert { background: #FFEBEE; color: #C62828; border: 1px solid #EF9A9A; }
+
+/* Last-values status row (live biomarker tiles)                       */
+/* ------------------------------------------------------------------ */
+.last-val-row {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.last-val-tile {
+  flex: 1;
+  min-width: 90px;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.last-val-tile.lv-normal { border-left: 3px solid #2E7D32; }
+.last-val-tile.lv-warn   { border-left: 3px solid #EF6C00; }
+.last-val-tile.lv-alert  { border-left: 3px solid #C62828; background: #FFF5F5; }
+
+.lv-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.lv-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.lv-alert .lv-value  { color: #C62828; }
+.lv-warn  .lv-value  { color: #E65100; }
+.lv-arrow {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.lv-date {
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Dashboard boxes / cards                                             */
 /* ------------------------------------------------------------------ */
