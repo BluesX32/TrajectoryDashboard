@@ -729,7 +729,7 @@ trajectory_server <- function(connector) {
           titlefont  = list(size = 11, color = "#9099B3")
         ),
         yaxis2     = if (has_steroid_line) list(
-          title       = "Pred-equiv (mg)",
+          title       = "mg",
           overlaying  = "y",
           side        = "right",
           showgrid    = FALSE,
@@ -743,8 +743,7 @@ trajectory_server <- function(connector) {
           font      = list(color = "#fff", size = 12),
           bordercolor = "#243055"
         ),
-        margin        = list(t = 8, b = 8,
-                             l = 52, r = if (has_steroid_line) 52 else 12),
+        margin        = list(t = 8, b = 8, l = 52, r = 12),
         showlegend    = has_steroid_line,
         legend        = list(orientation = "h", y = -0.12,
                              font = list(size = 10, color = "#5A6482")),
@@ -1138,15 +1137,26 @@ trajectory_server <- function(connector) {
         }
       }
 
-      # Y-axis tick labels
+      # Y-axis tick labels — abbreviated to fit l=52 left margin so the plot
+      # area starts at the same pixel as density_bar and macro_trajectory_plot.
+      .abbrev_row <- function(x) {
+        abbrevs <- c(
+          "Corticosteroids" = "Pred.",  "Azathioprine"  = "AZA",
+          "Methotrexate"    = "MTX",    "Mycophenolate" = "MMF",
+          "IVIG"            = "IVIG",   "Rituximab"     = "RTX",
+          "JAK inhibitors"  = "JAKi",   "Other IST"     = "Other",
+          "Hospital"        = "Hosp.",  "Diagnoses"     = "Dx"
+        )
+        unname(abbrevs[x] %||% x)
+      }
       all_y_labels <- list(
-        list(y = 5.0,  label = "Hospital"),
-        list(y = 1.85, label = "Diagnoses"),
+        list(y = 5.0,  label = .abbrev_row("Hospital")),
+        list(y = 1.85, label = .abbrev_row("Diagnoses")),
         list(y = 0.5,  label = toupper(input$focus_lab %||% "Lab"))
       )
       for (fam in names(family_y)) {
         all_y_labels[[length(all_y_labels) + 1L]] <- list(
-          y = family_y[fam], label = fam
+          y = family_y[fam], label = .abbrev_row(fam)
         )
       }
       y_vals   <- sapply(all_y_labels, `[[`, "y")
@@ -1209,7 +1219,7 @@ trajectory_server <- function(connector) {
           font       = list(color = "#fff", size = 12),
           bordercolor = "#243055"
         ),
-        margin        = list(t = 8, b = 36, l = 120, r = 12),
+        margin        = list(t = 8, b = 36, l = 52, r = 12),
         legend        = list(orientation = "h", y = -0.18,
                              font = list(size = 11, color = "#5A6482")),
         paper_bgcolor = "#FFFFFF",

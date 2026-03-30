@@ -230,22 +230,23 @@ trajectory_ui <- function(person_ids = NULL) {
           });
 
           // ── Three-way x-axis sync ───────────────────────────────────────────
-          // Locks density_bar, macro_trajectory_plot, and event_layer_plot to
-          // the same x range at all times.  Pure client-side — no R round-trip.
+          // Keeps density_bar, macro_trajectory_plot, and event_layer_plot
+          // locked to the same x range at all times.
           //
-          // Key design choices:
-          //   removeAllListeners — guarantees a clean slate even when plotly
-          //     rebuilds its internal EventEmitter on re-render, making stale
-          //     handler references unreliable.
-          //   Debounced attachAll — shiny:value fires for every output update
-          //     (titles, tables, badges …).  Without debounce, attachAll would
-          //     run dozens of times per patient load and could still leave
-          //     multiple listeners if the 150 ms timeouts overlap a re-render.
+          // Why previous approaches failed:
+          //   shiny:value fires when Shiny *sends* the value — plotly has not
+          //   rendered yet.  el._fullLayout is undefined so attachListener
+          //   silently returns without adding any listener.  The 200 ms debounce
+          //   was a guess; for slow/complex plots it is not enough.
+          //
+          // Fix: use plotly_afterplot, which fires only after plotly actually
+          // finishes a render.  A lightweight poll installs the afterplot
+          // listener before the first render so nothing is missed.
           (function() {
             var PLOTS = ["density_bar", "macro_trajectory_plot", "event_layer_plot"];
-            var _lock        = false;
-            var _attachTimer = null;
+            var _lock = false;
 
+            // ── sync helper ───────────────────────────────────────────────────
             function syncAll(sourceId, update) {
               if (_lock) return;
               _lock = true;
@@ -257,10 +258,9 @@ trajectory_ui <- function(person_ids = NULL) {
               _lock = false;
             }
 
-            function attachListener(el) {
+            // ── bind plotly_relayout on a fully-rendered plot ─────────────────
+            function bindRelayout(el) {
               if (!el || !el._fullLayout) return;
-              // Wipe ALL plotly_relayout listeners before adding ours so that
-              // repeated re-renders never accumulate duplicate handlers.
               try { el.removeAllListeners("plotly_relayout"); } catch(e) {}
               el.on("plotly_relayout", function(ed) {
                 if (_lock) return;
@@ -277,21 +277,55 @@ trajectory_ui <- function(person_ids = NULL) {
               });
             }
 
-            function attachAll() {
-              PLOTS.forEach(function(id) {
-                attachListener(document.getElementById(id));
+            // ── self-renewing plotly_afterplot listener ───────────────────────
+            // After every render (newPlot or react) plotly fires plotly_afterplot.
+            // We re-bind plotly_relayout there and immediately re-register
+            // ourselves so the next render is also caught.
+            function bindAfterplot(el) {
+              try { el.removeAllListeners("plotly_afterplot"); } catch(e) {}
+              el.on("plotly_afterplot", function handler() {
+                bindRelayout(el);
+                // Re-register for the render after this one
+                try { el.removeAllListeners("plotly_afterplot"); } catch(e) {}
+                el.on("plotly_afterplot", handler);
               });
             }
 
-            // Debounced re-attach: runs once after all Shiny outputs settle,
-            // not once per output (which would be 10-20× per patient load).
-            function scheduleAttach() {
-              clearTimeout(_attachTimer);
-              _attachTimer = setTimeout(attachAll, 200);
+            // ── setup for one plot element ────────────────────────────────────
+            // el.on() is added by plotly during Plotly.newPlot initialisation,
+            // BEFORE el._fullLayout is set.  So we can install the afterplot
+            // listener early, then bindRelayout() once _fullLayout exists.
+            function setupSync(el) {
+              if (!el || typeof el.on !== "function") return;
+              bindAfterplot(el);   // catches all future renders
+              bindRelayout(el);    // covers the already-rendered case
             }
 
-            $(document).on("shiny:value", function(e) {
-              if (PLOTS.indexOf(e.name) !== -1) scheduleAttach();
+            // ── poll until each plot element has been initialised by plotly ───
+            // We stop trying each ID once its el.on method exists (set by
+            // Plotly.newPlot before rendering begins).
+            var _pending = PLOTS.slice();
+            var _poll = setInterval(function() {
+              _pending = _pending.filter(function(id) {
+                var el = document.getElementById(id);
+                if (el && typeof el.on === "function") {
+                  setupSync(el);
+                  return false;   // done with this plot
+                }
+                return true;      // keep polling
+              });
+              if (_pending.length === 0) clearInterval(_poll);
+            }, 100);
+
+            // ── re-run setup on Shiny idle (patient reload, filter change) ────
+            // shiny:idle fires after all outputs are sent.  At that point plotly
+            // may not have rendered yet, but el.on exists, so bindAfterplot
+            // succeeds — the plotly_afterplot event will do the rest.
+            $(document).on("shiny:idle", function() {
+              PLOTS.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el && typeof el.on === "function") setupSync(el);
+              });
             });
           })();
         '))
