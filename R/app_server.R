@@ -11,12 +11,16 @@ trajectory_server <- function(connector) {
   function(input, output, session) {
 
     # -------------------------------------------------------------------------
-    # Connection lifecycle — disconnect DB when the browser window is closed
+    # Connection lifecycle — disconnect DB and stop app when browser closes
     # -------------------------------------------------------------------------
     # session$onSessionEnded fires immediately when the browser tab/window closes
-    # (or the user navigates away). We disconnect the persistent JDBC connection
-    # so SQL Server is not left holding idle sockets. The tryCatch swallows errors
-    # from double-disconnect (harmless if the connection was already dropped).
+    # (or the user navigates away). We:
+    #   1. Disconnect the persistent JDBC connection so SQL Server is not left
+    #      holding idle sockets.
+    #   2. Call shiny::stopApp() so the R process exits automatically — no need
+    #      to hit Ctrl+C or end the session manually.
+    # stopApp() must be called via shiny::getDefaultReactiveDomain() because
+    # onSessionEnded callbacks run outside the normal reactive context.
     session$onSessionEnded(function() {
       if (inherits(connector, "omop_connector") && !is.null(connector$conn)) {
         tryCatch(
@@ -30,6 +34,7 @@ trajectory_server <- function(connector) {
           error = function(e) NULL
         )
       }
+      shiny::stopApp()
     })
 
     # Belt-and-suspenders: also fires when the R process / shiny::runApp() stops
