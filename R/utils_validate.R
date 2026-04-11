@@ -59,14 +59,19 @@ safe_as_numeric <- function(x) {
 # 4. Require package helper
 # ---------------------------------------------------------------------------
 
-#' Check that an optional package is installed
+#' Check that an optional package is installed, installing it automatically if
+#' missing.
 #' @noRd
 .require_pkg <- function(pkg) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
-    rlang::abort(paste0(
-      "Package '", pkg, "' is required but not installed.\n",
-      "Install with: install.packages('", pkg, "')"
-    ))
+    message("[TrajectoryDashboard] Installing missing package: ", pkg)
+    utils::install.packages(pkg)
+    if (!requireNamespace(pkg, quietly = TRUE)) {
+      rlang::abort(paste0(
+        "Package '", pkg, "' could not be installed automatically.\n",
+        "Please install manually: install.packages('", pkg, "')"
+      ))
+    }
   }
 }
 

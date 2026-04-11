@@ -286,7 +286,7 @@ body,
   border: 1px solid #C5D5F5;
   border-radius: var(--radius-md);
   padding: 16px 20px;
-  margin-bottom: 16px;
+  margin: 0 15px 16px;  /* 15px L/R matches col-sm-12 padding so it aligns with boxes */
   box-shadow: var(--shadow-sm);
 }
 
@@ -314,8 +314,9 @@ body,
 /* ------------------------------------------------------------------ */
 .patient-summary-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
+  padding: 0 15px;      /* match col-sm-12 padding so tiles align with boxes */
   margin-bottom: 16px;
 }
 
@@ -369,7 +370,7 @@ body,
 .last-val-row {
   grid-column: 1 / -1;   /* span full grid width */
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
@@ -840,7 +841,7 @@ table.dataTable tbody td {
 /* ≥ 1400px — wide monitor */
 @media (min-width: 1400px) {
   .content-wrapper { padding: 20px 24px !important; }
-  .patient-summary-bar { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+  .patient-summary-bar { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 }
 
 /* 992–1399px — standard laptop: default styles above apply, no override needed */
@@ -852,8 +853,8 @@ table.dataTable tbody td {
   .summary-stat          { padding: 8px 12px; }
   .summary-stat .stat-value { font-size: 16px; }
   .summary-stat .stat-icon  { font-size: 14px; margin-bottom: 4px; }
-  .patient-summary-bar   { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); gap: 8px; }
-  .last-val-row          { grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 6px; }
+  .patient-summary-bar   { grid-template-columns: repeat(auto-fit, minmax(95px, 1fr)); gap: 8px; }
+  .last-val-row          { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 6px; }
 
   .box > .box-header     { padding: 9px 14px !important; }
   .box .box-body         { padding: 10px 12px !important; }
@@ -874,8 +875,8 @@ table.dataTable tbody td {
   .content-wrapper,
   .main-footer { margin-left: 0 !important; }
 
-  .patient-summary-bar   { grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 6px; }
-  .last-val-row          { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 5px; }
+  .patient-summary-bar   { grid-template-columns: repeat(auto-fit, minmax(85px, 1fr)); gap: 6px; }
+  .last-val-row          { grid-template-columns: repeat(auto-fit, minmax(78px, 1fr)); gap: 5px; }
   .summary-stat          { padding: 7px 10px; }
   .summary-stat .stat-value { font-size: 14px; }
 
