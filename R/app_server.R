@@ -892,9 +892,28 @@ trajectory_server <- function(connector) {
         tx <- tx[tx$drug_family %in% sel_families, ]
       }
 
-      # Build subplot: hospitalizations, meds, conditions, focus labs, DPs
-      # Use a single plotly figure with shape annotations for simplicity
+      # ── Layout constants (computed once, used throughout) ─────────────
+      # All y-positions derive from these so adding/removing families
+      # re-spaces every row proportionally.
+      drug_families <- unique(tx$drug_family)
+      n_fam         <- max(length(drug_families), 0L)
 
+      LAB_Y    <- 0.50   # focus-lab scatter band centre
+      COND_Y   <- 1.30   # condition tick marks
+      MED_BASE <- 2.20   # y-centre of lowest medication row
+      ROW_GAP  <- 0.90   # vertical gap between consecutive medication rows
+      BAR_H    <- 0.35   # half-height of each medication bar
+      HOSP_Y   <- MED_BASE + max(n_fam - 1L, 0L) * ROW_GAP + 1.10
+      Y_TOP    <- HOSP_Y + 0.80
+
+      family_colors <- c(
+        Corticosteroids  = "#EF5350", Azathioprine = "#7E57C2",
+        Methotrexate     = "#26A69A", Mycophenolate = "#FF7043",
+        IVIG             = "#42A5F5", Rituximab     = "#66BB6A",
+        "JAK inhibitors" = "#EC407A", "Other IST"   = "#8D6E63"
+      )
+
+      # ── Build plot ────────────────────────────────────────────────────
       # Start with an invisible anchor trace (suppresses "no trace type" warning)
       fig <- plotly::plot_ly(
         source     = "event_layer",
@@ -905,20 +924,22 @@ trajectory_server <- function(connector) {
         showlegend = FALSE
       )
 
-      # DMARD gap bands — pre-computed by dmard_gaps() reactive (cached)
+      # DMARD gap bands — pre-computed by dmard_gaps() reactive (cached).
+      # Y-range is filled after layout constants are computed below; compute
+      # them lazily here using the same constants set above.
       if (isTRUE(input$show_gaps)) {
         for (gap in dmard_gaps()) {
           fig <- plotly::add_trace(fig,
             type = "scatter", mode = "lines",
             x = c(gap$start, gap$end, gap$end, gap$start, gap$start),
-            y = c(0.3, 0.3, 5.8, 5.8, 0.3),
+            y = c(0.2, 0.2, Y_TOP, Y_TOP, 0.2),
             fill = "toself", fillcolor = "rgba(255,152,0,0.07)",
             line = list(width = 0, color = "rgba(0,0,0,0)"),
             showlegend = FALSE, hoverinfo = "none", name = "DMARD gap"
           )
           fig <- plotly::add_trace(fig,
             type = "scatter", mode = "markers",
-            x = c(gap$start + floor(gap$days / 2L)), y = c(5.6),
+            x = c(gap$start + floor(gap$days / 2L)), y = c(Y_TOP - 0.2),
             marker = list(size = 0, opacity = 0),
             showlegend = FALSE,
             hovertemplate = paste0(
@@ -946,7 +967,9 @@ trajectory_server <- function(connector) {
               x         = c(v$visit_start_date, v$visit_end_date,
                             v$visit_end_date, v$visit_start_date,
                             v$visit_start_date),
-              y         = c(4.6, 4.6, 5.4, 5.4, 4.6),
+              y         = c(HOSP_Y - 0.40, HOSP_Y - 0.40,
+                            HOSP_Y + 0.40, HOSP_Y + 0.40,
+                            HOSP_Y - 0.40),
               fill      = "toself",
               fillcolor = "rgba(117,117,117,0.35)",
               line      = list(width = 0, color = "rgba(0,0,0,0)"),
@@ -966,23 +989,25 @@ trajectory_server <- function(connector) {
       }
 
       # Row: Medications (one y-level per drug family)
-      drug_families <- unique(tx$drug_family)
-      family_y <- stats::setNames(
-        seq(3.0, by = -0.65, length.out = length(drug_families)),
-        drug_families
-      )
-      family_colors <- c(
-        Corticosteroids  = "#EF5350", Azathioprine = "#7E57C2",
-        Methotrexate     = "#26A69A", Mycophenolate = "#FF7043",
-        IVIG             = "#42A5F5", Rituximab     = "#66BB6A",
-        "JAK inhibitors" = "#EC407A", "Other IST"   = "#8D6E63"
-      )
+      family_y <- if (n_fam > 0L) {
+        stats::setNames(
+          seq(MED_BASE, by = ROW_GAP, length.out = n_fam),
+          drug_families
+        )
+      } else numeric(0)
+
+      # Track which legend entries have already been shown — prevents duplicate
+      # legend entries when the same family appears in non-consecutive rows.
+      shown_families <- character(0)
 
       if (nrow(tx) > 0) {
         for (i in seq_len(nrow(tx))) {
-          ep <- tx[i, ]
-          y0  <- family_y[ep$drug_family] %||% 2.0
+          ep  <- tx[i, ]
+          y0  <- family_y[ep$drug_family] %||% MED_BASE
           col <- family_colors[ep$drug_family] %||% "#9E9E9E"
+
+          first_for_family <- !ep$drug_family %in% shown_families
+          if (first_for_family) shown_families <- c(shown_families, ep$drug_family)
 
           fig <- plotly::add_trace(
             fig,
@@ -991,13 +1016,14 @@ trajectory_server <- function(connector) {
             x         = c(ep$phase_start, ep$phase_end,
                           ep$phase_end, ep$phase_start,
                           ep$phase_start),
-            y         = c(y0 - 0.25, y0 - 0.25, y0 + 0.25, y0 + 0.25,
-                          y0 - 0.25),
+            y         = c(y0 - BAR_H, y0 - BAR_H,
+                          y0 + BAR_H, y0 + BAR_H,
+                          y0 - BAR_H),
             fill      = "toself",
             fillcolor = .hex_to_rgba(col, 0.75),
             line      = list(width = 0, color = "rgba(0,0,0,0)"),
             name      = ep$drug_family,
-            showlegend = (i == 1L || tx$drug_family[i] != tx$drug_family[i - 1L]),
+            showlegend  = first_for_family,
             legendgroup = ep$drug_family,
             hovertemplate = paste0(
               "<b>", ep$drug_name, "</b><br>",
@@ -1036,7 +1062,7 @@ trajectory_server <- function(connector) {
             type   = "scatter",
             mode   = "markers",
             x      = conds$condition_start_date,
-            y      = rep(1.85, nrow(conds)),
+            y      = rep(COND_Y, nrow(conds)),
             marker = list(
               symbol = "line-ns",
               size   = 12,
@@ -1075,8 +1101,8 @@ trajectory_server <- function(connector) {
           cap    <- if (!is.na(uln2) && uln2 > 0) 5 * uln2 else max(lab_focus2$value_as_number)
           lo2    <- if (!is.na(uln2) && uln2 > 0) 0 else min(lab_focus2$value_as_number)
           rng    <- cap - lo2
-          # Normalise to y-band 0.35–0.65
-          y_norm <- 0.35 + 0.30 * pmin(pmax((lab_focus2$value_as_number - lo2) / rng, 0), 1)
+          # Normalise to y-band LAB_Y ± 0.30
+          y_norm <- (LAB_Y - 0.30) + 0.60 * pmin(pmax((lab_focus2$value_as_number - lo2) / rng, 0), 1)
 
           # Assign phase by interval
           phase_idx <- findInterval(
@@ -1118,12 +1144,12 @@ trajectory_server <- function(connector) {
       # Row: Decision points as diamond markers
       if (input$show_dp && !is.null(dps) && nrow(dps) > 0) {
         dp_y_map <- c(
-          escalation_point = 1.2,
-          taper_point      = 1.0,
-          medication_change= 0.8,
-          admission        = 5.0,
-          workup_point     = 1.5,
-          referral_point   = 1.3
+          escalation_point  = COND_Y + 0.30,
+          taper_point       = COND_Y + 0.10,
+          medication_change = COND_Y - 0.10,
+          admission         = HOSP_Y,
+          workup_point      = COND_Y + 0.50,
+          referral_point    = COND_Y + 0.40
         )
         dp_color_map <- c(
           escalation_point = "#D32F2F",
@@ -1164,8 +1190,7 @@ trajectory_server <- function(connector) {
         }
       }
 
-      # Y-axis tick labels — abbreviated to fit l=52 left margin so the plot
-      # area starts at the same pixel as density_bar and macro_trajectory_plot.
+      # Y-axis tick labels — abbreviated row names, one per visible row.
       .abbrev_row <- function(x) {
         abbrevs <- c(
           "Corticosteroids" = "Pred.",  "Azathioprine"  = "AZA",
@@ -1177,9 +1202,9 @@ trajectory_server <- function(connector) {
         unname(abbrevs[x] %||% x)
       }
       all_y_labels <- list(
-        list(y = 5.0,  label = .abbrev_row("Hospital")),
-        list(y = 1.85, label = .abbrev_row("Diagnoses")),
-        list(y = 0.5,  label = toupper(input$focus_lab %||% "Lab"))
+        list(y = HOSP_Y, label = .abbrev_row("Hospital")),
+        list(y = COND_Y, label = .abbrev_row("Diagnoses")),
+        list(y = LAB_Y,  label = toupper(input$focus_lab %||% "Lab"))
       )
       for (fam in names(family_y)) {
         all_y_labels[[length(all_y_labels) + 1L]] <- list(
@@ -1192,28 +1217,37 @@ trajectory_server <- function(connector) {
       # Drug toxicity warning markers (triangles overlaid on med bars)
       tox <- toxicity_flags()
       if (!is.null(tox) && nrow(tox) > 0) {
+        shown_tox_types <- character(0)
         for (ti in seq_len(nrow(tox))) {
           tf    <- tox[ti, ]
-          t_col <- if (tf$severity == "alert") "#C62828" else "#EF6C00"
-          # y position: find the drug's family y-level + small offset.
-          # Use tx (treatment_phases) which already has drug_family.
+          t_col <- if (!is.na(tf$severity) && tf$severity == "alert") {
+            "#C62828"
+          } else {
+            "#EF6C00"
+          }
+          # y: sit just above the relevant medication bar
           fam_guess <- tx[!is.na(tx$phase_start) & tx$phase_start <= tf$date &
                             !is.na(tx$drug_family), ]
-          fam_y_off <- if (nrow(fam_guess) > 0 && !is.null(family_y) &&
-                            length(family_y) > 0) {
+          fam_y_off <- if (nrow(fam_guess) > 0 && length(family_y) > 0) {
             fam_nm <- fam_guess$drug_family[nrow(fam_guess)]
-            (family_y[fam_nm] %||% 2.5) + 0.25
-          } else 2.75
+            (family_y[fam_nm] %||% MED_BASE) + BAR_H + 0.15
+          } else {
+            MED_BASE + BAR_H + 0.15
+          }
+          first_tox_type <- !tf$toxicity_type %in% shown_tox_types
+          if (first_tox_type) {
+            shown_tox_types <- c(shown_tox_types, tf$toxicity_type)
+          }
           fig <- plotly::add_trace(
             fig, type = "scatter", mode = "markers",
             x          = tf$date,
             y          = fam_y_off,
             marker     = list(symbol = "triangle-up", size = 11,
-                              color = t_col,
-                              line = list(color = "#fff", width = 1)),
-            name       = tf$toxicity_type,
-            showlegend = (ti == 1L),
-            legendgroup = "toxicity",
+                              color  = t_col,
+                              line   = list(color = "#fff", width = 1)),
+            name        = tf$toxicity_type,
+            showlegend  = first_tox_type,
+            legendgroup = paste0("tox_", tf$toxicity_type),
             hovertemplate = paste0(
               "\u26a0 ", tf$toxicity_type, "<br>",
               "<b>", format(tf$date, "%Y-%m-%d"), "</b><br>",
@@ -1238,17 +1272,23 @@ trajectory_server <- function(connector) {
           ticktext  = y_labels,
           showgrid  = FALSE,
           zeroline  = FALSE,
-          range     = c(0.3, 6)
+          range     = c(0.1, Y_TOP + 0.1)
         ),
         hovermode  = "closest",
         hoverlabel = list(
-          bgcolor    = "#1A2744",
-          font       = list(color = "#fff", size = 12),
+          bgcolor     = "#1A2744",
+          font        = list(color = "#fff", size = 12),
           bordercolor = "#243055"
         ),
-        margin        = list(t = 8, b = 36, l = 52, r = 12),
-        legend        = list(orientation = "h", y = -0.18,
-                             font = list(size = 11, color = "#5A6482")),
+        margin = list(t = 8, b = 8, l = 52, r = 12),
+        legend = list(
+          orientation = "h",
+          y           = -0.08,
+          xanchor     = "center",
+          x           = 0.5,
+          font        = list(size = 11, color = "#5A6482"),
+          tracegroupgap = 4
+        ),
         paper_bgcolor = "#FFFFFF",
         plot_bgcolor  = "#FFFFFF",
         font          = list(family = "Inter, sans-serif")
@@ -1256,6 +1296,19 @@ trajectory_server <- function(connector) {
 
       fig <- plotly::event_register(fig, "plotly_click")
       plotly::config(fig, displayModeBar = FALSE, responsive = TRUE)
+    })
+
+    # Adaptive-height container for event_layer_plot.
+    # Height scales with the number of visible drug families so rows never
+    # squish together. Minimum 160px; each family adds ~44px above the base.
+    output$event_layer_wrap <- shiny::renderUI({
+      n_visible <- tryCatch(
+        length(unique(treatment_phases()$drug_family)),
+        error = function(e) 3L
+      )
+      height_px <- max(160L, 110L + n_visible * 44L)
+      plotly::plotlyOutput("event_layer_plot",
+                            height = paste0(height_px, "px"))
     })
 
     # -------------------------------------------------------------------------

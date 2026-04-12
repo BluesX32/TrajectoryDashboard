@@ -430,7 +430,7 @@ trajectory_ui <- function(person_ids = NULL) {
 
         shiny::div(
           class = "plot-wrap",
-          plotly::plotlyOutput("event_layer_plot", height = "30vh")
+          shiny::uiOutput("event_layer_wrap")
         )
       ),
 
