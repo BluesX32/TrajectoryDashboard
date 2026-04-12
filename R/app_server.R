@@ -524,13 +524,15 @@ trajectory_server <- function(connector) {
               enzyme_labels[ek], ": %{y:.0f}% ULN<extra></extra>")
           )
           if (nrow(edf) >= 4L) {
-            lo_e <- tryCatch(stats::loess(pct ~ as.numeric(edf$measurement_date),
-                                          span = 0.4), error = function(e) NULL)
+            x_num_e <- as.numeric(edf$measurement_date)
+            lo_e <- tryCatch(
+              stats::loess(pct ~ x_num_e, span = 0.4),
+              error = function(e) NULL)
             if (!is.null(lo_e)) {
-              pd_e <- seq(min(edf$measurement_date), max(edf$measurement_date), by = "7 days")
-              pv_e <- tryCatch(stats::predict(lo_e,
-                newdata = data.frame(
-                  `edf$measurement_date` = as.numeric(pd_e))),
+              pd_e     <- seq(min(edf$measurement_date), max(edf$measurement_date), by = "7 days")
+              pd_e_num <- as.numeric(pd_e)
+              pv_e <- tryCatch(
+                stats::predict(lo_e, newdata = data.frame(x_num_e = pd_e_num)),
                 error = function(e) NULL)
               if (!is.null(pv_e) && length(pv_e) == length(pd_e)) {
                 ok   <- !is.na(pv_e)
@@ -684,9 +686,9 @@ trajectory_server <- function(connector) {
 
         # LOESS smoothed line (if enough points)
         if (nrow(lab_focus) >= 4L) {
+          x_num <- as.numeric(lab_focus$measurement_date)
           lo <- tryCatch(
-            stats::loess(value_as_number ~ as.numeric(measurement_date),
-                         data = lab_focus, span = 0.4),
+            stats::loess(lab_focus$value_as_number ~ x_num, span = 0.4),
             error = function(e) NULL
           )
           if (!is.null(lo)) {
@@ -694,7 +696,7 @@ trajectory_server <- function(connector) {
                               max(lab_focus$measurement_date), by = "7 days")
             pred_vals  <- tryCatch(
               stats::predict(lo, newdata = data.frame(
-                measurement_date = as.numeric(pred_dates))),
+                x_num = as.numeric(pred_dates))),
               error = function(e) NULL
             )
             # predict() may return fewer rows than newdata when boundary points
@@ -1978,11 +1980,19 @@ trajectory_server <- function(connector) {
     # NOT clinical decision support — retrospective/hypothesis-generating only.
     # =========================================================================
 
+    # Normalise OMOP column names to the generic names expected by research
+    # modules (date/value/lab_name/hi_ref/lo_ref for labs; start_date/end_date
+    # for meds; date for visits).  Called once per patient load.
+    research_pd <- shiny::reactive({
+      shiny::req(patient_data())
+      .normalize_for_research(patient_data())
+    }) |> shiny::bindCache(patient_data())
+
     # -- Research flags -------------------------------------------------------
     research_flags_r <- shiny::reactive({
-      shiny::req(input$show_research_panel, patient_data())
+      shiny::req(input$show_research_panel, research_pd())
       tryCatch(
-        get_research_flags(patient_data()),
+        get_research_flags(research_pd()),
         error = function(e) list(flags = NULL, triggered_count = 0L)
       )
     }) |> shiny::bindCache(input$show_research_panel, patient_data())
@@ -2028,9 +2038,9 @@ trajectory_server <- function(connector) {
 
     # -- Archetype ------------------------------------------------------------
     archetype_r <- shiny::reactive({
-      shiny::req(input$show_research_panel, patient_data())
+      shiny::req(input$show_research_panel, research_pd())
       tryCatch(
-        classify_archetype(patient_data()),
+        classify_archetype(research_pd()),
         error = function(e) list(
           archetype         = "error",
           archetype_display = "Error",
@@ -2111,10 +2121,10 @@ trajectory_server <- function(connector) {
     # -- Event alignment -------------------------------------------------------
 
     # Populate the event selector when patient loads + research panel is open
-    shiny::observeEvent(list(patient_data(), input$show_research_panel), {
-      shiny::req(patient_data(), input$show_research_panel)
+    shiny::observeEvent(list(research_pd(), input$show_research_panel), {
+      shiny::req(research_pd(), input$show_research_panel)
       events <- tryCatch(
-        get_med_change_events(patient_data()),
+        get_med_change_events(research_pd()),
         error = function(e) NULL
       )
       if (is.null(events) || nrow(events) == 0L) {
@@ -2132,9 +2142,9 @@ trajectory_server <- function(connector) {
     })
 
     aligned_events_r <- shiny::reactive({
-      shiny::req(input$show_research_panel, patient_data(), input$selected_event_date)
+      shiny::req(input$show_research_panel, research_pd(), input$selected_event_date)
       tryCatch(
-        align_around_event(patient_data(), input$selected_event_date),
+        align_around_event(research_pd(), input$selected_event_date),
         error = function(e) list(labs = NULL, doses = NULL, visits = NULL)
       )
     }) |> shiny::bindCache(input$show_research_panel, patient_data(),
@@ -2183,15 +2193,15 @@ trajectory_server <- function(connector) {
     })
     # -- Comparison windows ---------------------------------------------------
     comparison_stats_r <- shiny::reactive({
-      shiny::req(input$show_research_panel, patient_data())
+      shiny::req(input$show_research_panel, research_pd())
       windows <- tryCatch(
-        define_comparison_windows(patient_data(), n_windows = 2L,
+        define_comparison_windows(research_pd(), n_windows = 2L,
                                    method = "around_event"),
         error = function(e) NULL
       )
       if (is.null(windows)) return(NULL)
       tryCatch(
-        compare_windows(patient_data(), windows),
+        compare_windows(research_pd(), windows),
         error = function(e) NULL
       )
     }) |> shiny::bindCache(input$show_research_panel, patient_data())
@@ -2214,6 +2224,67 @@ trajectory_server <- function(connector) {
     })
 
   }  # end server function
+}
+
+# ---------------------------------------------------------------------------
+# Internal helper: normalise OMOP column names for research modules
+# ---------------------------------------------------------------------------
+# The research modules (research_flags, episode_labels, archetypes,
+# event_alignment, comparison_windows) expect generic column names:
+#   labs:  date / value / lab_name / hi_ref / lo_ref
+#   meds:  start_date / end_date / drug_name / drug_family / quantity
+#   visits: date
+#
+# The OMOP connector (and synthetic data) uses:
+#   labs:  measurement_date / value_as_number / measurement_name /
+#          range_high / range_low
+#   meds:  drug_exposure_start_date / drug_exposure_end_date
+#   visits: visit_start_date
+#
+# We add the generic aliases without removing the originals so existing
+# server code that reads OMOP names continues to work.
+.normalize_for_research <- function(pd) {
+  # ── Labs ────────────────────────────────────────────────────────────
+  labs <- pd$labs
+  if (!is.null(labs) && nrow(labs) > 0L) {
+    if (!"date"     %in% names(labs) && "measurement_date"  %in% names(labs))
+      labs$date     <- labs$measurement_date
+    if (!"value"    %in% names(labs) && "value_as_number"   %in% names(labs))
+      labs$value    <- labs$value_as_number
+    if (!"lab_name" %in% names(labs)) {
+      if ("measurement_name"         %in% names(labs))
+        labs$lab_name <- labs$measurement_name
+      else if ("measurement_concept_name" %in% names(labs))
+        labs$lab_name <- labs$measurement_concept_name
+    }
+    if (!"hi_ref" %in% names(labs) && "range_high" %in% names(labs))
+      labs$hi_ref <- labs$range_high
+    if (!"lo_ref" %in% names(labs) && "range_low"  %in% names(labs))
+      labs$lo_ref <- labs$range_low
+    pd$labs <- labs
+  }
+
+  # ── Medications ─────────────────────────────────────────────────────
+  meds <- pd$medications
+  if (!is.null(meds) && nrow(meds) > 0L) {
+    if (!"start_date" %in% names(meds) &&
+        "drug_exposure_start_date" %in% names(meds))
+      meds$start_date <- as.Date(meds$drug_exposure_start_date)
+    if (!"end_date" %in% names(meds) &&
+        "drug_exposure_end_date" %in% names(meds))
+      meds$end_date <- as.Date(meds$drug_exposure_end_date)
+    pd$medications <- meds
+  }
+
+  # ── Visits ──────────────────────────────────────────────────────────
+  visits <- pd$visits
+  if (!is.null(visits) && nrow(visits) > 0L) {
+    if (!"date" %in% names(visits) && "visit_start_date" %in% names(visits))
+      visits$date <- as.Date(visits$visit_start_date)
+    pd$visits <- visits
+  }
+
+  pd
 }
 
 # ---------------------------------------------------------------------------
