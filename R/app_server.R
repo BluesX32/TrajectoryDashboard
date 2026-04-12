@@ -101,20 +101,8 @@ trajectory_server <- function(connector) {
     })
     shiny::outputOptions(output, "patient_loaded", suspendWhenHidden = FALSE)
 
-    # Suspend detail-drawer outputs when their tab or the box is not visible.
-    # By default Shiny renders every output on every invalidation regardless of
-    # visibility; suspendWhenHidden = TRUE (the default) makes Shiny skip the
-    # render entirely when the output is hidden, which prevents the 7 heavy
-    # outputs inside the collapsed detail box from running on patient load.
-    # These outputs already have suspendWhenHidden = TRUE as the Shiny default,
-    # but we set them explicitly so the intent is clear and auditable.
-    for (.out_id in c("selected_event_detail", "lab_table", "med_table",
-                      "condition_table", "notes_viewer",
-                      "antibody_timeline", "antibody_table",
-                      "safety_monitoring_plot", "ild_panel_plot")) {
-      shiny::outputOptions(output, .out_id, suspendWhenHidden = TRUE)
-    }
-    rm(.out_id)
+    # Note: suspendWhenHidden = TRUE is the Shiny default for all outputs, so
+    # no explicit outputOptions() calls are needed here.
 
     # Update date range slider after patient loads
     shiny::observeEvent(patient_data(), {
@@ -2123,8 +2111,6 @@ trajectory_server <- function(connector) {
         ))
       )
     })
-    shiny::outputOptions(output, "event_alignment_plot", suspendWhenHidden = TRUE)
-
     # -- Comparison windows ---------------------------------------------------
     comparison_stats_r <- shiny::reactive({
       shiny::req(input$show_research_panel, patient_data())
@@ -2156,7 +2142,6 @@ trajectory_server <- function(connector) {
         DT::formatRound(columns = c("median_value", "slope", "variability_iqr"),
                          digits  = 2)
     })
-    shiny::outputOptions(output, "comparison_table", suspendWhenHidden = TRUE)
 
   }  # end server function
 }
