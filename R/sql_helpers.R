@@ -23,6 +23,14 @@ render_translate_sql <- function(sql_path, params, dbms) {
 #'
 #' Must be called inside with_connector() so that connector$conn is set.
 #'
+#' Supports two connection backends:
+#' - **DatabaseConnector** connections (SQL Server, generic Databricks via
+#'   `create_omop_connection()`) — uses `DatabaseConnector::querySql()`.
+#' - **RJDBC / DBI** connections (SAFER Desktop and Discovery HPC via
+#'   `create_safer_connection()` / `create_hpc_connection()`) — uses
+#'   `DBI::dbGetQuery()` because DatabaseConnector cannot introspect raw RJDBC
+#'   connections.
+#'
 #' @param connector An omop_connector with $conn and $dbms set.
 #' @param sql_path Path to the SqlRender .sql template.
 #' @param params Named list of parameter substitutions.
@@ -32,8 +40,18 @@ query_omop <- function(connector, sql_path, params) {
   if (is.null(connector$conn)) {
     rlang::abort("query_omop() requires an active connection. Use with_connector().")
   }
-  sql <- render_translate_sql(sql_path, params, dbms = connector$dbms)
-  DatabaseConnector::querySql(connector$conn, sql, snakeCaseToCamelCase = FALSE)
+  dbms <- connector$dbms %||% "spark"
+  sql  <- render_translate_sql(sql_path, params, dbms = dbms)
+
+  # RJDBC connections (create_safer_connection / create_hpc_connection):
+  # DatabaseConnector::querySql() calls dbms(conn) internally and returns
+  # character(0) for raw DBI connections, causing "argument is of length zero".
+  # Use DBI::dbGetQuery() directly instead.
+  if (inherits(connector$conn, "JDBCConnection")) {
+    as.data.frame(DBI::dbGetQuery(connector$conn, sql))
+  } else {
+    DatabaseConnector::querySql(connector$conn, sql, snakeCaseToCamelCase = FALSE)
+  }
 }
 
 #' Resolve the path to a SQL template in inst/sql/

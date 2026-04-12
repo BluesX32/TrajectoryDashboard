@@ -17,17 +17,17 @@ The dashboard is:
 
 ```r
 # From source (development)
-devtools::install("h:/Myositis/TrajectoryDashboard")
+devtools::install("path/to/TrajectoryDashboard")
 
 # Or load without installing
-devtools::load_all("h:/Myositis/TrajectoryDashboard")
+devtools::load_all("path/to/TrajectoryDashboard")
 ```
 
 **Core dependencies:** `dplyr`, `lubridate`, `tibble`, `tidyr`, `stringr`, `rlang`, `purrr`
 
 **Suggests (Shiny app):** `shiny`, `shinydashboard`, `plotly`, `DT`
 
-**Suggests (live OMOP):** `DatabaseConnector`, `SqlRender`
+**Suggests (live OMOP):** `DatabaseConnector`, `SqlRender`, `rJava`, `RJDBC`, `DBI`
 
 ## Quick start
 
@@ -186,16 +186,20 @@ Severity: **warning** (borderline) or **alert** (action-required).
 
 All SQL queries use **SqlRender** for cross-DBMS translation. Tested connection targets:
 
-| Platform | Auth |
-|---|---|
-| SQL Server | Windows AD (NTLM) or username/password |
-| PostgreSQL | Username/password |
-| Databricks/Spark | Token |
-| Amazon Redshift | Username/password |
+| Platform | Auth | Function |
+|---|---|---|
+| SQL Server | Windows AD (NTLM) or username/password | `create_omop_connection()` |
+| PostgreSQL | Username/password | `create_omop_connection()` |
+| Databricks (generic) | PAT token | `create_omop_connection()` |
+| Amazon Redshift | Username/password | `create_omop_connection()` |
+| JHU SAFER Desktop | Databricks PAT + JHU proxy | `create_safer_connection()` |
+| JHU Discovery HPC | Databricks PAT (direct) | `create_hpc_connection()` |
 
-## Connection setup (.env)
+## Connection setup
 
-Copy `.env.example` to `.env` and fill in your site's values. The `.env` file is gitignored by default.
+### SQL Server / PostgreSQL / generic Databricks
+
+Copy `.env.example` to `.env` and fill in your site's values:
 
 ```
 # SQL Server + Windows AD (typical at US academic medical centres)
@@ -206,26 +210,77 @@ USE_WINDOWS_AUTH=true
 SQL_JDBC_PATH=jdbc_drivers/sql
 ```
 
+```r
+con <- create_connection_from_env(".env")
+```
+
 JDBC drivers are not bundled. Download with:
 
 ```r
 DatabaseConnector::downloadJdbcDrivers("sql server", pathToDriver = "jdbc_drivers/sql")
 ```
 
+### JHU SAFER Desktop (Databricks via proxy)
+
+Uses RJDBC directly with the JHU proxy (`proxy.jh.edu:3129`), which is required on SAFER Desktop. Copy `.env.example` to `R.env` and fill in the `DATABRICKS_*` section:
+
+```
+DATABRICKS_SERVER_HOSTNAME=adb-xxxx.azuredatabricks.net
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxx
+DATABRICKS_TOKEN=dapi...
+DATABRICKS_DATA_CATALOG=deid
+DATABRICKS_USER_CATALOG=reach_users
+DATABRICKS_USERNAME=mxiong5
+DATABRICKS_JDBC_JAR=C:/jdbc/databricks-jdbc-2.6.36.jar
+```
+
+**Prerequisites:**
+- Java OpenJDK 17 (64-bit) installed on SAFER Desktop
+- `databricks-jdbc-2.6.36.jar` at `C:/jdbc/` (download from [Maven Central](https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/))
+- R packages: `rJava`, `RJDBC`, `DBI`
+
+```r
+con <- create_safer_connection("R.env")
+launch_trajectory_dashboard(con)
+```
+
+### JHU Discovery HPC (Databricks direct)
+
+Same `R.env` format, but no proxy. Default jar location is `~/jdbc/`:
+
+```
+DATABRICKS_JDBC_JAR=~/jdbc/databricks-jdbc-2.6.36.jar
+```
+
+**Prerequisites:**
+- Java configured via `R CMD javareconf` (contact rithhpc-help@jh.edu if needed)
+- `databricks-jdbc-2.6.36.jar` in `~/jdbc/`:
+  ```bash
+  mkdir -p ~/jdbc
+  wget -P ~/jdbc https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/databricks-jdbc-2.6.36.jar
+  ```
+
+```r
+con <- create_hpc_connection("R.env")   # or ~/.env
+launch_trajectory_dashboard(con)
+```
+
 ### Connection lifecycle
 
-The dashboard automatically disconnects from the database when:
+The dashboard automatically disconnects when:
 - The browser window/tab is closed (`session$onSessionEnded`)
 - The R process / `shiny::runApp()` stops (`shiny::onStop`)
 
-Stale JDBC connections (dropped by SQL Server after idle timeout) are automatically detected and reconnected on the next patient load.
+Stale JDBC connections are automatically detected and reconnected on the next patient load.
 
 ## Key functions
 
 ```r
 # Connection
-create_connection_from_env(".env")             # Load from .env file
-create_omop_connection(...)                    # Explicit parameters
+create_connection_from_env(".env")             # Generic: load from .env file
+create_omop_connection(...)                    # Generic: explicit parameters
+create_safer_connection("R.env")               # JHU SAFER Desktop (proxy + RJDBC)
+create_hpc_connection("R.env")                 # JHU Discovery HPC (direct + RJDBC)
 create_df_connector(patient_data_list)         # In-memory (tests/demos)
 
 # Data extraction
@@ -269,7 +324,8 @@ data <- fetch_patient_data(
 ```
 R/
     connector.R               S3 trajectory_connector (omop + df variants); stale-connection retry
-    connection.R              create_omop_connection(), create_connection_from_env()
+    connection.R              create_omop_connection(), create_connection_from_env(),
+                              create_safer_connection(), create_hpc_connection()
     sql_helpers.R             render_translate_sql(), query_omop() (internal)
     utils_validate.R          assert_required_cols(), safe_as_date(), %||%
     utils_concepts.R          MYOSITIS_LAB_CONCEPTS, MYOSITIS_DRUG_CONCEPTS
