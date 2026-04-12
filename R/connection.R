@@ -150,17 +150,9 @@ create_omop_connection <- function(
         }
       }
 
-      # JDBC jar path — DatabaseConnector needs the containing directory
-      if (is.null(pathToDriver)) {
-        jar_path <- Sys.getenv("DATABRICKS_JDBC_JAR")
-        if (nzchar(jar_path)) {
-          pathToDriver <- if (grepl("\\.jar$", jar_path, ignore.case = TRUE)) {
-            dirname(jar_path)
-          } else {
-            jar_path
-          }
-        }
-      }
+      # JDBC jar path — resolution and auto-download handled later by
+      # .ensure_databricks_driver(); leave pathToDriver NULL for now.
+      # (DATABRICKS_JDBC_JAR is re-read there as the hint)
     }
 
     # ----------------------------------------------------------------
@@ -285,6 +277,14 @@ create_omop_connection <- function(
   }
 
   if (is.null(vocabulary_schema)) vocabulary_schema <- cdm_schema
+
+  # For Databricks, resolve/download the JDBC driver before building details
+  if (dbms == "spark" && is.null(connectionString)) {
+    jdbc_jar_hint <- Sys.getenv("DATABRICKS_JDBC_JAR")
+    pathToDriver  <- .ensure_databricks_driver(
+      hint_path = if (nzchar(jdbc_jar_hint)) jdbc_jar_hint else pathToDriver
+    )
+  }
 
   connectionDetails <- if (dbms == "sql server") {
     .create_sqlserver_connection(
@@ -540,6 +540,103 @@ create_safer_connection <- function(env_file = "R.env") {
   val <- Sys.getenv(primary)
   if (!nzchar(val) && !is.null(fallback)) val <- Sys.getenv(fallback)
   tolower(trimws(val)) %in% c("1", "true", "yes")
+}
+
+# ---------------------------------------------------------------------------
+# Databricks JDBC driver resolver
+# ---------------------------------------------------------------------------
+
+#' Ensure the Databricks JDBC driver is available, downloading if needed
+#'
+#' Returns the directory path suitable for `pathToDriver`. Tries, in order:
+#' 1. The directory derived from `hint_path` (if non-NULL and exists)
+#' 2. Platform-appropriate default: `C:/jdbc` (Windows) or `~/jdbc` (Mac/Linux)
+#' 3. Auto-download from Maven Central into the platform default directory
+#'
+#' The canonical jar is `databricks-jdbc-2.6.36.jar` (driver class
+#' `com.databricks.client.jdbc.Driver`), matching the REACH-Templates spec.
+#'
+#' @param hint_path Character. Path hint from `DATABRICKS_JDBC_JAR` env var
+#'   (may be a jar file path or a directory). `NULL` skips the hint.
+#' @return Character scalar — an existing directory containing the JDBC jar.
+#' @noRd
+.ensure_databricks_driver <- function(hint_path = NULL) {
+  jar_name    <- "databricks-jdbc-2.6.36.jar"
+  jar_url     <- paste0(
+    "https://repo1.maven.org/maven2/com/databricks/",
+    "databricks-jdbc/2.6.36/", jar_name
+  )
+  default_dir <- if (.Platform$OS.type == "windows") {
+    "C:/jdbc"
+  } else {
+    path.expand("~/jdbc")
+  }
+
+  # Helper: resolve a path string (jar file or directory) to the containing dir
+  .as_dir <- function(p) {
+    p <- trimws(p)
+    if (grepl("\\.jar$", p, ignore.case = TRUE)) dirname(p) else p
+  }
+
+  # Helper: does the dir contain our jar?
+  .has_jar <- function(d) {
+    isTRUE(nzchar(d)) && file.exists(file.path(d, jar_name))
+  }
+
+  # 1. Hint path (from env var)
+  if (!is.null(hint_path) && nzchar(trimws(hint_path))) {
+    hint_dir <- .as_dir(hint_path)
+    if (.has_jar(hint_dir)) return(hint_dir)
+    if (isTRUE(nzchar(hint_dir)) && dir.exists(hint_dir)) {
+      # Dir exists but jar is absent — will download into it
+      default_dir <- hint_dir
+    } else {
+      message(sprintf(
+        "[TrajectoryDashboard] DATABRICKS_JDBC_JAR path '%s' does not exist on this system.\n",
+        hint_path
+      ), "  Falling back to platform default: ", default_dir)
+    }
+  }
+
+  # 2. Platform default
+  if (.has_jar(default_dir)) return(default_dir)
+
+  # 3. Auto-download
+  dir.create(default_dir, showWarnings = FALSE, recursive = TRUE)
+  dest <- file.path(default_dir, jar_name)
+  message(sprintf(
+    "[TrajectoryDashboard] Downloading Databricks JDBC driver to %s ...", dest
+  ))
+  tryCatch(
+    utils::download.file(jar_url, destfile = dest, mode = "wb", quiet = FALSE),
+    error = function(e) {
+      rlang::abort(paste0(
+        "Could not download the Databricks JDBC driver.\n",
+        "  URL:    ", jar_url, "\n",
+        "  Target: ", dest, "\n",
+        "  Error:  ", conditionMessage(e), "\n\n",
+        "Manual download:\n",
+        "  1. Download the jar from the URL above in a browser.\n",
+        "  2. Place it at: ", dest, "\n",
+        "  3. Set DATABRICKS_JDBC_JAR=", dest, " in your R.env file."
+      ))
+    }
+  )
+
+  # Sanity-check the download (~23 MB)
+  jar_size_mb <- tryCatch(
+    file.info(dest)$size / (1024^2),
+    error = function(e) NA_real_
+  )
+  if (is.na(jar_size_mb) || jar_size_mb < 1) {
+    rlang::abort(paste0(
+      "Downloaded jar appears empty or corrupt (", round(jar_size_mb, 1), " MB).\n",
+      "Delete '", dest, "' and re-run, or download manually from:\n",
+      "  ", jar_url
+    ))
+  }
+  message(sprintf("  Driver downloaded (%.1f MB).", jar_size_mb))
+  default_dir
 }
 
 .configure_spark_connection <- function(connection, results_schema) {
