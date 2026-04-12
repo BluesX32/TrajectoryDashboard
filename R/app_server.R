@@ -55,6 +55,21 @@ trajectory_server <- function(connector) {
     }, session = NULL)
 
     # -------------------------------------------------------------------------
+    # Debounced inputs
+    # Shiny fires input$trajectory_window on every pixel of a slider drag and
+    # input$date_range on every keystroke. Each fire invalidates trajectory(),
+    # density(), both main plots, and summary bar — queuing up dozens of full
+    # recomputes before the user finishes interacting. Debouncing collapses
+    # the burst into a single deferred fire.
+    # -------------------------------------------------------------------------
+    trajectory_window_d <- shiny::debounce(
+      shiny::reactive(input$trajectory_window), 500
+    )
+    date_range_d <- shiny::debounce(
+      shiny::reactive(input$date_range), 600
+    )
+
+    # -------------------------------------------------------------------------
     # Reactive: patient data (loaded on button click)
     # -------------------------------------------------------------------------
     patient_data <- shiny::eventReactive(input$load_patient, {
@@ -85,6 +100,21 @@ trajectory_server <- function(connector) {
       !is.null(patient_data()) && nrow(patient_data()$labs) > 0
     })
     shiny::outputOptions(output, "patient_loaded", suspendWhenHidden = FALSE)
+
+    # Suspend detail-drawer outputs when their tab or the box is not visible.
+    # By default Shiny renders every output on every invalidation regardless of
+    # visibility; suspendWhenHidden = TRUE (the default) makes Shiny skip the
+    # render entirely when the output is hidden, which prevents the 7 heavy
+    # outputs inside the collapsed detail box from running on patient load.
+    # These outputs already have suspendWhenHidden = TRUE as the Shiny default,
+    # but we set them explicitly so the intent is clear and auditable.
+    for (.out_id in c("selected_event_detail", "lab_table", "med_table",
+                      "condition_table", "notes_viewer",
+                      "antibody_timeline", "antibody_table",
+                      "safety_monitoring_plot", "ild_panel_plot")) {
+      shiny::outputOptions(output, .out_id, suspendWhenHidden = TRUE)
+    }
+    rm(.out_id)
 
     # Update date range slider after patient loads
     shiny::observeEvent(patient_data(), {
@@ -117,7 +147,7 @@ trajectory_server <- function(connector) {
     # Date-filtered reactive views
     # -------------------------------------------------------------------------
     .filter_dates <- function(df, date_col) {
-      dr <- input$date_range
+      dr <- date_range_d()
       if (is.null(dr) || length(dr) < 2 || anyNA(dr)) return(df)
       df[!is.na(df[[date_col]]) &
          df[[date_col]] >= dr[1] &
@@ -144,7 +174,7 @@ trajectory_server <- function(connector) {
       compute_trajectory_phases(
         labs_filtered(),
         concept_id       = concept_id,
-        window_days      = as.integer(input$trajectory_window),
+        window_days      = as.integer(trajectory_window_d()),
         uln_override     = if (!is.na(uln)) uln else NULL
       )
     })
@@ -157,7 +187,7 @@ trajectory_server <- function(connector) {
     density <- shiny::reactive({
       shiny::req(patient_data())
       compute_data_density(patient_data(),
-                           bin_width_days = as.integer(input$trajectory_window))
+                           bin_width_days = as.integer(trajectory_window_d()))
     })
 
     decision_points <- shiny::reactive({
@@ -172,13 +202,69 @@ trajectory_server <- function(connector) {
         return(tibble::tibble(date=as.Date(character(0)), drug_name=character(0),
                                toxicity_type=character(0), value=numeric(0),
                                threshold=numeric(0), severity=character(0)))
-      # Attach drug_family to medications if not already present
       meds_t <- pd_t$medications
       if (!"drug_family" %in% names(meds_t) && "drug_name" %in% names(meds_t)) {
         meds_t$drug_family <- .standardize_drug_family(meds_t$drug_name)
       }
       detect_toxicity_flags(pd_t$labs, meds_t)
-    })
+    }) |> shiny::bindCache(patient_data())
+
+    # Pre-compute DMARD coverage gaps outside the plot render so the
+    # O(date_range_days × n_medications) loop is cached and only reruns when
+    # patient data or the date window actually changes — not on every checkbox
+    # tick or lab selection that would otherwise force a full plot rebuild.
+    dmard_gaps <- shiny::reactive({
+      shiny::req(patient_data())
+      dr <- date_range_d()
+      if (is.null(dr) || length(dr) < 2L || anyNA(dr)) return(list())
+
+      all_meds <- patient_data()$medications
+      non_steroid_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
+                                 "IVIG", "Rituximab", "JAK inhibitors")
+      if (nrow(all_meds) == 0L || !"drug_family" %in% names(all_meds))
+        return(list())
+
+      dmard_eps <- all_meds[
+        !is.na(all_meds$drug_family) &
+          all_meds$drug_family %in% non_steroid_families &
+          !is.na(all_meds$drug_exposure_start_date), ]
+      if (nrow(dmard_eps) == 0L) return(list())
+
+      day_seq <- seq.Date(as.Date(dr[1]), as.Date(dr[2]), by = "day")
+      covered <- logical(length(day_seq))
+      for (di in seq_len(nrow(dmard_eps))) {
+        ep_s <- safe_as_date(dmard_eps$drug_exposure_start_date[di])
+        ep_e <- safe_as_date(dmard_eps$drug_exposure_end_date[di])
+        if (is.na(ep_s)) next
+        if (is.na(ep_e)) ep_e <- ep_s + 30L
+        covered[day_seq >= ep_s & day_seq <= ep_e] <- TRUE
+      }
+
+      gaps      <- list()
+      run_start <- NULL
+      for (gi in seq_along(day_seq)) {
+        if (!covered[gi] && is.null(run_start)) {
+          run_start <- day_seq[gi]
+        } else if (covered[gi] && !is.null(run_start)) {
+          gap_end  <- day_seq[gi - 1L]
+          gap_days <- as.integer(gap_end - run_start) + 1L
+          if (gap_days >= 30L)
+            gaps[[length(gaps) + 1L]] <- list(start = run_start,
+                                               end   = gap_end,
+                                               days  = gap_days)
+          run_start <- NULL
+        }
+      }
+      if (!is.null(run_start)) {
+        gap_end  <- tail(day_seq, 1L)
+        gap_days <- as.integer(gap_end - run_start) + 1L
+        if (gap_days >= 30L)
+          gaps[[length(gaps) + 1L]] <- list(start = run_start,
+                                             end   = gap_end,
+                                             days  = gap_days)
+      }
+      gaps
+    }) |> shiny::bindCache(patient_data(), date_range_d())
 
     # -------------------------------------------------------------------------
     # Patient summary stats bar
@@ -811,7 +897,7 @@ trajectory_server <- function(connector) {
       pd    <- patient_data()
       tx    <- treatment_phases()
       dps   <- if (!is.null(decision_points())) decision_points() else NULL
-      dr    <- input$date_range
+      dr    <- date_range_d()
 
       # Filter treatment phases to selected families
       sel_families <- input$med_categories
@@ -832,83 +918,29 @@ trajectory_server <- function(connector) {
         showlegend = FALSE
       )
 
-      # DMARD gap bands (optional, toggled by show_gaps checkbox)
-      # Highlight contiguous periods ≥ 30 days with no non-steroid DMARD active.
-      if (isTRUE(input$show_gaps) && !is.null(dr) && length(dr) == 2L && !anyNA(dr)) {
-        all_meds <- patient_data()$medications
-        non_steroid_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
-                                   "IVIG", "Rituximab", "JAK inhibitors")
-        if (nrow(all_meds) > 0 && "drug_family" %in% names(all_meds)) {
-          dmard_eps <- all_meds[
-            !is.na(all_meds$drug_family) &
-              all_meds$drug_family %in% non_steroid_families &
-              !is.na(all_meds$drug_exposure_start_date), ]
-          # Build a daily presence vector over the full follow-up window
-          day_seq  <- seq.Date(as.Date(dr[1]), as.Date(dr[2]), by = "day")
-          covered  <- logical(length(day_seq))
-          if (nrow(dmard_eps) > 0) {
-            for (di in seq_len(nrow(dmard_eps))) {
-              ep_s <- safe_as_date(dmard_eps$drug_exposure_start_date[di])
-              ep_e <- safe_as_date(dmard_eps$drug_exposure_end_date[di])
-              if (is.na(ep_s)) next
-              if (is.na(ep_e)) ep_e <- ep_s + 30L
-              idx <- day_seq >= ep_s & day_seq <= ep_e
-              covered[idx] <- TRUE
-            }
-          }
-          # Find gap runs ≥ 30 days
-          run_start <- NULL
-          for (gi in seq_along(day_seq)) {
-            if (!covered[gi] && is.null(run_start)) {
-              run_start <- day_seq[gi]
-            } else if (covered[gi] && !is.null(run_start)) {
-              gap_end  <- day_seq[gi - 1L]
-              gap_days <- as.integer(gap_end - run_start) + 1L
-              if (gap_days >= 30L) {
-                fig <- plotly::add_trace(fig,
-                  type = "scatter", mode = "lines",
-                  x = c(run_start, gap_end, gap_end, run_start, run_start),
-                  y = c(0.3, 0.3, 5.8, 5.8, 0.3),
-                  fill = "toself",
-                  fillcolor = "rgba(255,152,0,0.07)",
-                  line = list(width = 0, color = "rgba(0,0,0,0)"),
-                  showlegend = FALSE, hoverinfo = "none",
-                  name = "DMARD gap"
-                )
-                # Invisible trace just for hover tooltip
-                fig <- plotly::add_trace(fig,
-                  type = "scatter", mode = "markers",
-                  x = c(run_start + floor(gap_days / 2L)),
-                  y = c(5.6),
-                  marker = list(size = 0, opacity = 0),
-                  showlegend = FALSE,
-                  hovertemplate = paste0(
-                    "\u26a0 No DMARD: ",
-                    format(run_start, "%b %d, %Y"), " \u2014 ",
-                    format(gap_end,   "%b %d, %Y"),
-                    " (", gap_days, " days)<extra></extra>"
-                  )
-                )
-              }
-              run_start <- NULL
-            }
-          }
-          # Handle gap extending to end of window
-          if (!is.null(run_start)) {
-            gap_end  <- tail(day_seq, 1L)
-            gap_days <- as.integer(gap_end - run_start) + 1L
-            if (gap_days >= 30L) {
-              fig <- plotly::add_trace(fig,
-                type = "scatter", mode = "lines",
-                x = c(run_start, gap_end, gap_end, run_start, run_start),
-                y = c(0.3, 0.3, 5.8, 5.8, 0.3),
-                fill = "toself",
-                fillcolor = "rgba(255,152,0,0.07)",
-                line = list(width = 0, color = "rgba(0,0,0,0)"),
-                showlegend = FALSE, hoverinfo = "none"
-              )
-            }
-          }
+      # DMARD gap bands — pre-computed by dmard_gaps() reactive (cached)
+      if (isTRUE(input$show_gaps)) {
+        for (gap in dmard_gaps()) {
+          fig <- plotly::add_trace(fig,
+            type = "scatter", mode = "lines",
+            x = c(gap$start, gap$end, gap$end, gap$start, gap$start),
+            y = c(0.3, 0.3, 5.8, 5.8, 0.3),
+            fill = "toself", fillcolor = "rgba(255,152,0,0.07)",
+            line = list(width = 0, color = "rgba(0,0,0,0)"),
+            showlegend = FALSE, hoverinfo = "none", name = "DMARD gap"
+          )
+          fig <- plotly::add_trace(fig,
+            type = "scatter", mode = "markers",
+            x = c(gap$start + floor(gap$days / 2L)), y = c(5.6),
+            marker = list(size = 0, opacity = 0),
+            showlegend = FALSE,
+            hovertemplate = paste0(
+              "\u26a0 No DMARD: ",
+              format(gap$start, "%b %d, %Y"), " \u2014 ",
+              format(gap$end,   "%b %d, %Y"),
+              " (", gap$days, " days)<extra></extra>"
+            )
+          )
         }
       }
 
@@ -1405,7 +1437,7 @@ trajectory_server <- function(connector) {
     output$notes_viewer <- shiny::renderUI({
       shiny::req(patient_data())
       notes <- patient_data()$notes
-      dr    <- input$date_range
+      dr    <- date_range_d()
 
       if (!is.null(dr) && length(dr) == 2 && !anyNA(dr)) {
         notes <- notes[!is.na(notes$note_date) &
@@ -1425,7 +1457,10 @@ trajectory_server <- function(connector) {
         ))
       }
 
-      notes <- notes[order(notes$note_date, decreasing = TRUE), ]
+      notes      <- notes[order(notes$note_date, decreasing = TRUE), ]
+      total_n    <- nrow(notes)
+      MAX_NOTES  <- 50L
+      notes      <- head(notes, MAX_NOTES)
 
       note_cards <- lapply(seq_len(nrow(notes)), function(i) {
         note    <- notes[i, ]
@@ -1458,7 +1493,15 @@ trajectory_server <- function(connector) {
         )
       })
 
-      shiny::div(note_cards)
+      footer <- if (total_n > MAX_NOTES)
+        shiny::div(
+          style = paste("text-align:center; padding:10px 0 4px;",
+                        "font-size:11px; color:var(--text-muted);"),
+          paste0("Showing ", MAX_NOTES, " of ", total_n,
+                 " notes (most recent first).")
+        )
+
+      shiny::div(note_cards, footer)
     })
 
     # -------------------------------------------------------------------------
@@ -1571,7 +1614,7 @@ trajectory_server <- function(connector) {
         MYOSITIS_LAB_CONCEPTS[c("anti_jo1","anti_mi2","anti_mda5","anti_tif1",
                                 "anti_hmgcr","anti_srs","anti_nxp2","anti_pm_scl")]
       ))
-      dr <- input$date_range
+      dr <- date_range_d()
       ld <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date), ]
       if ("measurement_concept_id" %in% names(ld)) {
         ld <- ld[ld$measurement_concept_id %in% abx_ids, ]
