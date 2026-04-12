@@ -530,8 +530,16 @@ trajectory_server <- function(connector) {
               pd_e <- seq(min(edf$measurement_date), max(edf$measurement_date), by = "7 days")
               pv_e <- tryCatch(stats::predict(lo_e,
                 newdata = data.frame(
-                  `edf$measurement_date` = as.numeric(pd_e))), error = function(e) NULL)
-              if (!is.null(pv_e)) {
+                  `edf$measurement_date` = as.numeric(pd_e))),
+                error = function(e) NULL)
+              if (!is.null(pv_e) && length(pv_e) == length(pd_e)) {
+                ok   <- !is.na(pv_e)
+                pd_e <- pd_e[ok]
+                pv_e <- pv_e[ok]
+              } else {
+                pv_e <- NULL
+              }
+              if (!is.null(pv_e) && length(pv_e) >= 2L) {
                 efig <- plotly::add_trace(efig, type = "scatter", mode = "lines",
                   x = pd_e, y = pv_e,
                   line = list(color = ecol, width = 2),
@@ -689,7 +697,16 @@ trajectory_server <- function(connector) {
                 measurement_date = as.numeric(pred_dates))),
               error = function(e) NULL
             )
-            if (!is.null(pred_vals)) {
+            # predict() may return fewer rows than newdata when boundary points
+            # fall outside the fitting region — keep only non-NA pairs.
+            if (!is.null(pred_vals) && length(pred_vals) == length(pred_dates)) {
+              ok <- !is.na(pred_vals)
+              pred_dates <- pred_dates[ok]
+              pred_vals  <- pred_vals[ok]
+            } else {
+              pred_vals <- NULL  # length mismatch — skip the trace
+            }
+            if (!is.null(pred_vals) && length(pred_vals) >= 2L) {
               fig <- plotly::add_trace(
                 fig,
                 type = "scatter", mode = "lines",
