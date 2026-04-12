@@ -22,7 +22,7 @@ create_omop_connection(
 )
 }
 \arguments{
-\item{dbms}{Character: \code{"sql server"}, \code{"spark"}, \code{"postgresql"}, etc.}
+\item{dbms}{Character: \code{"sql server"}, \code{"spark"}, \code{"databricks"}, \code{"postgresql"}, etc.}
 
 \item{server}{Server name or address.}
 
@@ -30,15 +30,15 @@ create_omop_connection(
 
 \item{port}{Port number (optional; defaults applied per platform).}
 
-\item{user}{Username (optional for Windows auth).}
+\item{user}{Username (optional for Windows auth; PAT auth uses \code{"token"}).}
 
-\item{password}{Password (optional for Windows auth).}
+\item{password}{Password or Databricks PAT (optional for Windows auth).}
 
 \item{use_windows_auth}{Logical. Use Windows AD authentication. Default \code{FALSE}.}
 
 \item{connectionString}{Full JDBC connection string (optional).}
 
-\item{pathToDriver}{Path to the JDBC driver folder.}
+\item{pathToDriver}{Path to the JDBC driver folder (or jar file for Databricks).}
 
 \item{cdm_schema}{CDM schema name.}
 
@@ -62,8 +62,8 @@ Redshift, BigQuery, and any other DBMS supported by DatabaseConnector.
 \details{
 All parameters can be omitted when \code{use_env = TRUE} (the default); the
 function reads them from environment variables. Load a \code{.env} file first
-with \code{\link[=create_connection_from_env]{create_connection_from_env()}}.
-\subsection{Environment variables}{\tabular{ll}{
+with \code{\link[=create_connection_from_env]{create_connection_from_env()}} or \code{\link[=create_safer_connection]{create_safer_connection()}}.
+\subsection{Environment variables (SQL Server / generic)}{\tabular{ll}{
    Variable \tab Description \cr
    \code{SQL_DBMS} / \code{DB_TYPE} / \code{OMOP_ENV} \tab DBMS type (default: \code{"sql server"}) \cr
    \code{SQL_SERVER} / \code{DB_SERVER} \tab Server address \cr
@@ -81,6 +81,26 @@ with \code{\link[=create_connection_from_env]{create_connection_from_env()}}.
 }
 
 }
+
+\subsection{Environment variables (Databricks / SAFER / Discovery HPC)}{
+
+These follow the REACH-Templates convention and take precedence over the
+generic SQL_* variables when present.\tabular{ll}{
+   Variable \tab Description \cr
+   \code{DATABRICKS_SERVER_HOSTNAME} \tab Workspace hostname (no \verb{https://}) \cr
+   \code{DATABRICKS_HTTP_PATH} \tab SQL warehouse or cluster HTTP path \cr
+   \code{DATABRICKS_TOKEN} \tab Personal Access Token (PAT) \cr
+   \code{DATABRICKS_DATA_CATALOG} \tab Top-level catalog (e.g. \code{"deid"}); CDM schema becomes \verb{<catalog>.omop} \cr
+   \code{DATABRICKS_USER_CATALOG} \tab User scratch catalog (e.g. \code{"reach_users"}) \cr
+   \code{DATABRICKS_USERNAME} \tab Your username; results schema becomes \verb{<user_catalog>.<username>} \cr
+   \code{DATABRICKS_JDBC_JAR} \tab Full path to the Databricks JDBC jar file \cr
+   \code{DATABRICKS_USER_PROXY} \tab \code{"1"} / \code{"true"} — route JDBC through JHU proxy (\code{proxy.jh.edu:3129}) \cr
+   \code{DATABRICKS_PROXY_HOST} \tab Proxy hostname (default \code{proxy.jh.edu}) \cr
+   \code{DATABRICKS_PROXY_PORT} \tab Proxy port (default \code{3129}) \cr
+   \code{DATABRICKS_ENABLE_ARROW} \tab \code{"1"} / \code{"TRUE"} to enable Arrow (default off) \cr
+}
+
+}
 }
 \examples{
 \dontrun{
@@ -93,7 +113,10 @@ con <- create_omop_connection(
   cdm_schema       = "dbo"
 )
 
-# Load everything from .env file
+# Databricks from REACH-style R.env (SAFER Desktop or Discovery HPC)
+con <- create_safer_connection("R.env")
+
+# Load everything from generic .env file
 con <- create_connection_from_env(".env")
 data <- fetch_patient_data(con, person_id = 12345L)
 }
