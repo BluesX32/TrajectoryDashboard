@@ -177,23 +177,23 @@ trajectory_server <- function(connector) {
         window_days      = as.integer(trajectory_window_d()),
         uln_override     = if (!is.na(uln)) uln else NULL
       )
-    })
+    }) |> shiny::bindCache(labs_filtered(), input$focus_lab, trajectory_window_d())
 
     treatment_phases <- shiny::reactive({
       shiny::req(meds_filtered())
       compute_treatment_phases(meds_filtered())
-    })
+    }) |> shiny::bindCache(meds_filtered())
 
     density <- shiny::reactive({
       shiny::req(patient_data())
       compute_data_density(patient_data(),
                            bin_width_days = as.integer(trajectory_window_d()))
-    })
+    }) |> shiny::bindCache(patient_data(), trajectory_window_d())
 
     decision_points <- shiny::reactive({
       shiny::req(patient_data(), trajectory(), treatment_phases())
       detect_decision_points(patient_data(), trajectory(), treatment_phases())
-    })
+    }) |> shiny::bindCache(patient_data(), input$focus_lab, trajectory_window_d())
 
     toxicity_flags <- shiny::reactive({
       shiny::req(patient_data())
@@ -240,29 +240,19 @@ trajectory_server <- function(connector) {
         covered[day_seq >= ep_s & day_seq <= ep_e] <- TRUE
       }
 
-      gaps      <- list()
-      run_start <- NULL
-      for (gi in seq_along(day_seq)) {
-        if (!covered[gi] && is.null(run_start)) {
-          run_start <- day_seq[gi]
-        } else if (covered[gi] && !is.null(run_start)) {
-          gap_end  <- day_seq[gi - 1L]
-          gap_days <- as.integer(gap_end - run_start) + 1L
-          if (gap_days >= 30L)
-            gaps[[length(gaps) + 1L]] <- list(start = run_start,
-                                               end   = gap_end,
-                                               days  = gap_days)
-          run_start <- NULL
-        }
-      }
-      if (!is.null(run_start)) {
-        gap_end  <- tail(day_seq, 1L)
-        gap_days <- as.integer(gap_end - run_start) + 1L
-        if (gap_days >= 30L)
-          gaps[[length(gaps) + 1L]] <- list(start = run_start,
-                                             end   = gap_end,
-                                             days  = gap_days)
-      }
+      # Use rle() to detect runs of uncovered days — vectorised, no per-day loop.
+      runs   <- rle(!covered)
+      ends   <- cumsum(runs$lengths)
+      starts <- ends - runs$lengths + 1L
+      gap_idx <- which(runs$values & runs$lengths >= 30L)
+
+      gaps <- lapply(gap_idx, function(k) {
+        list(
+          start = day_seq[starts[k]],
+          end   = day_seq[ends[k]],
+          days  = runs$lengths[k]
+        )
+      })
       gaps
     }) |> shiny::bindCache(patient_data(), date_range_d())
 
@@ -388,13 +378,49 @@ trajectory_server <- function(connector) {
         if (length(lv_tiles) > 0L)
           shiny::div(class = "last-val-row", lv_tiles)
       )
-    })
+    }) |> shiny::bindCache(patient_data())
 
     # -------------------------------------------------------------------------
+    # Time-in-target badge data — cached per patient + focus_lab + date range
+    # Extracted from layer1_title so the badge computation only reruns when its
+    # actual inputs change, not on every UI interaction.
+    tit_badge_data <- shiny::reactive({
+      labs_v <- tryCatch(labs_filtered(), error = function(e) NULL)
+      meds_v <- tryCatch(meds_filtered(), error = function(e) NULL)
+      focus  <- input$focus_lab %||% "ck"
+      uln_v  <- .get_default_uln(focus)
+      cid_v  <- .resolve_lab_concept(focus)
+
+      result <- list(pct_normal = NA_real_, last_dose = NA_real_)
+      if (is.null(labs_v) || nrow(labs_v) < 6L) return(result)
+
+      lab_sub <- labs_v[!is.na(labs_v$measurement_concept_id) &
+                          labs_v$measurement_concept_id %in% cid_v &
+                          !is.na(labs_v$value_as_number), ]
+      if (!is.na(uln_v) && uln_v > 0 && nrow(lab_sub) >= 6L) {
+        result$pct_normal <- round(
+          mean(lab_sub$value_as_number <= uln_v, na.rm = TRUE) * 100)
+      }
+
+      if (!is.null(meds_v) && nrow(meds_v) > 0 &&
+          "drug_family" %in% names(meds_v) && "quantity" %in% names(meds_v)) {
+        cs_v <- meds_v[!is.na(meds_v$drug_family) &
+                         meds_v$drug_family == "Corticosteroids" &
+                         !is.na(meds_v$quantity), ]
+        if (nrow(cs_v) > 0) {
+          cs_v <- cs_v[order(safe_as_date(cs_v$drug_exposure_start_date),
+                              decreasing = TRUE), ]
+          result$last_dose <- suppressWarnings(as.numeric(cs_v$quantity[1L]))
+        }
+      }
+      result
+    }) |> shiny::bindCache(labs_filtered(), meds_filtered(), input$focus_lab)
+
     # Layer 1 title
     # -------------------------------------------------------------------------
     output$layer1_title <- shiny::renderUI({
-      lab_label <- switch(input$focus_lab %||% "ck",
+      focus <- input$focus_lab %||% "ck"
+      lab_label <- switch(focus,
         ck = "CK", aldolase = "Aldolase", ast = "AST", alt = "ALT",
         ldh = "LDH", esr = "ESR", crp = "CRP",
         anti_jo1 = "Anti-Jo-1", anti_mi2 = "Anti-Mi-2",
@@ -404,59 +430,32 @@ trajectory_server <- function(connector) {
         wbc = "WBC", lymphocytes = "Lymphocytes", hemoglobin = "Hemoglobin",
         creatinine = "Creatinine", "Lab"
       )
-      # Time-in-target badges (only when sufficient data)
+
+      tit <- tit_badge_data()
       tit_badges <- NULL
-      traj_v <- tryCatch(trajectory(), error = function(e) NULL)
-      labs_v <- tryCatch(labs_filtered(), error = function(e) NULL)
-      meds_v <- tryCatch(meds_filtered(), error = function(e) NULL)
-
-      if (!is.null(traj_v) && nrow(traj_v) >= 2L &&
-          !is.null(labs_v) && nrow(labs_v) >= 6L) {
-        uln_v <- .get_default_uln(input$focus_lab %||% "ck")
-        cid_v <- .resolve_lab_concept(input$focus_lab %||% "ck")
-        lab_sub <- labs_v[!is.na(labs_v$measurement_concept_id) &
-                            labs_v$measurement_concept_id %in% cid_v &
-                            !is.na(labs_v$value_as_number), ]
-        if (!is.na(uln_v) && uln_v > 0 && nrow(lab_sub) >= 6L) {
-          pct_normal <- round(mean(lab_sub$value_as_number <= uln_v,
-                                   na.rm = TRUE) * 100)
-          tit_lab_badge <- shiny::tags$span(
-            class = paste("tit-badge",
-                          if (pct_normal >= 70) "tit-good"
-                          else if (pct_normal >= 40) "tit-warn"
-                          else "tit-alert"),
-            paste0(pct_normal, "% in range")
-          )
-
-          # Steroid ≤ 7.5 mg/day: check most recent corticosteroid episode dose
-          tit_steroid_badge <- NULL
-          if (!is.null(meds_v) && nrow(meds_v) > 0 &&
-              "drug_family" %in% names(meds_v)) {
-            cs_v <- meds_v[!is.na(meds_v$drug_family) &
-                             meds_v$drug_family == "Corticosteroids" &
-                             "quantity" %in% names(meds_v) &
-                             !is.na(meds_v$quantity), ]
-            if (nrow(cs_v) > 0) {
-              cs_v <- cs_v[order(safe_as_date(cs_v$drug_exposure_start_date),
-                                  decreasing = TRUE), ]
-              last_dose <- as.numeric(cs_v$quantity[1L])
-              if (!is.na(last_dose)) {
-                tit_steroid_badge <- shiny::tags$span(
-                  class = paste("tit-badge",
-                                if (last_dose <= 7.5) "tit-good"
-                                else if (last_dose <= 20) "tit-warn"
-                                else "tit-alert"),
-                  paste0(last_dose, " mg/d steroid")
-                )
-              }
-            }
-          }
-          tit_badges <- shiny::div(
-            class = "tit-badges",
-            tit_lab_badge,
-            tit_steroid_badge
-          )
-        }
+      tit_lab_badge <- if (!is.na(tit$pct_normal)) {
+        pct <- tit$pct_normal
+        shiny::tags$span(
+          class = paste("tit-badge",
+                        if (pct >= 70) "tit-good"
+                        else if (pct >= 40) "tit-warn"
+                        else "tit-alert"),
+          paste0(pct, "% in range")
+        )
+      }
+      tit_steroid_badge <- if (!is.na(tit$last_dose %||% NA_real_)) {
+        d <- tit$last_dose
+        shiny::tags$span(
+          class = paste("tit-badge",
+                        if (d <= 7.5) "tit-good"
+                        else if (d <= 20) "tit-warn"
+                        else "tit-alert"),
+          paste0(d, " mg/d steroid")
+        )
+      }
+      if (!is.null(tit_lab_badge) || !is.null(tit_steroid_badge)) {
+        tit_badges <- shiny::div(class = "tit-badges",
+                                  tit_lab_badge, tit_steroid_badge)
       }
 
       shiny::tagList(
@@ -1324,15 +1323,20 @@ trajectory_server <- function(connector) {
       closest_idx <- which.min(abs(as.integer(dps$date) - as.integer(click_date)))
       dp <- dps[closest_idx, ]
 
-      event_icon <- switch(dp$event_type,
-        admission        = "hospital",
-        escalation_point = "arrow-up",
-        taper_point      = "arrow-down",
-        medication_change = "pills",
-        workup_point     = "vial",
-        referral_point   = "user-md",
+      ev_type    <- dp$event_type
+      event_icon <- if (is.na(ev_type) || length(ev_type) != 1L) {
         "calendar-check"
-      )
+      } else {
+        switch(ev_type,
+          admission         = "hospital",
+          escalation_point  = "arrow-up",
+          taper_point       = "arrow-down",
+          medication_change = "pills",
+          workup_point      = "vial",
+          referral_point    = "user-md",
+          "calendar-check"
+        )
+      }
 
       shiny::div(
         class = "event-detail-card",
