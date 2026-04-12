@@ -2,35 +2,51 @@
 % Please edit documentation in R/connection.R
 \name{create_safer_connection}
 \alias{create_safer_connection}
-\title{Connect to Databricks from SAFER Desktop or Discovery HPC}
+\title{Connect to Databricks from JHU SAFER Desktop}
 \usage{
-create_safer_connection(env_file = "R.env")
+create_safer_connection(
+  env_file = "R.env",
+  cdm_schema = NULL,
+  vocab_schema = NULL,
+  results_schema = NULL
+)
 }
 \arguments{
-\item{env_file}{Path to the REACH-style env file. Default \code{"R.env"}. Falls
-back to \code{".env"} if \code{"R.env"} does not exist.}
+\item{env_file}{Path to the REACH-style env file. Default \code{"R.env"}.}
+
+\item{cdm_schema}{CDM schema. Default: derived from \code{DATABRICKS_DATA_CATALOG}
+(\code{"<catalog>.omop"}, e.g. \code{"deid.omop"}).}
+
+\item{vocab_schema}{Vocabulary schema. Defaults to \code{cdm_schema}.}
+
+\item{results_schema}{Results / scratch schema. Default: derived from
+\code{DATABRICKS_USER_CATALOG} + \code{DATABRICKS_USERNAME}
+(\code{"<user_catalog>.<username>"}).}
 }
 \value{
-An \code{omop_connector} object with an open persistent connection.
+An \code{omop_connector} object with an open persistent JDBC connection.
 }
 \description{
-Convenience wrapper for REACH / JHU SAFER environments. Reads all
-connection parameters from a REACH-style \code{R.env} file (see
-\code{.env.example} for the template).
+Uses RJDBC directly (the REACH-Templates approach) to connect to Databricks
+from RStudio on SAFER Desktop. The JHU proxy (\code{proxy.jh.edu:3129}) is
+\strong{always} enabled — it is required on SAFER Desktop and cannot be skipped.
 }
 \details{
-Automatically enables the JHU proxy (\code{proxy.jh.edu:3129}) when
-\code{DATABRICKS_USER_PROXY=1} is set in the env file, which is required on
-SAFER Desktop but not on Discovery HPC.
+Reads all credentials from a REACH-style \code{R.env} file. Returns an
+\code{omop_connector} compatible with \code{\link[=fetch_patient_data]{fetch_patient_data()}} and
+\code{\link[=launch_trajectory_dashboard]{launch_trajectory_dashboard()}}.
+
+\strong{Prerequisites (SAFER Desktop):}
+\itemize{
+\item Java OpenJDK 17 (64-bit) installed and \code{JAVA_HOME} set
+\item Databricks JDBC driver at \verb{C:/jdbc/databricks-jdbc-2.6.36.jar}
+(download once: \code{?jdbcDrivers} for instructions)
+\item \code{rJava}, \code{RJDBC}, \code{DBI} packages installed
+}
 }
 \examples{
 \dontrun{
-# SAFER Desktop — R.env must contain DATABRICKS_USER_PROXY=1
 con <- create_safer_connection("R.env")
-
-# Discovery HPC — same R.env but without proxy line
-con <- create_safer_connection("~/.env")
-
 data <- fetch_patient_data(con, person_id = 12345L)
 }
 }

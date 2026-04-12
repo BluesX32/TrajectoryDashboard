@@ -150,9 +150,7 @@ create_omop_connection <- function(
         }
       }
 
-      # JDBC jar path — resolution and auto-download handled later by
-      # .ensure_databricks_driver(); leave pathToDriver NULL for now.
-      # (DATABRICKS_JDBC_JAR is re-read there as the hint)
+      # JDBC jar path — handled later by the driver-resolution block
     }
 
     # ----------------------------------------------------------------
@@ -278,12 +276,24 @@ create_omop_connection <- function(
 
   if (is.null(vocabulary_schema)) vocabulary_schema <- cdm_schema
 
-  # For Databricks, resolve/download the JDBC driver before building details
+  # For Databricks, ensure the JDBC driver dir is ready for DatabaseConnector
   if (dbms == "spark" && is.null(connectionString)) {
     jdbc_jar_hint <- Sys.getenv("DATABRICKS_JDBC_JAR")
-    pathToDriver  <- .ensure_databricks_driver(
-      hint_path = if (nzchar(jdbc_jar_hint)) jdbc_jar_hint else pathToDriver
-    )
+    if (!nzchar(jdbc_jar_hint)) jdbc_jar_hint <- "C:/jdbc/databricks-jdbc-2.6.36.jar"
+    # Use hint dir as pathToDriver; create DatabricksJDBC42.jar alias if needed
+    hint_dir <- if (grepl("\\.jar$", jdbc_jar_hint, ignore.case = TRUE)) {
+      dirname(jdbc_jar_hint)
+    } else {
+      jdbc_jar_hint
+    }
+    if (dir.exists(hint_dir)) {
+      actual_jar <- Filter(file.exists, file.path(hint_dir, c(
+        "databricks-jdbc-2.6.36.jar", "databricks-jdbc.jar", "DatabricksJDBC42.jar"
+      )))[1L]
+      if (!is.na(actual_jar) && nzchar(actual_jar))
+        .ensure_dc_alias(hint_dir, actual_jar)
+      pathToDriver <- hint_dir
+    }
   }
 
   connectionDetails <- if (dbms == "sql server") {
@@ -355,35 +365,44 @@ create_connection_from_env <- function(env_file = ".env") {
   create_omop_connection(use_env = TRUE)
 }
 
-#' Connect to Databricks from SAFER Desktop or Discovery HPC
+#' Connect to Databricks from JHU SAFER Desktop
 #'
-#' Convenience wrapper for REACH / JHU SAFER environments. Reads all
-#' connection parameters from a REACH-style `R.env` file (see
-#' `.env.example` for the template).
+#' Uses RJDBC directly (the REACH-Templates approach) to connect to Databricks
+#' from RStudio on SAFER Desktop. The JHU proxy (`proxy.jh.edu:3129`) is
+#' **always** enabled — it is required on SAFER Desktop and cannot be skipped.
 #'
-#' Automatically enables the JHU proxy (`proxy.jh.edu:3129`) when
-#' `DATABRICKS_USER_PROXY=1` is set in the env file, which is required on
-#' SAFER Desktop but not on Discovery HPC.
+#' Reads all credentials from a REACH-style `R.env` file. Returns an
+#' `omop_connector` compatible with [fetch_patient_data()] and
+#' [launch_trajectory_dashboard()].
 #'
-#' @param env_file Path to the REACH-style env file. Default `"R.env"`. Falls
-#'   back to `".env"` if `"R.env"` does not exist.
+#' **Prerequisites (SAFER Desktop):**
+#' - Java OpenJDK 17 (64-bit) installed and `JAVA_HOME` set
+#' - Databricks JDBC driver at `C:/jdbc/databricks-jdbc-2.6.36.jar`
+#'   (download once: `?jdbcDrivers` for instructions)
+#' - `rJava`, `RJDBC`, `DBI` packages installed
 #'
-#' @return An `omop_connector` object with an open persistent connection.
+#' @param env_file Path to the REACH-style env file. Default `"R.env"`.
+#' @param cdm_schema CDM schema. Default: derived from `DATABRICKS_DATA_CATALOG`
+#'   (`"<catalog>.omop"`, e.g. `"deid.omop"`).
+#' @param vocab_schema Vocabulary schema. Defaults to `cdm_schema`.
+#' @param results_schema Results / scratch schema. Default: derived from
+#'   `DATABRICKS_USER_CATALOG` + `DATABRICKS_USERNAME`
+#'   (`"<user_catalog>.<username>"`).
+#'
+#' @return An `omop_connector` object with an open persistent JDBC connection.
 #'
 #' @export
 #'
 #' @examples
 #' \dontrun{
-#' # SAFER Desktop — R.env must contain DATABRICKS_USER_PROXY=1
 #' con <- create_safer_connection("R.env")
-#'
-#' # Discovery HPC — same R.env but without proxy line
-#' con <- create_safer_connection("~/.env")
-#'
 #' data <- fetch_patient_data(con, person_id = 12345L)
 #' }
-create_safer_connection <- function(env_file = "R.env") {
-  # Fall back to .env when R.env is absent
+create_safer_connection <- function(env_file    = "R.env",
+                                     cdm_schema     = NULL,
+                                     vocab_schema   = NULL,
+                                     results_schema = NULL) {
+  # ---- Load env file -------------------------------------------------------
   if (!file.exists(env_file) && file.exists(".env")) {
     env_file <- ".env"
     message("[TrajectoryDashboard] R.env not found; falling back to .env")
@@ -392,13 +411,11 @@ create_safer_connection <- function(env_file = "R.env") {
     .load_env_file(env_file)
     message("\u2713 Loaded environment variables from ", env_file)
   } else {
-    message(
-      "[TrajectoryDashboard] No env file found at '", env_file,
-      "'. Proceeding with current environment variables."
-    )
+    message("[TrajectoryDashboard] No env file found at '", env_file,
+            "'. Proceeding with current environment variables.")
   }
 
-  # Validate required REACH vars
+  # ---- Validate required vars ----------------------------------------------
   missing_vars <- character(0)
   for (v in c("DATABRICKS_SERVER_HOSTNAME", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")) {
     if (!nzchar(Sys.getenv(v))) missing_vars <- c(missing_vars, v)
@@ -411,14 +428,118 @@ create_safer_connection <- function(env_file = "R.env") {
     ))
   }
 
-  env_type <- if (.db_env_flag("DATABRICKS_USER_PROXY", "USE_PROXY")) {
-    "SAFER Desktop (proxy enabled)"
-  } else {
-    "Discovery HPC / direct"
-  }
-  message(sprintf("[TrajectoryDashboard] Databricks connection type: %s", env_type))
+  # ---- Resolve JDBC jar (always C:/jdbc/databricks-jdbc-2.6.36.jar) --------
+  jar_hint <- Sys.getenv("DATABRICKS_JDBC_JAR")
+  if (!nzchar(jar_hint)) jar_hint <- "C:/jdbc/databricks-jdbc-2.6.36.jar"
+  jar_path <- .safer_resolve_jar(jar_hint)
 
-  create_omop_connection(use_env = TRUE)
+  # ---- Build JDBC URL — proxy ALWAYS on for SAFER Desktop -----------------
+  host      <- Sys.getenv("DATABRICKS_SERVER_HOSTNAME")
+  http_path <- Sys.getenv("DATABRICKS_HTTP_PATH")
+  token     <- Sys.getenv("DATABRICKS_TOKEN")
+
+  jdbc_url <- paste0(
+    "jdbc:databricks://", host, ":443;",
+    "transportMode=http;ssl=1;",
+    "httpPath=", http_path, ";",
+    "AuthMech=3;UID=token;PWD=", token, ";",
+    "UseProxy=1;",
+    "ProxyHost=proxy.jh.edu;",
+    "ProxyPort=3129;",
+    "EnableArrow=0"
+  )
+
+  # ---- Connect via RJDBC (REACH-Templates approach) ------------------------
+  for (pkg in c("rJava", "RJDBC", "DBI")) .require_pkg(pkg)
+  rJava::.jinit()
+  drv  <- RJDBC::JDBC(
+    driverClass = "com.databricks.client.jdbc.Driver",
+    classPath   = jar_path
+  )
+  message("[TrajectoryDashboard] Connecting via RJDBC (SAFER Desktop, proxy on)...")
+  conn <- suppressWarnings(DBI::dbConnect(drv, jdbc_url))
+
+  # ---- Schemas -------------------------------------------------------------
+  if (is.null(cdm_schema)) {
+    data_cat   <- Sys.getenv("DATABRICKS_DATA_CATALOG")
+    cdm_schema <- if (nzchar(data_cat)) paste0(data_cat, ".omop") else "deid.omop"
+  }
+  if (is.null(vocab_schema))   vocab_schema   <- cdm_schema
+  if (is.null(results_schema)) {
+    user_cat <- Sys.getenv("DATABRICKS_USER_CATALOG")
+    db_user  <- Sys.getenv("DATABRICKS_USERNAME")
+    if (nzchar(user_cat) && nzchar(db_user))
+      results_schema <- paste0(user_cat, ".", db_user)
+  }
+
+  # ---- Build connectionDetails for reconnection ----------------------------
+  # DatabaseConnector uses this if the persistent conn goes stale.
+  # The DatabricksJDBC42.jar alias is needed for findPathToJar().
+  driver_dir <- dirname(jar_path)
+  .ensure_dc_alias(driver_dir, jar_path)
+  dc_details <- DatabaseConnector::createConnectionDetails(
+    dbms             = "spark",
+    connectionString = jdbc_url,
+    pathToDriver     = driver_dir
+  )
+
+  # ---- Wrap in omop_connector ----------------------------------------------
+  connector <- structure(
+    list(
+      type              = "omop",
+      connectionDetails = dc_details,
+      cdm_schema        = cdm_schema,
+      vocab_schema      = vocab_schema,
+      results_schema    = results_schema,
+      temp_schema       = NULL,
+      cdm_version       = "5.4",
+      conn              = conn,
+      dbms              = "spark",
+      capabilities      = NULL
+    ),
+    class = c("omop_connector", "trajectory_connector")
+  )
+
+  message(sprintf(
+    "\u2713 omop_connector ready (SAFER Desktop)  |  cdm_schema: %s", cdm_schema
+  ))
+  connector
+}
+
+# Resolve the full path to the SAFER JDBC jar file.
+# Returns the path to the jar itself (not the directory).
+.safer_resolve_jar <- function(jar_hint) {
+  jar_hint <- trimws(jar_hint)
+
+  # If the hint points directly to an existing jar, use it
+  if (grepl("\\.jar$", jar_hint, ignore.case = TRUE) && file.exists(jar_hint)) {
+    return(jar_hint)
+  }
+
+  # Common fallback: C:/jdbc/databricks-jdbc-2.6.36.jar (SAFER Desktop standard)
+  fallback <- "C:/jdbc/databricks-jdbc-2.6.36.jar"
+  if (file.exists(fallback)) return(fallback)
+
+  rlang::abort(paste0(
+    "Databricks JDBC driver not found.\n",
+    "Expected: ", jar_hint, "\n\n",
+    "To install the driver on SAFER Desktop:\n",
+    "  1. Create folder C:/jdbc\n",
+    "  2. Download databricks-jdbc-2.6.36.jar from:\n",
+    "     https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/\n",
+    "  3. Place it at C:/jdbc/databricks-jdbc-2.6.36.jar\n",
+    "  4. Re-run create_safer_connection()"
+  ))
+}
+
+# Create DatabricksJDBC42.jar alias so DatabaseConnector's findPathToJar() works.
+.ensure_dc_alias <- function(driver_dir, jar_path) {
+  alias <- file.path(driver_dir, "DatabricksJDBC42.jar")
+  if (!file.exists(alias)) {
+    message("[TrajectoryDashboard] Creating DatabaseConnector alias DatabricksJDBC42.jar")
+    file.copy(jar_path, alias)
+  }
+  invisible(NULL)
 }
 
 # ---------------------------------------------------------------------------
@@ -544,134 +665,7 @@ create_safer_connection <- function(env_file = "R.env") {
 
 # ---------------------------------------------------------------------------
 # Databricks JDBC driver resolver
-# ---------------------------------------------------------------------------
-
-#' Ensure the Databricks JDBC driver is available, downloading if needed
-#'
-#' Returns the directory path suitable for `pathToDriver`. Tries, in order:
-#' 1. The directory derived from `hint_path` (if non-NULL and exists)
-#' 2. Platform-appropriate default: `C:/jdbc` (Windows) or `~/jdbc` (Mac/Linux)
-#' 3. Auto-download from Maven Central into the platform default directory
-#'
-#' DatabaseConnector's `findPathToJar()` for `dbms = "spark"` looks for the
-#' old Simba name `DatabricksJDBC42.jar`. The current Databricks JDBC driver
-#' ships as `databricks-jdbc.jar` or `databricks-jdbc-2.6.36.jar`. This
-#' function locates any Databricks jar in the target directory and creates a
-#' `DatabricksJDBC42.jar` copy alongside it so DatabaseConnector finds it.
-#'
-#' @param hint_path Character. Path hint from `DATABRICKS_JDBC_JAR` env var
-#'   (may be a jar file path or a directory). `NULL` skips the hint.
-#' @return Character scalar — an existing directory containing `DatabricksJDBC42.jar`.
-#' @noRd
-.ensure_databricks_driver <- function(hint_path = NULL) {
-  # DatabaseConnector spark driver looks for this exact name
-  dc_alias  <- "DatabricksJDBC42.jar"
-  # Names produced by different Databricks JDBC releases
-  known_names <- c(
-    "DatabricksJDBC42.jar",
-    "databricks-jdbc.jar",
-    "databricks-jdbc-2.6.36.jar"
-  )
-  download_name <- "databricks-jdbc-2.6.36.jar"
-  jar_url <- paste0(
-    "https://repo1.maven.org/maven2/com/databricks/",
-    "databricks-jdbc/2.6.36/", download_name
-  )
-  default_dir <- if (.Platform$OS.type == "windows") {
-    "C:/jdbc"
-  } else {
-    path.expand("~/jdbc")
-  }
-
-  # Resolve a path string (jar file or directory) to the containing directory
-  .as_dir <- function(p) {
-    p <- trimws(p)
-    if (grepl("\\.jar$", p, ignore.case = TRUE)) dirname(p) else p
-  }
-
-  # Find any known Databricks jar in a directory; returns full path or NULL
-  .find_jar <- function(d) {
-    if (!isTRUE(nzchar(d)) || !dir.exists(d)) return(NULL)
-    for (nm in known_names) {
-      p <- file.path(d, nm)
-      if (file.exists(p)) return(p)
-    }
-    NULL
-  }
-
-  # Ensure DatabricksJDBC42.jar exists in the directory; create a copy if needed
-  .ensure_alias <- function(d) {
-    alias_path <- file.path(d, dc_alias)
-    if (file.exists(alias_path)) return(d)
-    # Find any other known jar to copy from
-    src <- .find_jar(d)
-    if (!is.null(src) && basename(src) != dc_alias) {
-      message(sprintf(
-        "[TrajectoryDashboard] Creating DatabaseConnector alias %s from %s",
-        dc_alias, basename(src)
-      ))
-      file.copy(src, alias_path)
-    }
-    d
-  }
-
-  # 1. Hint path (from DATABRICKS_JDBC_JAR env var)
-  if (!is.null(hint_path) && nzchar(trimws(hint_path))) {
-    hint_dir <- .as_dir(hint_path)
-    if (!is.null(.find_jar(hint_dir))) {
-      return(.ensure_alias(hint_dir))
-    }
-    if (isTRUE(nzchar(hint_dir)) && dir.exists(hint_dir)) {
-      default_dir <- hint_dir  # dir exists but jar absent — download here
-    } else {
-      message(
-        "[TrajectoryDashboard] DATABRICKS_JDBC_JAR path '", hint_path,
-        "' not found on this system. Falling back to: ", default_dir
-      )
-    }
-  }
-
-  # 2. Platform default
-  if (!is.null(.find_jar(default_dir))) {
-    return(.ensure_alias(default_dir))
-  }
-
-  # 3. Auto-download
-  dir.create(default_dir, showWarnings = FALSE, recursive = TRUE)
-  dest <- file.path(default_dir, download_name)
-  message(sprintf(
-    "[TrajectoryDashboard] Downloading Databricks JDBC driver to %s ...", dest
-  ))
-  tryCatch(
-    utils::download.file(jar_url, destfile = dest, mode = "wb", quiet = FALSE),
-    error = function(e) {
-      rlang::abort(paste0(
-        "Could not download the Databricks JDBC driver.\n",
-        "  URL:    ", jar_url, "\n",
-        "  Target: ", dest, "\n",
-        "  Error:  ", conditionMessage(e), "\n\n",
-        "Manual download:\n",
-        "  1. Download the jar from the URL above in a browser.\n",
-        "  2. Place it at: ", dest, "\n",
-        "  3. Set DATABRICKS_JDBC_JAR=", dest, " in your R.env file."
-      ))
-    }
-  )
-
-  # Sanity-check (~23 MB)
-  jar_size_mb <- tryCatch(
-    file.info(dest)$size / (1024^2),
-    error = function(e) NA_real_
-  )
-  if (is.na(jar_size_mb) || jar_size_mb < 1) {
-    rlang::abort(paste0(
-      "Downloaded jar appears empty or corrupt (", round(jar_size_mb, 1), " MB).\n",
-      "Delete '", dest, "' and re-run, or download manually from:\n  ", jar_url
-    ))
-  }
-  message(sprintf("  Driver downloaded (%.1f MB).", jar_size_mb))
-  .ensure_alias(default_dir)
-}
+# (driver resolution handled by .safer_resolve_jar() and .ensure_dc_alias())
 
 .configure_spark_connection <- function(connection, results_schema) {
   options(dbplyr.compute.defaults = list(temporary = FALSE))
