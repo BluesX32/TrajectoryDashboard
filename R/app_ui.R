@@ -16,6 +16,15 @@ trajectory_ui <- function(person_ids = NULL) {
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
 
+  # Register the package's www/ directory so shiny::shinyApp() can serve
+  # trajectory_styles.css. Without this, Shiny only looks for a www/ folder
+  # in the working directory and never finds inst/app/www/. Works both when
+  # the package is installed and when loaded via devtools::load_all().
+  shiny::addResourcePath(
+    "td-assets",
+    system.file("app/www", package = "TrajectoryDashboard")
+  )
+
   shinydashboard::dashboardPage(
     skin  = "blue",
     title = "Patient Trajectory Dashboard",
@@ -218,7 +227,7 @@ trajectory_ui <- function(person_ids = NULL) {
       # Inject stylesheet and JS helpers
       shiny::tags$head(
         shiny::tags$link(rel = "stylesheet", type = "text/css",
-                         href = "trajectory_styles.css"),
+                         href = "td-assets/trajectory_styles.css"),
         shiny::tags$script(shiny::HTML('
           // ── Detail drawer expand ────────────────────────────────────────────
           Shiny.addCustomMessageHandler("expandDetailBox", function(msg) {

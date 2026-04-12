@@ -223,9 +223,12 @@ trajectory_server <- function(connector) {
       make_stat <- function(icon_name, value, label, extra_class = "") {
         shiny::div(
           class = paste("summary-stat", extra_class),
-          shiny::div(class = "stat-icon", shiny::icon(icon_name)),
-          shiny::div(class = "stat-value", value),
-          shiny::div(class = "stat-label", label)
+          shiny::div(
+            class = "stat-header",
+            shiny::span(class = "stat-label", label),
+            shiny::span(class = "stat-icon", shiny::icon(icon_name))
+          ),
+          shiny::div(class = "stat-value", value)
         )
       }
 
