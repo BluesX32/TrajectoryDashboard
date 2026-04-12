@@ -75,8 +75,4 @@ safe_as_numeric <- function(x) {
   }
 }
 
-# ---------------------------------------------------------------------------
-# 5. NULL coalescing operator
-# ---------------------------------------------------------------------------
-
-`%||%` <- function(a, b) if (!is.null(a)) a else b
+# Note: %||% is imported from rlang (see TrajectoryDashboard-package.R).

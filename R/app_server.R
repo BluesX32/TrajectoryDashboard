@@ -1908,7 +1908,253 @@ trajectory_server <- function(connector) {
         )
       }
     )
-  }
+
+    # =========================================================================
+    # Research Intelligence — reactives and outputs
+    # All gated behind input$show_research_panel to avoid unnecessary compute
+    # when the panel is hidden. Each is cached per patient_data() identity.
+    # NOT clinical decision support — retrospective/hypothesis-generating only.
+    # =========================================================================
+
+    # -- Research flags -------------------------------------------------------
+    research_flags_r <- shiny::reactive({
+      shiny::req(input$show_research_panel, patient_data())
+      tryCatch(
+        get_research_flags(patient_data()),
+        error = function(e) list(flags = NULL, triggered_count = 0L)
+      )
+    }) |> shiny::bindCache(input$show_research_panel, patient_data())
+
+    output$research_flags_ui <- shiny::renderUI({
+      shiny::req(research_flags_r())
+      rf <- research_flags_r()
+
+      if (is.null(rf$flags) || nrow(rf$flags) == 0L) {
+        return(shiny::p(class = "text-muted",
+                         "No flag data available for this patient."))
+      }
+
+      flag_cards <- lapply(seq_len(nrow(rf$flags)), function(i) {
+        f    <- rf$flags[i, ]
+        cls  <- if (isTRUE(f$triggered)) "research-flag-card flag-triggered" else "research-flag-card"
+        icon_name <- if (isTRUE(f$triggered)) "exclamation-triangle" else "check-circle"
+        icon_col  <- if (isTRUE(f$triggered)) "#e6a817" else "#6c757d"
+        shiny::div(
+          class = cls,
+          shiny::div(
+            class = "flag-header",
+            shiny::span(class = "flag-label", f$label_display %||% f$label),
+            shiny::tags$i(class = paste0("fa fa-", icon_name),
+                           style = paste0("color:", icon_col, "; margin-left:6px;"))
+          ),
+          shiny::p(class = "flag-description", f$description),
+          if (nzchar(f$detail %||% "")) {
+            shiny::p(class = "flag-detail", f$detail)
+          }
+        )
+      })
+
+      shiny::tagList(
+        shiny::div(
+          class = "flag-summary-bar",
+          shiny::strong(sprintf("%d / %d patterns triggered",
+                                 rf$triggered_count, nrow(rf$flags)))
+        ),
+        shiny::div(class = "flag-grid", flag_cards)
+      )
+    })
+
+    # -- Archetype ------------------------------------------------------------
+    archetype_r <- shiny::reactive({
+      shiny::req(input$show_research_panel, patient_data())
+      tryCatch(
+        classify_archetype(patient_data()),
+        error = function(e) list(
+          archetype         = "error",
+          archetype_display = "Error",
+          confidence        = "low",
+          rationale         = c(error = conditionMessage(e)),
+          precomputed       = list()
+        )
+      )
+    }) |> shiny::bindCache(input$show_research_panel, patient_data())
+
+    output$archetype_ui <- shiny::renderUI({
+      shiny::req(archetype_r())
+      ar <- archetype_r()
+
+      conf_class <- switch(ar$confidence,
+        high   = "archetype-badge-high",
+        medium = "archetype-badge-medium",
+        low    = "archetype-badge-low",
+        "archetype-badge-low"
+      )
+
+      rationale_rows <- lapply(names(ar$rationale), function(nm) {
+        shiny::tags$tr(
+          shiny::tags$td(class = "rationale-key",   nm),
+          shiny::tags$td(class = "rationale-value", ar$rationale[[nm]])
+        )
+      })
+
+      pre <- ar$precomputed
+      metrics_rows <- list()
+      if (length(pre) > 0) {
+        metric_map <- list(
+          n_drug_families       = "Drug families",
+          n_flare_episodes      = "Flare episodes",
+          n_dmard_switches      = "DMARD switches",
+          ever_normalised       = "Ever normalised",
+          data_density          = "Data density (obs/mo)",
+          biomarker_trend_slope = "Biomarker trend (ρ)"
+        )
+        for (key in names(metric_map)) {
+          val <- pre[[key]]
+          if (!is.null(val)) {
+            metrics_rows[[length(metrics_rows) + 1L]] <- shiny::tags$tr(
+              shiny::tags$td(class = "rationale-key",   metric_map[[key]]),
+              shiny::tags$td(class = "rationale-value",
+                              if (is.numeric(val)) round(val, 3) else as.character(val))
+            )
+          }
+        }
+      }
+
+      shiny::tagList(
+        shiny::div(
+          class = paste("archetype-badge", conf_class),
+          shiny::div(class = "archetype-name",       ar$archetype_display),
+          shiny::div(class = "archetype-confidence",
+                      paste0("Confidence: ", ar$confidence))
+        ),
+        shiny::tags$table(
+          class = "archetype-rationale",
+          shiny::tags$thead(shiny::tags$tr(
+            shiny::tags$th("Factor"), shiny::tags$th("Value")
+          )),
+          shiny::tags$tbody(rationale_rows)
+        ),
+        if (length(metrics_rows) > 0) {
+          shiny::tagList(
+            shiny::h5("Precomputed Metrics", class = "rationale-section-header"),
+            shiny::tags$table(
+              class = "archetype-rationale",
+              shiny::tags$tbody(metrics_rows)
+            )
+          )
+        }
+      )
+    })
+
+    # -- Event alignment -------------------------------------------------------
+
+    # Populate the event selector when patient loads + research panel is open
+    shiny::observeEvent(list(patient_data(), input$show_research_panel), {
+      shiny::req(patient_data(), input$show_research_panel)
+      events <- tryCatch(
+        get_med_change_events(patient_data()),
+        error = function(e) NULL
+      )
+      if (is.null(events) || nrow(events) == 0L) {
+        shiny::updateSelectInput(session, "selected_event_date",
+                                  choices = character(0), selected = NULL)
+        return()
+      }
+      choices <- setNames(
+        as.character(events$event_date),
+        paste0(as.character(events$event_date), " — ", events$detail)
+      )
+      shiny::updateSelectInput(session, "selected_event_date",
+                                choices  = choices,
+                                selected = choices[1])
+    })
+
+    aligned_events_r <- shiny::reactive({
+      shiny::req(input$show_research_panel, patient_data(), input$selected_event_date)
+      tryCatch(
+        align_around_event(patient_data(), input$selected_event_date),
+        error = function(e) list(labs = NULL, doses = NULL, visits = NULL)
+      )
+    }) |> shiny::bindCache(input$show_research_panel, patient_data(),
+                            input$selected_event_date)
+
+    output$event_alignment_plot <- plotly::renderPlotly({
+      shiny::req(aligned_events_r())
+      ae  <- aligned_events_r()
+      labs_al <- ae$labs
+
+      if (is.null(labs_al) || nrow(labs_al) == 0L) {
+        return(plotly::plot_ly() |>
+                 plotly::layout(
+                   title = "No lab data in this window",
+                   xaxis = list(title = "Days relative to event"),
+                   yaxis = list(title = "Value")
+                 ))
+      }
+
+      # One trace per lab name
+      lab_names_present <- unique(labs_al$lab_name)
+      traces <- lapply(seq_along(lab_names_present), function(i) {
+        nm <- lab_names_present[i]
+        d  <- labs_al[labs_al$lab_name == nm, ]
+        d  <- d[order(d$days_relative), ]
+        list(x = d$days_relative, y = d$value, name = nm, type = "scatter",
+             mode = "lines+markers")
+      })
+
+      p <- plotly::plot_ly()
+      for (tr in traces) {
+        p <- plotly::add_trace(p, x = tr$x, y = tr$y, name = tr$name,
+                                type = "scatter", mode = "lines+markers")
+      }
+      p |> plotly::layout(
+        xaxis = list(title = "Days relative to event", zeroline = TRUE,
+                     zerolinecolor = "#e74c3c", zerolinewidth = 2),
+        yaxis  = list(title = "Lab value"),
+        legend = list(orientation = "h"),
+        shapes = list(list(
+          type      = "line", x0 = 0, x1 = 0,
+          y0 = 0, y1 = 1, yref = "paper",
+          line = list(color = "#e74c3c", width = 2, dash = "dash")
+        ))
+      )
+    })
+    shiny::outputOptions(output, "event_alignment_plot", suspendWhenHidden = TRUE)
+
+    # -- Comparison windows ---------------------------------------------------
+    comparison_stats_r <- shiny::reactive({
+      shiny::req(input$show_research_panel, patient_data())
+      windows <- tryCatch(
+        define_comparison_windows(patient_data(), n_windows = 2L,
+                                   method = "around_event"),
+        error = function(e) NULL
+      )
+      if (is.null(windows)) return(NULL)
+      tryCatch(
+        compare_windows(patient_data(), windows),
+        error = function(e) NULL
+      )
+    }) |> shiny::bindCache(input$show_research_panel, patient_data())
+
+    output$comparison_table <- DT::renderDT({
+      shiny::req(comparison_stats_r())
+      df <- comparison_stats_r()
+      if (is.null(df) || nrow(df) == 0L) return(DT::datatable(data.frame()))
+
+      DT::datatable(
+        df,
+        rownames  = FALSE,
+        options   = list(dom = "t", paging = FALSE, scrollX = TRUE),
+        colnames  = c("Window", "Start", "End", "Days",
+                       "Median Value", "Slope", "IQR", "Obs",
+                       "Visits", "Flare Days", "Dominant Phase")
+      ) |>
+        DT::formatRound(columns = c("median_value", "slope", "variability_iqr"),
+                         digits  = 2)
+    })
+    shiny::outputOptions(output, "comparison_table", suspendWhenHidden = TRUE)
+
+  }  # end server function
 }
 
 # ---------------------------------------------------------------------------

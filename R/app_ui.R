@@ -202,6 +202,36 @@ trajectory_ui <- function(person_ids = NULL) {
             )
           ),
 
+          # ── Research Intelligence ─────────────────────────────────
+          shinydashboard::menuItem(
+            "Research Intelligence", icon = shiny::icon("microscope"),
+            shiny::tags$div(
+              style = "padding: 4px 10px 10px;",
+              shiny::checkboxInput(
+                "show_research_panel",
+                shiny::span(
+                  shiny::icon("flask", style = "margin-right:5px;"),
+                  "Enable Research Panel"
+                ),
+                value = FALSE
+              ),
+              shiny::conditionalPanel(
+                condition = "input.show_research_panel",
+                shiny::checkboxInput(
+                  "show_episode_labels",
+                  "Show episode labels on timeline",
+                  value = TRUE
+                )
+              ),
+              shiny::tags$p(
+                class = "sidebar-research-note",
+                style = "font-size:10px; color:rgba(255,255,255,0.45); margin:4px 0 0; line-height:1.4;",
+                shiny::icon("info-circle", style = "margin-right:3px;"),
+                "Retrospective research only. Not clinical decision support."
+              )
+            )
+          ),
+
           # ── Download ─────────────────────────────────────────────────
           shinydashboard::menuItem(
             "Download Data", icon = shiny::icon("download"),
@@ -490,6 +520,101 @@ trajectory_ui <- function(person_ids = NULL) {
           width       = 12,
           shiny::div(class = "plot-wrap",
             plotly::plotlyOutput("ild_panel_plot", height = "16vh")
+          )
+        )
+      ),
+
+      # ── Research Intelligence Panel ──────────────────────────────────
+      shiny::conditionalPanel(
+        condition = "input.show_research_panel && output.patient_loaded",
+        shinydashboard::box(
+          title = shiny::tags$span(
+            shiny::icon("microscope", style = "margin-right:6px; color:#5B8DEF;"),
+            "Research Intelligence",
+            shiny::tags$small(
+              class = "research-disclaimer",
+              style = "font-size:10px; color:#999; margin-left:10px; font-weight:400;",
+              shiny::icon("info-circle", style = "margin-right:3px;"),
+              "Retrospective / hypothesis-generating only — not clinical decision support"
+            )
+          ),
+          status      = "primary",
+          solidHeader = TRUE,
+          collapsible = TRUE,
+          width       = 12,
+          shiny::tabsetPanel(
+            id = "research_tabset",
+
+            # Tab 1: Pattern Flags
+            shiny::tabPanel(
+              title = shiny::tagList(
+                shiny::icon("flag", style = "margin-right:5px;"),
+                "Pattern Flags"
+              ),
+              value = "flags_tab",
+              shiny::div(
+                style = "padding: 12px 4px;",
+                shiny::uiOutput("research_flags_ui")
+              )
+            ),
+
+            # Tab 2: Archetype
+            shiny::tabPanel(
+              title = shiny::tagList(
+                shiny::icon("shapes", style = "margin-right:5px;"),
+                "Archetype"
+              ),
+              value = "archetype_tab",
+              shiny::div(
+                style = "padding: 12px 4px;",
+                shiny::uiOutput("archetype_ui")
+              )
+            ),
+
+            # Tab 3: Med Change Context
+            shiny::tabPanel(
+              title = shiny::tagList(
+                shiny::icon("calendar-alt", style = "margin-right:5px;"),
+                "Med Change Context"
+              ),
+              value = "alignment_tab",
+              shiny::div(
+                style = "padding: 12px 4px;",
+                shiny::fluidRow(
+                  shiny::column(
+                    width = 4,
+                    shiny::selectInput(
+                      "selected_event_date",
+                      "Medication change event",
+                      choices  = character(0),
+                      selected = NULL,
+                      width    = "100%"
+                    )
+                  )
+                ),
+                shiny::div(class = "plot-wrap",
+                  plotly::plotlyOutput("event_alignment_plot", height = "280px")
+                )
+              )
+            ),
+
+            # Tab 4: Compare Windows
+            shiny::tabPanel(
+              title = shiny::tagList(
+                shiny::icon("columns", style = "margin-right:5px;"),
+                "Compare Windows"
+              ),
+              value = "compare_tab",
+              shiny::div(
+                style = "padding: 12px 4px;",
+                shiny::p(
+                  class = "text-muted",
+                  style = "font-size:12px; margin-bottom:10px;",
+                  "Auto-detected pre/post event windows. Primary biomarker statistics."
+                ),
+                DT::dataTableOutput("comparison_table")
+              )
+            )
           )
         )
       ),
