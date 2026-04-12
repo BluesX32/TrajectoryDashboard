@@ -506,6 +506,175 @@ create_safer_connection <- function(env_file    = "R.env",
   connector
 }
 
+#' Connect to Databricks from Discovery HPC
+#'
+#' Uses RJDBC directly (the REACH-Templates approach) to connect to Databricks
+#' from RStudio on the JHU Discovery HPC cluster. Direct connections to Azure
+#' Databricks are allowed on Discovery HPC — **no proxy is used**.
+#'
+#' Reads all credentials from a REACH-style `R.env` file. Returns an
+#' `omop_connector` compatible with [fetch_patient_data()] and
+#' [launch_trajectory_dashboard()].
+#'
+#' **Prerequisites (Discovery HPC):**
+#' - Java configured via `R CMD javareconf` (contact rithhpc-help\@jh.edu)
+#' - Databricks JDBC driver at `~/jdbc/databricks-jdbc-2.6.36.jar`
+#' - `rJava`, `RJDBC`, `DBI` packages installed
+#'
+#' @param env_file Path to the REACH-style env file. Default `"R.env"`. Falls
+#'   back to `"~/.env"` if `"R.env"` does not exist.
+#' @param cdm_schema CDM schema. Default: derived from `DATABRICKS_DATA_CATALOG`
+#'   (`"<catalog>.omop"`, e.g. `"deid.omop"`).
+#' @param vocab_schema Vocabulary schema. Defaults to `cdm_schema`.
+#' @param results_schema Results / scratch schema. Default: derived from
+#'   `DATABRICKS_USER_CATALOG` + `DATABRICKS_USERNAME`
+#'   (`"<user_catalog>.<username>"`).
+#'
+#' @return An `omop_connector` object with an open persistent JDBC connection.
+#'
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' con <- create_hpc_connection("R.env")
+#' data <- fetch_patient_data(con, person_id = 12345L)
+#' }
+create_hpc_connection <- function(env_file       = "R.env",
+                                   cdm_schema     = NULL,
+                                   vocab_schema   = NULL,
+                                   results_schema = NULL) {
+  # ---- Load env file -------------------------------------------------------
+  # Discovery HPC convention: credentials at ~/R.env or ~/.env
+  if (!file.exists(env_file)) {
+    for (fallback in c("~/.env", "~/.Renviron")) {
+      if (file.exists(path.expand(fallback))) {
+        env_file <- path.expand(fallback)
+        message("[TrajectoryDashboard] R.env not found; falling back to ", env_file)
+        break
+      }
+    }
+  }
+  if (file.exists(env_file)) {
+    .load_env_file(env_file)
+    message("\u2713 Loaded environment variables from ", env_file)
+  } else {
+    message("[TrajectoryDashboard] No env file found at '", env_file,
+            "'. Proceeding with current environment variables.")
+  }
+
+  # ---- Validate required vars ----------------------------------------------
+  missing_vars <- character(0)
+  for (v in c("DATABRICKS_SERVER_HOSTNAME", "DATABRICKS_HTTP_PATH", "DATABRICKS_TOKEN")) {
+    if (!nzchar(Sys.getenv(v))) missing_vars <- c(missing_vars, v)
+  }
+  if (length(missing_vars) > 0L) {
+    rlang::abort(paste0(
+      "Missing required Databricks variable(s): ",
+      paste(missing_vars, collapse = ", "),
+      "\nSet them in ", env_file, " (see .env.example for a template)."
+    ))
+  }
+
+  # ---- Resolve JDBC jar (~/jdbc/databricks-jdbc-2.6.36.jar on HPC) ---------
+  jar_hint <- Sys.getenv("DATABRICKS_JDBC_JAR")
+  if (!nzchar(jar_hint)) jar_hint <- path.expand("~/jdbc/databricks-jdbc-2.6.36.jar")
+  jar_path <- .hpc_resolve_jar(jar_hint)
+
+  # ---- Build JDBC URL — no proxy on Discovery HPC --------------------------
+  host      <- Sys.getenv("DATABRICKS_SERVER_HOSTNAME")
+  http_path <- Sys.getenv("DATABRICKS_HTTP_PATH")
+  token     <- Sys.getenv("DATABRICKS_TOKEN")
+
+  jdbc_url <- paste0(
+    "jdbc:databricks://", host, ":443;",
+    "transportMode=http;ssl=1;",
+    "httpPath=", http_path, ";",
+    "AuthMech=3;UID=token;PWD=", token, ";",
+    "EnableArrow=0"
+  )
+
+  # ---- Connect via RJDBC (REACH-Templates approach) ------------------------
+  for (pkg in c("rJava", "RJDBC", "DBI")) .require_pkg(pkg)
+  rJava::.jinit()
+  drv  <- RJDBC::JDBC(
+    driverClass = "com.databricks.client.jdbc.Driver",
+    classPath   = jar_path
+  )
+  message("[TrajectoryDashboard] Connecting via RJDBC (Discovery HPC, no proxy)...")
+  conn <- suppressWarnings(DBI::dbConnect(drv, jdbc_url))
+
+  # ---- Schemas -------------------------------------------------------------
+  if (is.null(cdm_schema)) {
+    data_cat   <- Sys.getenv("DATABRICKS_DATA_CATALOG")
+    cdm_schema <- if (nzchar(data_cat)) paste0(data_cat, ".omop") else "deid.omop"
+  }
+  if (is.null(vocab_schema))   vocab_schema   <- cdm_schema
+  if (is.null(results_schema)) {
+    user_cat <- Sys.getenv("DATABRICKS_USER_CATALOG")
+    db_user  <- Sys.getenv("DATABRICKS_USERNAME")
+    if (nzchar(user_cat) && nzchar(db_user))
+      results_schema <- paste0(user_cat, ".", db_user)
+  }
+
+  # ---- Build connectionDetails for reconnection ----------------------------
+  driver_dir <- dirname(jar_path)
+  .ensure_dc_alias(driver_dir, jar_path)
+  dc_details <- DatabaseConnector::createConnectionDetails(
+    dbms             = "spark",
+    connectionString = jdbc_url,
+    pathToDriver     = driver_dir
+  )
+
+  # ---- Wrap in omop_connector ----------------------------------------------
+  connector <- structure(
+    list(
+      type              = "omop",
+      connectionDetails = dc_details,
+      cdm_schema        = cdm_schema,
+      vocab_schema      = vocab_schema,
+      results_schema    = results_schema,
+      temp_schema       = NULL,
+      cdm_version       = "5.4",
+      conn              = conn,
+      dbms              = "spark",
+      capabilities      = NULL
+    ),
+    class = c("omop_connector", "trajectory_connector")
+  )
+
+  message(sprintf(
+    "\u2713 omop_connector ready (Discovery HPC)  |  cdm_schema: %s", cdm_schema
+  ))
+  connector
+}
+
+# Resolve the full path to the HPC JDBC jar file.
+# Returns the path to the jar itself (not the directory).
+.hpc_resolve_jar <- function(jar_hint) {
+  jar_hint <- trimws(jar_hint)
+
+  # If the hint points directly to an existing jar, use it
+  if (grepl("\\.jar$", jar_hint, ignore.case = TRUE) && file.exists(jar_hint)) {
+    return(jar_hint)
+  }
+
+  # Standard HPC location: ~/jdbc/databricks-jdbc-2.6.36.jar
+  fallback <- path.expand("~/jdbc/databricks-jdbc-2.6.36.jar")
+  if (file.exists(fallback)) return(fallback)
+
+  rlang::abort(paste0(
+    "Databricks JDBC driver not found.\n",
+    "Expected: ", jar_hint, "\n\n",
+    "To install the driver on Discovery HPC:\n",
+    "  1. mkdir -p ~/jdbc\n",
+    "  2. wget -P ~/jdbc https://repo1.maven.org/maven2/com/databricks/",
+    "databricks-jdbc/2.6.36/databricks-jdbc-2.6.36.jar\n",
+    "  3. Set DATABRICKS_JDBC_JAR=~/jdbc/databricks-jdbc-2.6.36.jar in your R.env\n",
+    "  4. Re-run create_hpc_connection()\n\n",
+    "If Java is not configured: run `R CMD javareconf` or contact rithhpc-help@jh.edu"
+  ))
+}
+
 # Resolve the full path to the SAFER JDBC jar file.
 # Returns the path to the jar itself (not the directory).
 .safer_resolve_jar <- function(jar_hint) {
