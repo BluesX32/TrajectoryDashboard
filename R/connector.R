@@ -207,8 +207,10 @@ with_connector.omop_connector <- function(connector, fn, ...) {
     result <- tryCatch(
       {
         active <- connector
-        if (is.null(active$dbms))
-          active$dbms <- DatabaseConnector::dbms(active$conn)
+        if (!isTRUE(nzchar(active$dbms %||% ""))) {
+          d <- tryCatch(DatabaseConnector::dbms(active$conn), error = function(e) "")
+          active$dbms <- if (isTRUE(nzchar(d))) d else "sql server"
+        }
         fn(active, ...)
       },
       error = function(e) {
@@ -229,7 +231,8 @@ with_connector.omop_connector <- function(connector, fn, ...) {
   on.exit(DatabaseConnector::disconnect(conn), add = TRUE)
   active       <- connector
   active$conn  <- conn
-  active$dbms  <- DatabaseConnector::dbms(conn)
+  d            <- tryCatch(DatabaseConnector::dbms(conn), error = function(e) "")
+  active$dbms  <- if (isTRUE(nzchar(d))) d else "sql server"
   fn(active, ...)
 }
 
@@ -318,11 +321,11 @@ detect_capabilities.omop_connector <- function(connector) {
 # Schema is read from the same env vars that create_omop_connection() uses.
 .wrap_raw_db_connection <- function(conn) {
   # Detect DBMS ---------------------------------------------------------------
-  dbms_str <- tryCatch(
-    DatabaseConnector::dbms(conn),
-    error = function(e) ""
-  )
-  if (!nzchar(dbms_str)) {
+  # Use isTRUE(nzchar(...)) throughout: DatabaseConnector::dbms() can return
+  # character(0) (not NULL, not an error), and nzchar(character(0)) returns
+  # logical(0) — which would throw "argument is of length zero" inside `if`.
+  dbms_str <- tryCatch(DatabaseConnector::dbms(conn), error = function(e) "")
+  if (!isTRUE(nzchar(dbms_str))) {
     # RJDBC connections don't support dbms(); default to spark
     dbms_str <- if (inherits(conn, "JDBCConnection")) "spark" else "sql server"
   }
