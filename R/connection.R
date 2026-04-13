@@ -332,7 +332,16 @@ create_omop_connection <- function(
 
   if (dbms == "spark") .configure_spark_connection(NULL, results_schema)
 
-  conn <- DatabaseConnector::connect(connectionDetails)
+  # DatabaseConnector's Connections pane observer can fail for Windows-auth
+  # SQL Server connections where host is embedded in the connection string
+  # (not a separate field). The observer error is cosmetic — connection still
+  # succeeds — but we suppress it to avoid confusing console noise.
+  old_opt <- getOption("rstudio.connectionObserver.errorsSuppressed", FALSE)
+  options(rstudio.connectionObserver.errorsSuppressed = TRUE)
+  conn <- tryCatch(
+    DatabaseConnector::connect(connectionDetails),
+    finally = options(rstudio.connectionObserver.errorsSuppressed = old_opt)
+  )
 
   message(sprintf(
     "\u2713 omop_connector ready  |  dbms: %s  |  server: %s  |  cdm_schema: %s",
