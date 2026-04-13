@@ -72,6 +72,18 @@ fetch_patient_data <- function(connector,
       result$observations <<- fetch_observations(active, person_id, start_date, end_date)
   }
 
+  # Auto-wrap raw DatabaseConnector / DBI / RJDBC connections that were passed
+  # directly (e.g. from DatabaseConnector::connect() or DBI::dbConnect()).
+  # This keeps the package backward-compatible while routing through the proper
+  # omop_connector dispatch chain.
+  if (!inherits(connector, "trajectory_connector") &&
+      inherits(connector, c("DatabaseConnectorConnection",
+                             "DatabaseConnectorJdbcConnection",
+                             "JDBCConnection",
+                             "DBIConnection"))) {
+    connector <- .wrap_raw_db_connection(connector)
+  }
+
   if (inherits(connector, "omop_connector")) {
     # Single with_connector() call — reuses one JDBC connection for all 6 queries
     with_connector(connector, function(active) .fetch_all(active))
