@@ -6,36 +6,66 @@
 #' Opens an interactive Shiny dashboard for longitudinal patient trajectory
 #' visualization based on OMOP CDM data.
 #'
-#' ## Quick start
+#' ## Workflow
+#'
+#' ### Step 1 — Build connection details (OHDSI standard)
 #'
 #' ```r
-#' # Demo with synthetic data (no database required)
+#' jdbc_url <- sprintf(
+#'   paste0("jdbc:sqlserver://%s:%d;databaseName=%s;",
+#'          "integratedSecurity=true;encrypt=true;trustServerCertificate=true;"),
+#'   "myserver.institution.edu", 1433L, "OMOP_CDM"
+#' )
+#' connectionDetails <- DatabaseConnector::createConnectionDetails(
+#'   dbms             = "sql server",
+#'   connectionString = jdbc_url,
+#'   pathToDriver     = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
+#' )
+#' ```
+#'
+#' ### Step 2 — Fetch the base cohort (connect once, then disconnect)
+#'
+#' ```r
+#' conn       <- DatabaseConnector::connect(connectionDetails)
+#' person_ids <- fetch_cohort_ids(
+#'   conn,
+#'   json_path    = system.file("json", "cohort_VZV_antivirals.json",
+#'                              package = "TrajectoryDashboard"),
+#'   cdm_schema   = "OMOP_CDM.dbo",
+#'   vocab_schema = "OMOP_CDM.dbo"
+#' )
+#' DatabaseConnector::disconnect(conn)
+#' ```
+#'
+#' You can also write a plain SQL cohort query and execute it directly with
+#' `DatabaseConnector::querySql()` if you prefer not to use a JSON definition.
+#'
+#' ### Step 3 — Create the connector and launch
+#'
+#' The connector is kept separate from the cohort fetch. It opens a fresh
+#' connection per patient query inside the Shiny app (lazy / per-request).
+#'
+#' ```r
+#' con <- create_omop_connector(
+#'   connectionDetails,
+#'   cdm_schema   = "OMOP_CDM.dbo",
+#'   vocab_schema = "OMOP_CDM.dbo"
+#' )
+#' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
+#' ```
+#'
+#' ### Demo mode (no database)
+#'
+#' ```r
 #' launch_trajectory_dashboard()
-#'
-#' # Live OMOP database
-#' con <- create_connection_from_env(".env")
-#' launch_trajectory_dashboard(con)
-#'
-#' # Restrict to specific patients
-#' launch_trajectory_dashboard(con, person_ids = c("10001", "10002"))
 #' ```
 #'
-#' ## Input: environment file
-#'
-#' Create a `.env` file in your working directory (see `.env.example`):
-#'
-#' ```
-#' SQL_SERVER=myserver.institution.edu
-#' SQL_DATABASE=OMOP_CDM
-#' SQL_CDM_SCHEMA=dbo
-#' USE_WINDOWS_AUTH=true
-#' ```
-#'
-#' @param connector A `trajectory_connector` from [create_omop_connector()],
-#'   [create_df_connector()], or [create_omop_connection()]. If `NULL`,
-#'   the bundled synthetic patient data is used (no database required).
-#' @param person_ids Optional character vector of patient IDs to show in the
-#'   patient selector. If `NULL`, a free-text input is shown.
+#' @param connector A `trajectory_connector` from [create_omop_connector()] or
+#'   [create_df_connector()]. If `NULL`, the bundled synthetic patient data is
+#'   used (no database required).
+#' @param person_ids Optional character vector of patient IDs to pre-populate
+#'   the patient selector. If `NULL`, a free-text input is shown instead.
+#'   Typically the output of [fetch_cohort_ids()] coerced with `as.character()`.
 #' @param port Integer. Port for the Shiny server. Default `NULL` (auto).
 #' @param launch_browser Logical. Open the app in a browser automatically.
 #'   Default `TRUE`.
@@ -46,12 +76,28 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Demo mode with synthetic data
+#' # Demo mode — no database required
 #' launch_trajectory_dashboard()
 #'
-#' # Connect to real OMOP database
-#' con <- create_connection_from_env(".env")
-#' launch_trajectory_dashboard(con)
+#' # Live OMOP database with VZV antivirals base cohort
+#' connectionDetails <- DatabaseConnector::createConnectionDetails(
+#'   dbms             = "sql server",
+#'   connectionString = jdbc_url,
+#'   pathToDriver     = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
+#' )
+#'
+#' conn <- DatabaseConnector::connect(connectionDetails)
+#' person_ids <- fetch_cohort_ids(
+#'   conn,
+#'   json_path    = system.file("json", "cohort_VZV_antivirals.json",
+#'                              package = "TrajectoryDashboard"),
+#'   cdm_schema   = "Myositis_OMOP.dbo",
+#'   vocab_schema = "Myositis_OMOP.dbo"
+#' )
+#' DatabaseConnector::disconnect(conn)
+#'
+#' con <- create_omop_connector(connectionDetails, cdm_schema = "Myositis_OMOP.dbo")
+#' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
 launch_trajectory_dashboard <- function(connector      = NULL,
                                          person_ids     = NULL,
