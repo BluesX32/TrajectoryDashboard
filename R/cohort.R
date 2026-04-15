@@ -572,7 +572,7 @@ build_cohort_sql <- function(cohort,
   if (!file.exists(json_path)) {
     rlang::abort(sprintf("Cohort JSON file not found: %s", json_path))
   }
-  cohort <- jsonlite::fromJSON(json_path, simplifyVector = TRUE)
+  cohort <- jsonlite::fromJSON(json_path, simplifyVector = FALSE)
   if (is.null(cohort$ConceptSets) || length(cohort$ConceptSets) == 0L) {
     rlang::abort("JSON must be an ATLAS cohort definition with a 'ConceptSets' array.")
   }
