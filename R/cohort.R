@@ -33,20 +33,28 @@
 #' Reads an ATLAS cohort definition JSON, compiles it to SQL, executes it,
 #' and returns a vector of `person_id` values.
 #'
-#' @param conn A live `DatabaseConnector` connection (from
-#'   `DatabaseConnector::connect()`).
+#' Accepts either a **`trajectory_connector`** (from [create_omop_connection()],
+#' [create_connection_from_env()], [create_safer_connection()], or
+#' [create_omop_connector()]) or a plain **`DatabaseConnector` connection**
+#' object. When a connector is supplied, `cdm_schema`, `vocab_schema`, and
+#' `dbms` are read from it automatically and do not need to be specified.
+#'
+#' @param connector A `trajectory_connector` **or** a live
+#'   `DatabaseConnector` connection object.
 #' @param json_path Path to an ATLAS cohort definition JSON file.
 #'   Use [system.file()] for bundled definitions:
 #'   ```r
 #'   system.file("json", "cohort_VZV_antivirals.json",
 #'               package = "TrajectoryDashboard")
 #'   ```
-#' @param cdm_schema `character(1)`. OMOP CDM schema (e.g. `"Myositis_OMOP.dbo"`).
+#' @param cdm_schema `character(1)`. OMOP CDM schema. Required when
+#'   `connector` is a plain connection; ignored when it is a
+#'   `trajectory_connector` (schema is taken from the connector).
 #' @param vocab_schema `character(1)`. Vocabulary schema. Defaults to
 #'   `cdm_schema`.
 #' @param dbms `character(1)`. Target SQL dialect for `SqlRender::translate()`.
-#'   Default `"sql server"`. Other values: `"postgresql"`, `"spark"`,
-#'   `"redshift"`, `"bigquery"`, `"snowflake"`.
+#'   Ignored when `connector` is a `trajectory_connector`. Default
+#'   `"sql server"`.
 #' @param verbose `logical(1)`. Print a summary message with cohort name and
 #'   count. Default `TRUE`.
 #'
@@ -56,34 +64,54 @@
 #'
 #' @examples
 #' \dontrun{
-#' conn <- DatabaseConnector::connect(connectionDetails)
-#'
+#' # With a trajectory_connector (SAFE / SAFER / omop_connector)
+#' con <- create_safer_connection("R.env")
 #' person_ids <- fetch_cohort_ids(
-#'   conn,
-#'   json_path    = system.file("json", "cohort_VZV_antivirals.json",
-#'                              package = "TrajectoryDashboard"),
-#'   cdm_schema   = "Myositis_OMOP.dbo",
-#'   vocab_schema = "Myositis_OMOP.dbo"
+#'   con,
+#'   json_path = system.file("json", "cohort_VZV_antivirals.json",
+#'                            package = "TrajectoryDashboard")
 #' )
-#'
-#' DatabaseConnector::disconnect(conn)
+#' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
-fetch_cohort_ids <- function(conn,
+fetch_cohort_ids <- function(connector,
                               json_path,
-                              cdm_schema,
-                              vocab_schema = cdm_schema,
+                              cdm_schema   = NULL,
+                              vocab_schema = NULL,
                               dbms         = "sql server",
                               verbose      = TRUE) {
   .check_cohort_packages()
 
   cohort <- .load_atlas_json(json_path)
-  sql    <- build_cohort_sql(cohort,
-                              cdm_schema   = cdm_schema,
-                              vocab_schema = vocab_schema,
-                              dbms         = dbms)
 
-  result <- DatabaseConnector::querySql(conn, sql,
-                                         snakeCaseToCamelCase = FALSE)
+  if (inherits(connector, "trajectory_connector")) {
+    # Read schema and dialect from the connector
+    cdm_schema   <- connector$cdm_schema   %||% cdm_schema
+    vocab_schema <- connector$vocab_schema %||% cdm_schema
+    dbms         <- connector$dbms        %||% dbms
+
+    sql <- build_cohort_sql(cohort,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             dbms         = dbms)
+
+    result <- with_connector(connector, function(active) {
+      DatabaseConnector::querySql(active$conn, sql,
+                                   snakeCaseToCamelCase = FALSE)
+    })
+  } else {
+    # Plain DatabaseConnector connection
+    if (is.null(cdm_schema)) {
+      rlang::abort("'cdm_schema' is required when 'connector' is a plain connection object.")
+    }
+    vocab_schema <- vocab_schema %||% cdm_schema
+    sql <- build_cohort_sql(cohort,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             dbms         = dbms)
+    result <- DatabaseConnector::querySql(connector, sql,
+                                           snakeCaseToCamelCase = FALSE)
+  }
+
   ids <- as.integer(result[[1L]])
 
   if (verbose) {

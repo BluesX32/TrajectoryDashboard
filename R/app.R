@@ -6,66 +6,65 @@
 #' Opens an interactive Shiny dashboard for longitudinal patient trajectory
 #' visualization based on OMOP CDM data.
 #'
-#' ## Workflow
-#'
-#' ### Step 1 — Build connection details (OHDSI standard)
+#' ## Quick start
 #'
 #' ```r
-#' jdbc_url <- sprintf(
-#'   paste0("jdbc:sqlserver://%s:%d;databaseName=%s;",
-#'          "integratedSecurity=true;encrypt=true;trustServerCertificate=true;"),
-#'   "myserver.institution.edu", 1433L, "OMOP_CDM"
-#' )
-#' connectionDetails <- DatabaseConnector::createConnectionDetails(
-#'   dbms             = "sql server",
-#'   connectionString = jdbc_url,
-#'   pathToDriver     = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
-#' )
+#' # Demo with synthetic data (no database required)
+#' launch_trajectory_dashboard()
+#'
+#' # SAFE: SQL Server via .env file
+#' con <- create_connection_from_env(".env")
+#' launch_trajectory_dashboard(con)
+#'
+#' # SAFER: Databricks via R.env file
+#' con <- create_safer_connection("R.env")
+#' launch_trajectory_dashboard(con)
 #' ```
 #'
-#' ### Step 2 — Fetch the base cohort (connect once, then disconnect)
+#' ## Launching with a base cohort
+#'
+#' Call [fetch_cohort_ids()] before launching to restrict the patient selector
+#' to a specific cohort. The connector is passed to both calls — no extra
+#' connection management required.
 #'
 #' ```r
-#' conn       <- DatabaseConnector::connect(connectionDetails)
+#' con <- create_safer_connection("R.env")
+#'
 #' person_ids <- fetch_cohort_ids(
-#'   conn,
-#'   json_path    = system.file("json", "cohort_VZV_antivirals.json",
-#'                              package = "TrajectoryDashboard"),
-#'   cdm_schema   = "OMOP_CDM.dbo",
-#'   vocab_schema = "OMOP_CDM.dbo"
+#'   con,
+#'   json_path = system.file("json", "cohort_VZV_antivirals.json",
+#'                            package = "TrajectoryDashboard")
 #' )
-#' DatabaseConnector::disconnect(conn)
-#' ```
 #'
-#' You can also write a plain SQL cohort query and execute it directly with
-#' `DatabaseConnector::querySql()` if you prefer not to use a JSON definition.
-#'
-#' ### Step 3 — Create the connector and launch
-#'
-#' The connector is kept separate from the cohort fetch. It opens a fresh
-#' connection per patient query inside the Shiny app (lazy / per-request).
-#'
-#' ```r
-#' con <- create_omop_connector(
-#'   connectionDetails,
-#'   cdm_schema   = "OMOP_CDM.dbo",
-#'   vocab_schema = "OMOP_CDM.dbo"
-#' )
 #' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' ```
 #'
-#' ### Demo mode (no database)
+#' ## Environment file format
 #'
-#' ```r
-#' launch_trajectory_dashboard()
+#' **SAFE** (`.env`) — SQL Server / generic OMOP:
+#' ```
+#' SQL_SERVER=myserver.institution.edu
+#' SQL_DATABASE=OMOP_CDM
+#' SQL_CDM_SCHEMA=dbo
+#' USE_WINDOWS_AUTH=true
+#' JDBC_DRIVER_PATH=/path/to/jdbc
 #' ```
 #'
-#' @param connector A `trajectory_connector` from [create_omop_connector()] or
-#'   [create_df_connector()]. If `NULL`, the bundled synthetic patient data is
-#'   used (no database required).
+#' **SAFER** (`R.env`) — Databricks / Discovery HPC:
+#' ```
+#' DATABRICKS_SERVER_HOSTNAME=adb-xxx.azuredatabricks.net
+#' DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxx
+#' DATABRICKS_TOKEN=dapiXXXXXXXXXXXXXXXX
+#' DATABRICKS_DATA_CATALOG=deid
+#' DATABRICKS_JDBC_JAR=/path/to/DatabricksJDBC42.jar
+#' ```
+#'
+#' @param connector A `trajectory_connector` from [create_omop_connection()],
+#'   [create_connection_from_env()], [create_safer_connection()], or
+#'   [create_omop_connector()]. If `NULL`, bundled synthetic data is used.
 #' @param person_ids Optional character vector of patient IDs to pre-populate
-#'   the patient selector. If `NULL`, a free-text input is shown instead.
-#'   Typically the output of [fetch_cohort_ids()] coerced with `as.character()`.
+#'   the patient selector. If `NULL`, a free-text input is shown. Typically
+#'   the output of [fetch_cohort_ids()] coerced with `as.character()`.
 #' @param port Integer. Port for the Shiny server. Default `NULL` (auto).
 #' @param launch_browser Logical. Open the app in a browser automatically.
 #'   Default `TRUE`.
@@ -79,24 +78,13 @@
 #' # Demo mode — no database required
 #' launch_trajectory_dashboard()
 #'
-#' # Live OMOP database with VZV antivirals base cohort
-#' connectionDetails <- DatabaseConnector::createConnectionDetails(
-#'   dbms             = "sql server",
-#'   connectionString = jdbc_url,
-#'   pathToDriver     = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER")
-#' )
-#'
-#' conn <- DatabaseConnector::connect(connectionDetails)
+#' # SAFER connection with VZV antivirals base cohort
+#' con <- create_safer_connection("R.env")
 #' person_ids <- fetch_cohort_ids(
-#'   conn,
-#'   json_path    = system.file("json", "cohort_VZV_antivirals.json",
-#'                              package = "TrajectoryDashboard"),
-#'   cdm_schema   = "Myositis_OMOP.dbo",
-#'   vocab_schema = "Myositis_OMOP.dbo"
+#'   con,
+#'   json_path = system.file("json", "cohort_VZV_antivirals.json",
+#'                            package = "TrajectoryDashboard")
 #' )
-#' DatabaseConnector::disconnect(conn)
-#'
-#' con <- create_omop_connector(connectionDetails, cdm_schema = "Myositis_OMOP.dbo")
 #' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
 launch_trajectory_dashboard <- function(connector      = NULL,
