@@ -215,11 +215,18 @@ build_cohort_sql <- function(cohort,
       co_conc  <- .domain_concept_col(co_dom)
       nm       <- paste0("co_cs_", i)
 
-      timing <- if (isTRUE(cc$on_or_after_index)) {
-        sprintf("AND de.%s >= t.%s", co_date, index_date_col)
+      timing_clause <- if (isTRUE(cc$on_or_after_index)) {
+        sprintf(
+          paste0(
+            "      AND de.%s >= t.%s\n",
+            "      AND de.%s BETWEEN op.observation_period_start_date\n",
+            "                    AND op.observation_period_end_date"
+          ),
+          co_date, index_date_col, co_date
+        )
       } else {
         sprintf(
-          "AND de.%s BETWEEN op.observation_period_start_date AND op.observation_period_end_date",
+          "      AND de.%s BETWEEN op.observation_period_start_date\n                    AND op.observation_period_end_date",
           co_date
         )
       }
@@ -230,16 +237,12 @@ build_cohort_sql <- function(cohort,
           "      SELECT 1 FROM %s.%s de\n",
           "      JOIN %s %s ON de.%s = %s.concept_id\n",
           "      WHERE de.person_id = t.person_id\n",
-          "      %s\n",
-          "      AND de.%s\n",
-          "            BETWEEN op.observation_period_start_date\n",
-          "                AND op.observation_period_end_date\n",
+          "%s\n",
           "    )"
         ),
         cdm_schema, co_dom,
         nm, nm, co_conc, nm,
-        timing,
-        co_date
+        timing_clause
       )
     }, character(1L)),
     collapse = "\n"
@@ -268,7 +271,7 @@ build_cohort_sql <- function(cohort,
     index_conc_col,
     cdm_schema,
     index_date_col,
-    if (nzchar(co_exists)) paste0("  WHERE\n", co_exists, "\n") else ""
+    if (nzchar(co_exists)) paste0("  WHERE 1=1\n", co_exists, "\n") else ""
   )
 
   # ------------------------------------------------------------------ #
