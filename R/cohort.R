@@ -95,12 +95,27 @@ fetch_cohort_ids <- function(connector,
     result <- with_connector(connector, function(active) {
       actual_dbms <- active$dbms
       if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
-      sql <- build_cohort_sql(cohort,
-                               cdm_schema   = cdm_schema,
-                               vocab_schema = vocab_schema,
-                               dbms         = actual_dbms)
-      DatabaseConnector::querySql(active$conn, sql,
-                                   snakeCaseToCamelCase = FALSE)
+      withCallingHandlers(
+        {
+          sql <- build_cohort_sql(cohort,
+                                   cdm_schema   = cdm_schema,
+                                   vocab_schema = vocab_schema,
+                                   dbms         = actual_dbms)
+          DatabaseConnector::querySql(active$conn, sql,
+                                       snakeCaseToCamelCase = FALSE)
+        },
+        error = function(e) {
+          message("\n--- fetch_cohort_ids: error location trace ---")
+          calls <- sys.calls()
+          for (i in seq_along(calls)) {
+            txt <- tryCatch(paste(deparse(calls[[i]]), collapse = " "),
+                            error = function(e2) "<unparseable>")
+            if (nchar(txt) > 200) txt <- substr(txt, 1, 200)
+            message(sprintf("[%02d] %s", i, txt))
+          }
+          message("----------------------------------------------\n")
+        }
+      )
     })
   } else {
     # Plain DatabaseConnector connection
