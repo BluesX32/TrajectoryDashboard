@@ -84,17 +84,21 @@ fetch_cohort_ids <- function(connector,
   cohort <- .load_atlas_json(json_path)
 
   if (inherits(connector, "trajectory_connector")) {
-    # Read schema and dialect from the connector
+    # Schema from connector; DBMS resolved inside with_connector() from the live
+    # connection so we never get character(0) from a not-yet-opened connector.
     cdm_schema   <- connector$cdm_schema   %||% cdm_schema
     vocab_schema <- connector$vocab_schema %||% cdm_schema
-    dbms         <- connector$dbms        %||% dbms
-
-    sql <- build_cohort_sql(cohort,
-                             cdm_schema   = cdm_schema,
-                             vocab_schema = vocab_schema,
-                             dbms         = dbms)
+    if (!length(cdm_schema) || !nzchar(cdm_schema %||% "")) {
+      rlang::abort("'cdm_schema' could not be resolved from the connector. Provide it explicitly.")
+    }
 
     result <- with_connector(connector, function(active) {
+      actual_dbms <- active$dbms
+      if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
+      sql <- build_cohort_sql(cohort,
+                               cdm_schema   = cdm_schema,
+                               vocab_schema = vocab_schema,
+                               dbms         = actual_dbms)
       DatabaseConnector::querySql(active$conn, sql,
                                    snakeCaseToCamelCase = FALSE)
     })
@@ -189,9 +193,20 @@ build_cohort_sql <- function(cohort,
     )
   }
 
-  # Inclusion rule concept sets
-  for (i in seq_along(inclusion$drug_rules)) {
-    dr  <- inclusion$drug_rules[[i]]
+  # Flatten drug_rule_groups into an indexed list for CTE naming.
+  # flat_drug_rules[[i]] is the criterion; flat_group_idx[[i]] is its group.
+  flat_drug_rules  <- list()
+  flat_group_idx   <- integer(0)
+  for (g in seq_along(inclusion$drug_rule_groups)) {
+    for (cr in inclusion$drug_rule_groups[[g]]) {
+      flat_drug_rules[[length(flat_drug_rules) + 1L]] <- cr
+      flat_group_idx <- c(flat_group_idx, g)
+    }
+  }
+
+  # Inclusion rule concept sets (one CTE per criterion)
+  for (i in seq_along(flat_drug_rules)) {
+    dr  <- flat_drug_rules[[i]]
     nm  <- paste0("inc_drug_cs_", i)
     cte_parts[[nm]] <- .cte_concept_set(
       nm, dr$concept_ids, dr$include_descendants, vocab_schema
@@ -293,39 +308,57 @@ build_cohort_sql <- function(cohort,
     age_join <- ""
   }
 
-  # Drug inclusion EXISTS blocks
-  drug_exists <- paste(
-    vapply(seq_along(inclusion$drug_rules), function(i) {
-      dr      <- inclusion$drug_rules[[i]]
-      dr_dom  <- dr$domain
-      dr_date <- .domain_date_col(dr_dom)
-      dr_conc <- .domain_concept_col(dr_dom)
-      nm      <- paste0("inc_drug_cs_", i)
+  # Drug inclusion EXISTS blocks.
+  # Criteria within the same InclusionRule are OR'd (any one qualifies).
+  # Different InclusionRules are AND'd (each rule must be satisfied).
+  n_groups <- length(inclusion$drug_rule_groups)
+  drug_exists <- if (n_groups == 0L) "" else {
+    paste(
+      vapply(seq_len(n_groups), function(g) {
+        idxs <- which(flat_group_idx == g)
 
-      timing <- if (isTRUE(dr$on_or_after_index)) {
-        sprintf("\n  AND de.%s >= ie.index_date", dr_date)
-      } else {
-        sprintf(
-          "\n  AND de.%s BETWEEN ie.op_start_date AND ie.op_end_date",
-          dr_date
-        )
-      }
+        # Build an EXISTS body for each criterion in this group
+        exists_bodies <- vapply(idxs, function(i) {
+          dr      <- flat_drug_rules[[i]]
+          dr_dom  <- dr$domain
+          dr_date <- .domain_date_col(dr_dom)
+          dr_conc <- .domain_concept_col(dr_dom)
+          nm      <- paste0("inc_drug_cs_", i)
 
-      sprintf(
-        paste0(
-          "\nAND EXISTS (\n",
-          "  SELECT 1 FROM %s.%s de\n",
-          "  JOIN %s %s ON de.%s = %s.concept_id\n",
-          "  WHERE de.person_id = ie.person_id%s\n",
-          ")"
-        ),
-        cdm_schema, dr_dom,
-        nm, nm, dr_conc, nm,
-        timing
-      )
-    }, character(1L)),
-    collapse = ""
-  )
+          timing <- if (isTRUE(dr$on_or_after_index)) {
+            sprintf("\n  AND de.%s >= ie.index_date", dr_date)
+          } else {
+            sprintf(
+              "\n  AND de.%s BETWEEN ie.op_start_date AND ie.op_end_date",
+              dr_date
+            )
+          }
+
+          sprintf(
+            paste0(
+              "  SELECT 1 FROM %s.%s de\n",
+              "  JOIN %s %s ON de.%s = %s.concept_id\n",
+              "  WHERE de.person_id = ie.person_id%s"
+            ),
+            cdm_schema, dr_dom,
+            nm, nm, dr_conc, nm,
+            timing
+          )
+        }, character(1L))
+
+        if (length(exists_bodies) == 1L) {
+          sprintf("\nAND EXISTS (\n%s\n)", exists_bodies)
+        } else {
+          or_clauses <- paste(
+            sprintf("  EXISTS (\n%s\n  )", exists_bodies),
+            collapse = "\n  OR "
+          )
+          sprintf("\nAND (\n%s\n)", or_clauses)
+        }
+      }, character(1L)),
+      collapse = ""
+    )
+  }
 
   sql <- paste0(
     "WITH\n\n",
@@ -430,14 +463,15 @@ build_cohort_sql <- function(cohort,
 }
 
 #' Parse InclusionRules from ATLAS JSON
-#' Returns list(age_min, drug_rules)
+#' Returns list(age_min, drug_rule_groups) where each group is a list of
+#' criteria that are OR'd; groups themselves are AND'd.
 #' @noRd
 .parse_inclusion_rules <- function(rules, cs_map) {
   age_min    <- NULL
   drug_rules <- list()
 
   if (is.null(rules) || length(rules) == 0L) {
-    return(list(age_min = age_min, drug_rules = drug_rules))
+    return(list(age_min = age_min, drug_rule_groups = drug_rules))
   }
 
   for (rule in rules) {
@@ -460,13 +494,16 @@ build_cohort_sql <- function(cohort,
     if (is.null(crit_list) || length(crit_list) == 0L) next
     if (is.data.frame(crit_list)) crit_list <- lapply(seq_len(nrow(crit_list)), function(i) as.list(crit_list[i, ]))
 
+    # Each CriteriaList entry within one InclusionRule is OR'd (any one qualifies).
+    # Multiple InclusionRules are AND'd (each rule must be satisfied).
+    group <- list()
     for (cc in crit_list) {
       crit <- cc$Criteria
       if (is.null(crit)) next
 
-      dr_dom <- if (!is.null(crit$DrugExposure))         "drug_exposure"
+      dr_dom <- if (!is.null(crit$DrugExposure))              "drug_exposure"
                  else if (!is.null(crit$ConditionOccurrence)) "condition_occurrence"
-                 else                                          next
+                 else                                           next
 
       dr_obj   <- crit[[.atlas_domain_key(dr_dom)]]
       dr_cs_id <- as.character(dr_obj$CodesetId)
@@ -478,16 +515,19 @@ build_cohort_sql <- function(cohort,
       on_or_after <- !is.null(sw) &&
         !is.null(sw$Start$Days) && sw$Start$Days == 0 && sw$Start$Coeff == -1
 
-      drug_rules[[length(drug_rules) + 1L]] <- list(
+      group[[length(group) + 1L]] <- list(
         domain              = dr_dom,
         concept_ids         = dr_cs$concept_ids,
         include_descendants = dr_cs$include_descendants,
         on_or_after_index   = on_or_after
       )
     }
+    if (length(group) > 0L) {
+      drug_rules[[length(drug_rules) + 1L]] <- group
+    }
   }
 
-  list(age_min = age_min, drug_rules = drug_rules)
+  list(age_min = age_min, drug_rule_groups = drug_rules)
 }
 
 #' Map OMOP domain name to ATLAS JSON criteria key
