@@ -81,61 +81,68 @@ fetch_cohort_ids <- function(connector,
                               verbose      = TRUE) {
   .check_cohort_packages()
 
-  cohort <- .load_atlas_json(json_path)
-
+  # ---- Resolve schemas from the connector (before opening any connection) ----
   if (inherits(connector, "trajectory_connector")) {
-    # Schema from connector; DBMS resolved inside with_connector() from the live
-    # connection so we never get character(0) from a not-yet-opened connector.
     cdm_schema   <- connector$cdm_schema   %||% cdm_schema
     vocab_schema <- connector$vocab_schema %||% cdm_schema
     if (!length(cdm_schema) || !nzchar(cdm_schema %||% "")) {
       rlang::abort("'cdm_schema' could not be resolved from the connector. Provide it explicitly.")
     }
-
-    result <- with_connector(connector, function(active) {
-      actual_dbms <- active$dbms
-      if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
-      withCallingHandlers(
-        {
-          sql <- build_cohort_sql(cohort,
-                                   cdm_schema   = cdm_schema,
-                                   vocab_schema = vocab_schema,
-                                   dbms         = actual_dbms)
-          DatabaseConnector::querySql(active$conn, sql,
-                                       snakeCaseToCamelCase = FALSE)
-        },
-        error = function(e) {
-          message("\n--- fetch_cohort_ids: error location trace ---")
-          calls <- sys.calls()
-          for (i in seq_along(calls)) {
-            txt <- tryCatch(paste(deparse(calls[[i]]), collapse = " "),
-                            error = function(e2) "<unparseable>")
-            if (nchar(txt) > 200) txt <- substr(txt, 1, 200)
-            message(sprintf("[%02d] %s", i, txt))
-          }
-          message("----------------------------------------------\n")
-        }
-      )
-    })
   } else {
-    # Plain DatabaseConnector connection
     if (is.null(cdm_schema)) {
       rlang::abort("'cdm_schema' is required when 'connector' is a plain connection object.")
     }
     vocab_schema <- vocab_schema %||% cdm_schema
-    sql <- build_cohort_sql(cohort,
-                             cdm_schema   = cdm_schema,
-                             vocab_schema = vocab_schema,
-                             dbms         = dbms)
-    result <- DatabaseConnector::querySql(connector, sql,
-                                           snakeCaseToCamelCase = FALSE)
+  }
+
+  cohort_name <- tools::file_path_sans_ext(basename(json_path))
+
+  # ---- Prefer a pre-built, SqlRender-parameterised SQL file ----------------
+  # A companion .sql file in inst/sql/ (same stem as the .json) is used
+  # directly via SqlRender::render + translate, bypassing JSON parsing entirely.
+  sql_path <- .find_companion_sql(json_path)
+
+  if (!is.null(sql_path)) {
+    if (verbose) message(sprintf("[cohort] Using SQL file: %s", basename(sql_path)))
+    sql_template <- SqlRender::readSql(sql_path)
+
+    .run_sql <- function(conn, actual_dbms) {
+      sql <- SqlRender::render(sql_template,
+                               cdm_schema   = cdm_schema,
+                               vocab_schema = vocab_schema)
+      sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
+      DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE)
+    }
+
+  } else {
+    # Fall back to dynamic JSON parsing
+    cohort      <- .load_atlas_json(json_path)
+    cohort_name <- cohort$name %||% cohort_name
+
+    .run_sql <- function(conn, actual_dbms) {
+      sql <- build_cohort_sql(cohort,
+                               cdm_schema   = cdm_schema,
+                               vocab_schema = vocab_schema,
+                               dbms         = actual_dbms)
+      DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE)
+    }
+  }
+
+  # ---- Execute ---------------------------------------------------------------
+  if (inherits(connector, "trajectory_connector")) {
+    result <- with_connector(connector, function(active) {
+      actual_dbms <- active$dbms
+      if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
+      .run_sql(active$conn, actual_dbms)
+    })
+  } else {
+    result <- .run_sql(connector, dbms)
   }
 
   ids <- as.integer(result[[1L]])
 
   if (verbose) {
-    label <- cohort$name %||% basename(json_path)
-    message(sprintf("[cohort] '%s' — %d person_ids selected", label, length(ids)))
+    message(sprintf("[cohort] '%s' — %d person_ids selected", cohort_name, length(ids)))
   }
   ids
 }
@@ -650,5 +657,26 @@ build_cohort_sql <- function(cohort,
       ))
     }
   }
+}
+
+#' Find a companion SQL file for an ATLAS cohort JSON
+#'
+#' Looks for a pre-built SqlRender-parameterised SQL file alongside the JSON.
+#' Checks two locations (in order):
+#'   1. Same directory as json_path, .json extension swapped to .sql
+#'   2. Sibling inst/sql/ directory (json_path contains /json/)
+#'
+#' Returns the path if found, NULL otherwise.
+#' @noRd
+.find_companion_sql <- function(json_path) {
+  # 1. Same directory, .sql extension
+  sql_same <- sub("\\.json$", ".sql", json_path, ignore.case = TRUE)
+  if (file.exists(sql_same)) return(sql_same)
+
+  # 2. Sibling inst/sql/ directory (e.g. inst/json/foo.json -> inst/sql/foo.sql)
+  sql_sibling <- sub("/json/", "/sql/", sql_same, fixed = TRUE)
+  if (file.exists(sql_sibling)) return(sql_sibling)
+
+  NULL
 }
 
