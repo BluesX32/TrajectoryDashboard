@@ -111,7 +111,7 @@ fetch_cohort_ids <- function(connector,
                                cdm_schema   = cdm_schema,
                                vocab_schema = vocab_schema)
       sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
-      DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE)
+      .exec_sql(conn, sql)
     }
 
   } else {
@@ -124,7 +124,7 @@ fetch_cohort_ids <- function(connector,
                                cdm_schema   = cdm_schema,
                                vocab_schema = vocab_schema,
                                dbms         = actual_dbms)
-      DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE)
+      .exec_sql(conn, sql)
     }
   }
 
@@ -682,8 +682,7 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
     # Test 1: trivial query — confirms querySql works at all
     tryCatch({
       sql <- SqlRender::translate("SELECT 1 AS test_val", targetDialect = dbms)
-      r   <- DatabaseConnector::querySql(active$conn, sql,
-                                          snakeCaseToCamelCase = FALSE)
+      r   <- .exec_sql(active$conn, sql)
       message("  [PASS] Test 1 — SELECT 1")
       results$test1 <<- TRUE
     }, error = function(e) {
@@ -696,8 +695,7 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
       sql <- SqlRender::render("SELECT COUNT(*) AS n FROM @cdm_schema.person",
                                cdm_schema = cdm_schema)
       sql <- SqlRender::translate(sql, targetDialect = dbms)
-      r   <- DatabaseConnector::querySql(active$conn, sql,
-                                          snakeCaseToCamelCase = FALSE)
+      r   <- .exec_sql(active$conn, sql)
       message(sprintf("  [PASS] Test 2 — person table (%d rows)", r[[1L]]))
       results$test2 <<- TRUE
     }, error = function(e) {
@@ -713,8 +711,7 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
         "SELECT COUNT(*) AS n FROM @vocab_schema.concept WHERE concept_id = 443943",
         vocab_schema = vocab_schema)
       sql <- SqlRender::translate(sql, targetDialect = dbms)
-      r   <- DatabaseConnector::querySql(active$conn, sql,
-                                          snakeCaseToCamelCase = FALSE)
+      r   <- .exec_sql(active$conn, sql)
       message(sprintf("  [PASS] Test 3 — concept table (%d row(s) for herpes zoster)",
                       r[[1L]]))
       results$test3 <<- TRUE
@@ -747,6 +744,22 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
   message(if (all_pass) "\nAll basic tests passed — issue is in the cohort SQL."
           else           "\nBasic test(s) failed — issue is in the R/connection layer.")
   invisible(results)
+}
+
+#' Execute a rendered SQL string against an open connection
+#'
+#' SAFER Desktop / Discovery HPC connections are raw RJDBC `JDBCConnection`
+#' objects. `DatabaseConnector::querySql()` calls `dbms()` on the connection
+#' internally, which returns `character(0)` for raw JDBC connections and causes
+#' "argument is of length zero". Use `DBI::dbGetQuery()` for those connections,
+#' exactly as `query_omop()` does in sql_helpers.R.
+#' @noRd
+.exec_sql <- function(conn, sql) {
+  if (inherits(conn, "JDBCConnection")) {
+    as.data.frame(DBI::dbGetQuery(conn, sql))
+  } else {
+    DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE)
+  }
 }
 
 #' Check that required packages are available
