@@ -1,6 +1,9 @@
 # extract_patient.R
 # Master orchestrator: fetches all 6 OMOP domains for a single patient
 # using a single with_connector() call for omop_connector (reuses one connection).
+#
+# prefetch_cohort_data() batches ALL patients inside ONE connection open/close,
+# returning a named list suitable for preloaded_data= in launch_trajectory_dashboard().
 
 #' Fetch all OMOP domains for a single patient
 #'
@@ -93,4 +96,101 @@ fetch_patient_data <- function(connector,
   }
 
   result
+}
+
+
+# ---------------------------------------------------------------------------
+# Public: prefetch_cohort_data
+# ---------------------------------------------------------------------------
+
+#' Pre-fetch all patient data for a cohort before launching the dashboard
+#'
+#' Opens **one** database connection and fetches both [fetch_patient_data()] and
+#' [fetch_shingles_events()] for every patient in `person_ids`. The returned
+#' cache can be passed as `preloaded_data` to [launch_trajectory_dashboard()] so
+#' the dashboard never issues database queries during an interactive session.
+#'
+#' All queries for all patients share a single JDBC connection (for
+#' `omop_connector`), which avoids repeated authentication round-trips that make
+#' SAFER / Databricks connections slow.
+#'
+#' @param connector A `trajectory_connector` from [create_omop_connection()],
+#'   [create_safer_connection()], etc.
+#' @param person_ids Integer vector of patient identifiers (e.g. from
+#'   [fetch_cohort_ids()]).
+#' @param verbose Logical. Print a progress line per patient. Default `TRUE`.
+#' @param ... Additional arguments forwarded to [fetch_patient_data()] (e.g.
+#'   `domains`, `lab_concepts`, `drug_concepts`).
+#'
+#' @return A named list of class `cohort_cache`. Each element is named by
+#'   `as.character(person_id)` and holds `list(patient = <data>, shingles = <data>)`,
+#'   or `NULL` if fetching failed for that patient.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' con        <- create_safer_connection("R.env")
+#' person_ids <- fetch_cohort_ids(con, system.file("json",
+#'                "cohort_VZV_antivirals.json", package = "TrajectoryDashboard"))
+#' cache      <- prefetch_cohort_data(con, person_ids)
+#' launch_trajectory_dashboard(con, person_ids = as.character(person_ids),
+#'                              preloaded_data = cache)
+#' }
+prefetch_cohort_data <- function(connector, person_ids, verbose = TRUE, ...) {
+  person_ids <- as.integer(unique(person_ids))
+  n     <- length(person_ids)
+  cache <- vector("list", n)
+  names(cache) <- as.character(person_ids)
+
+  is_omop <- inherits(connector, "omop_connector")
+
+  .do_fetch <- function(active) {
+    for (i in seq_along(person_ids)) {
+      pid <- person_ids[[i]]
+      key <- as.character(pid)
+      if (verbose) message(sprintf("[prefetch] %d/%d  person_id = %d", i, n, pid))
+
+      cache[[key]] <<- tryCatch({
+        pat <- fetch_patient_data(active, pid, ...)
+        shn <- if (is_omop) {
+          tryCatch(
+            fetch_shingles_events(active, pid),
+            error = function(e) {
+              message(sprintf("[prefetch]   shingles failed for %d: %s", pid, e$message))
+              .empty_shingles()
+            }
+          )
+        } else {
+          .empty_shingles()
+        }
+        list(patient = pat, shingles = shn)
+      }, error = function(e) {
+        message(sprintf("[prefetch]   FAILED person_id=%d: %s", pid, e$message))
+        NULL
+      })
+    }
+  }
+
+  if (is_omop) {
+    with_connector(connector, .do_fetch)
+  } else {
+    .do_fetch(connector)
+  }
+
+  n_ok <- sum(!vapply(cache, is.null, logical(1L)))
+  if (verbose) message(sprintf("[prefetch] Done — %d / %d patients cached.", n_ok, n))
+  structure(cache, class = c("cohort_cache", "list"))
+}
+
+.empty_shingles <- function() {
+  data.frame(
+    person_id              = integer(0),
+    condition_occurrence_id = integer(0),
+    condition_start_date   = as.Date(character(0)),
+    condition_end_date     = as.Date(character(0)),
+    condition_concept_id   = integer(0),
+    condition_name         = character(0),
+    condition_source_value = character(0),
+    stringsAsFactors       = FALSE
+  )
 }
