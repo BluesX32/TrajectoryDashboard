@@ -647,6 +647,108 @@ build_cohort_sql <- function(cohort,
   cohort
 }
 
+#' Test database connectivity and schema access
+#'
+#' Runs a series of trivial queries through the same code path as
+#' [fetch_cohort_ids()] to determine whether errors come from the R package
+#' infrastructure or from the cohort SQL itself.
+#'
+#' @param connector A `trajectory_connector` from [create_connection_from_env()]
+#'   or [create_safer_connection()].
+#' @param cdm_schema Optional override for the CDM schema (read from connector
+#'   automatically when using a `trajectory_connector`).
+#' @return Invisibly returns a list of results; prints a pass/fail report.
+#' @export
+test_cohort_connection <- function(connector, cdm_schema = NULL) {
+  if (!requireNamespace("DatabaseConnector", quietly = TRUE))
+    rlang::abort("DatabaseConnector is required.")
+  if (!requireNamespace("SqlRender", quietly = TRUE))
+    rlang::abort("SqlRender is required.")
+
+  if (inherits(connector, "trajectory_connector")) {
+    cdm_schema <- connector$cdm_schema %||% cdm_schema
+  }
+  if (is.null(cdm_schema) || !nzchar(cdm_schema))
+    rlang::abort("'cdm_schema' could not be resolved.")
+
+  results <- list()
+
+  with_connector(connector, function(active) {
+    dbms <- active$dbms
+    if (!length(dbms) || !nzchar(dbms)) dbms <- "sql server"
+    message(sprintf("  DBMS detected : %s", dbms))
+    message(sprintf("  CDM schema    : %s", cdm_schema))
+
+    # Test 1: trivial query — confirms querySql works at all
+    tryCatch({
+      sql <- SqlRender::translate("SELECT 1 AS test_val", targetDialect = dbms)
+      r   <- DatabaseConnector::querySql(active$conn, sql,
+                                          snakeCaseToCamelCase = FALSE)
+      message("  [PASS] Test 1 — SELECT 1")
+      results$test1 <<- TRUE
+    }, error = function(e) {
+      message(sprintf("  [FAIL] Test 1 — SELECT 1: %s", conditionMessage(e)))
+      results$test1 <<- FALSE
+    })
+
+    # Test 2: schema + table access
+    tryCatch({
+      sql <- SqlRender::render("SELECT COUNT(*) AS n FROM @cdm_schema.person",
+                               cdm_schema = cdm_schema)
+      sql <- SqlRender::translate(sql, targetDialect = dbms)
+      r   <- DatabaseConnector::querySql(active$conn, sql,
+                                          snakeCaseToCamelCase = FALSE)
+      message(sprintf("  [PASS] Test 2 — person table (%d rows)", r[[1L]]))
+      results$test2 <<- TRUE
+    }, error = function(e) {
+      message(sprintf("  [FAIL] Test 2 — person table: %s", conditionMessage(e)))
+      results$test2 <<- FALSE
+    })
+
+    # Test 3: concept table (vocab schema)
+    vocab_schema <- if (inherits(connector, "trajectory_connector"))
+      connector$vocab_schema %||% cdm_schema else cdm_schema
+    tryCatch({
+      sql <- SqlRender::render(
+        "SELECT COUNT(*) AS n FROM @vocab_schema.concept WHERE concept_id = 443943",
+        vocab_schema = vocab_schema)
+      sql <- SqlRender::translate(sql, targetDialect = dbms)
+      r   <- DatabaseConnector::querySql(active$conn, sql,
+                                          snakeCaseToCamelCase = FALSE)
+      message(sprintf("  [PASS] Test 3 — concept table (%d row(s) for herpes zoster)",
+                      r[[1L]]))
+      results$test3 <<- TRUE
+    }, error = function(e) {
+      message(sprintf("  [FAIL] Test 3 — concept table: %s", conditionMessage(e)))
+      results$test3 <<- FALSE
+    })
+
+    # Test 4: render + translate the full cohort SQL (no execution)
+    sql_path <- system.file("sql", "cohort_VZV_antivirals.sql",
+                             package = "TrajectoryDashboard")
+    if (nzchar(sql_path) && file.exists(sql_path)) {
+      tryCatch({
+        tmpl <- SqlRender::readSql(sql_path)
+        sql  <- SqlRender::render(tmpl,
+                                   cdm_schema   = cdm_schema,
+                                   vocab_schema = vocab_schema)
+        sql  <- SqlRender::translate(sql, targetDialect = dbms)
+        message(sprintf("  [PASS] Test 4 — cohort SQL renders OK (%d chars)", nchar(sql)))
+        results$test4 <<- TRUE
+        results$cohort_sql <<- sql
+      }, error = function(e) {
+        message(sprintf("  [FAIL] Test 4 — cohort SQL render: %s", conditionMessage(e)))
+        results$test4 <<- FALSE
+      })
+    }
+  })
+
+  all_pass <- all(unlist(results[c("test1", "test2", "test3")]))
+  message(if (all_pass) "\nAll basic tests passed — issue is in the cohort SQL."
+          else           "\nBasic test(s) failed — issue is in the R/connection layer.")
+  invisible(results)
+}
+
 #' Check that required packages are available
 #' @noRd
 .check_cohort_packages <- function() {
