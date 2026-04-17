@@ -208,7 +208,10 @@ compute_trajectory_phases <- function(lab_df,
 
 # Merge consecutive rows with same phase into single segments
 .consolidate_phases <- function(wdf) {
-  if (nrow(wdf) == 0L) return(wdf)
+  # Guard: seq(2L, 1L) in R counts DOWN to c(2,1), not empty — single-row
+  # wdf would cause i=2 to access wdf$phase[2]=NA, triggering
+  # "missing value where TRUE/FALSE needed" in the if() below.
+  if (nrow(wdf) <= 1L) return(wdf)
 
   result   <- list()
   cur_phase <- wdf$phase[1L]
@@ -237,7 +240,7 @@ compute_trajectory_phases <- function(lab_df,
   }
 
   for (i in seq(2L, nrow(wdf))) {
-    if (wdf$phase[i] == cur_phase) {
+    if (identical(wdf$phase[i], cur_phase)) {
       cur_end   <- wdf$window_end[i]
       n_obs_acc <- n_obs_acc + wdf$n_obs[i]
       # running mean
