@@ -696,7 +696,7 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
                                cdm_schema = cdm_schema)
       sql <- SqlRender::translate(sql, targetDialect = dbms)
       r   <- .exec_sql(active$conn, sql)
-      message(sprintf("  [PASS] Test 2 — person table (%d rows)", r[[1L]]))
+      message(sprintf("  [PASS] Test 2 — person table (%s rows)", as.integer(r[[1L]])))
       results$test2 <<- TRUE
     }, error = function(e) {
       message(sprintf("  [FAIL] Test 2 — person table: %s", conditionMessage(e)))
@@ -712,8 +712,8 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
         vocab_schema = vocab_schema)
       sql <- SqlRender::translate(sql, targetDialect = dbms)
       r   <- .exec_sql(active$conn, sql)
-      message(sprintf("  [PASS] Test 3 — concept table (%d row(s) for herpes zoster)",
-                      r[[1L]]))
+      message(sprintf("  [PASS] Test 3 — concept table (%s row(s) for herpes zoster)",
+                      as.integer(r[[1L]])))
       results$test3 <<- TRUE
     }, error = function(e) {
       message(sprintf("  [FAIL] Test 3 — concept table: %s", conditionMessage(e)))
