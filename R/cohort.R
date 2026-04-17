@@ -762,6 +762,74 @@ test_cohort_connection <- function(connector, cdm_schema = NULL) {
   }
 }
 
+# ---------------------------------------------------------------------------
+# Public: fetch_shingles_events
+# ---------------------------------------------------------------------------
+
+#' Fetch herpes zoster / shingles condition occurrences for one patient
+#'
+#' Executes `inst/sql/fetch_shingles_events.sql` against the OMOP CDM and
+#' returns all condition occurrences that match the VZV concept set used in
+#' the cohort definition SQL, ensuring consistency with cohort eligibility.
+#'
+#' @param connector A `trajectory_connector` **or** a live `DatabaseConnector`
+#'   / `JDBCConnection` object.
+#' @param person_id Integer patient identifier.
+#' @param cdm_schema `character(1)`. OMOP CDM schema. Required when
+#'   `connector` is a plain connection; read from the connector otherwise.
+#' @param vocab_schema `character(1)`. Vocabulary schema. Defaults to
+#'   `cdm_schema`.
+#' @param dbms `character(1)`. Target SQL dialect. Default `"sql server"`.
+#'
+#' @return A `data.frame` with columns: `person_id`, `condition_occurrence_id`,
+#'   `condition_start_date`, `condition_end_date`, `condition_concept_id`,
+#'   `condition_name`, `condition_source_value`. Empty data.frame when no
+#'   shingles events are found.
+#' @export
+fetch_shingles_events <- function(connector,
+                                   person_id,
+                                   cdm_schema   = NULL,
+                                   vocab_schema = NULL,
+                                   dbms         = "sql server") {
+  .check_cohort_packages()
+
+  if (inherits(connector, "trajectory_connector")) {
+    cdm_schema   <- connector$cdm_schema   %||% cdm_schema
+    vocab_schema <- connector$vocab_schema %||% cdm_schema
+  } else {
+    if (is.null(cdm_schema))
+      rlang::abort("'cdm_schema' is required when 'connector' is a plain connection object.")
+    vocab_schema <- vocab_schema %||% cdm_schema
+  }
+
+  sql_path <- system.file("sql", "fetch_shingles_events.sql",
+                           package = "TrajectoryDashboard")
+  if (!nzchar(sql_path) || !file.exists(sql_path))
+    rlang::abort("fetch_shingles_events.sql not found in inst/sql/")
+
+  sql_template <- SqlRender::readSql(sql_path)
+
+  .run <- function(conn, actual_dbms) {
+    sql <- SqlRender::render(sql_template,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             person_id    = as.integer(person_id))
+    sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
+    .exec_sql(conn, sql)
+  }
+
+  if (inherits(connector, "trajectory_connector")) {
+    with_connector(connector, function(active) {
+      actual_dbms <- active$dbms
+      if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
+      .run(active$conn, actual_dbms)
+    })
+  } else {
+    .run(connector, dbms)
+  }
+}
+
+
 #' Check that required packages are available
 #' @noRd
 .check_cohort_packages <- function() {

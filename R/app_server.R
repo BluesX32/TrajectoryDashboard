@@ -95,6 +95,29 @@ trajectory_server <- function(connector) {
       })
     })
 
+    # Shingles events via SQL (same VZV concept set as cohort query)
+    shingles_data <- shiny::eventReactive(input$load_patient, {
+      shiny::req(nzchar(as.character(input$person_id)))
+      tryCatch(
+        fetch_shingles_events(
+          connector,
+          person_id = as.integer(input$person_id)
+        ),
+        error = function(e) {
+          message("[shingles] fetch_shingles_events failed: ", e$message)
+          data.frame(
+            person_id = integer(0), condition_occurrence_id = integer(0),
+            condition_start_date = as.Date(character(0)),
+            condition_end_date   = as.Date(character(0)),
+            condition_concept_id = integer(0),
+            condition_name       = character(0),
+            condition_source_value = character(0),
+            stringsAsFactors = FALSE
+          )
+        }
+      )
+    })
+
     # Signal that a patient has been loaded (for conditionalPanel)
     output$patient_loaded <- shiny::reactive({
       !is.null(patient_data()) && nrow(patient_data()$labs) > 0
@@ -971,31 +994,37 @@ trajectory_server <- function(connector) {
         }
       }
 
-      # Row: Shingles incidence (VZV / herpes zoster events)
-      # Identify shingles from conditions by name or ICD code.
-      # Hover shows medications active within ±90 days of each event.
-      shingles <- pd$conditions[
-        grepl("zoster|shingles|herpes zoster|vzv",
-              paste(pd$conditions$condition_name,
-                    pd$conditions$condition_source_value),
-              ignore.case = TRUE), ]
+      # Row: Shingles incidence (VZV / herpes zoster events from SQL query)
+      shingles <- shingles_data()
+      if (is.null(shingles)) shingles <- data.frame()
+
+      # DMARDs only (non-steroid immunosuppressants) for hover context
+      dmard_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
+                          "IVIG", "Rituximab", "JAK inhibitors")
+      all_dmards <- if (nrow(pd$medications) > 0 &&
+                        "drug_family" %in% names(pd$medications)) {
+        pd$medications[
+          !is.na(pd$medications$drug_family) &
+            pd$medications$drug_family %in% dmard_families, ]
+      } else {
+        pd$medications[integer(0), ]
+      }
 
       if (nrow(shingles) > 0) {
-        # For each shingles event compute the ±90-day medication window
+        # For each shingles event compute the ±90-day DMARD window
         shingle_hover <- vapply(seq_len(nrow(shingles)), function(i) {
           ev_date  <- shingles$condition_start_date[i]
           win_lo   <- ev_date - 90L
           win_hi   <- ev_date + 90L
-          meds_win <- pd$medications[
-            !is.na(pd$medications$drug_exposure_start_date) &
-              pd$medications$drug_exposure_start_date <= win_hi &
-              (is.na(pd$medications$drug_exposure_end_date) |
-                 pd$medications$drug_exposure_end_date >= win_lo), ]
-          if (nrow(meds_win) == 0L) {
+          dmards_win <- all_dmards[
+            !is.na(all_dmards$drug_exposure_start_date) &
+              all_dmards$drug_exposure_start_date <= win_hi &
+              (is.na(all_dmards$drug_exposure_end_date) |
+                 all_dmards$drug_exposure_end_date >= win_lo), ]
+          if (nrow(dmards_win) == 0L) {
             med_txt <- "None recorded"
           } else {
-            # Unique drug names sorted
-            drug_names <- sort(unique(meds_win$drug_name[!is.na(meds_win$drug_name)]))
+            drug_names <- sort(unique(dmards_win$drug_name[!is.na(dmards_win$drug_name)]))
             med_txt    <- paste(drug_names, collapse = "<br>\u2022 ")
             if (nzchar(med_txt)) med_txt <- paste0("\u2022 ", med_txt)
           }
@@ -1006,7 +1035,7 @@ trajectory_server <- function(connector) {
                 nzchar(shingles$condition_source_value[i]))
               paste0("ICD: ", shingles$condition_source_value[i], "<br>")
             else "",
-            "<br><b>Medications \u00b13 months:</b><br>",
+            "<br><b>DMARDs \u00b13 months:</b><br>",
             med_txt,
             "<extra></extra>"
           )
