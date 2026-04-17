@@ -114,11 +114,12 @@ get_research_flags <- function(patient_data) {
 
 .make_flag <- function(id, label, description, triggered, detail = "") {
   data.frame(
-    flag_id     = id,
-    label       = label,
-    description = description,
-    triggered   = triggered,
-    detail      = detail,
+    flag_id       = id,
+    label         = label,
+    label_display = label,
+    description   = description,
+    triggered     = triggered,
+    detail        = detail,
     stringsAsFactors = FALSE
   )
 }

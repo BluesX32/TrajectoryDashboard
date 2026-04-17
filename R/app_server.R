@@ -523,10 +523,10 @@ trajectory_server <- function(connector) {
               "<b>%{x|%Y-%m-%d}</b><br>",
               enzyme_labels[ek], ": %{y:.0f}% ULN<extra></extra>")
           )
-          if (nrow(edf) >= 4L) {
+          if (nrow(edf) >= 6L) {
             x_num_e <- as.numeric(edf$measurement_date)
             lo_e <- tryCatch(
-              stats::loess(pct ~ x_num_e, span = 0.4),
+              suppressWarnings(stats::loess(pct ~ x_num_e, span = 0.4)),
               error = function(e) NULL)
             if (!is.null(lo_e)) {
               pd_e     <- seq(min(edf$measurement_date), max(edf$measurement_date), by = "7 days")
@@ -685,10 +685,10 @@ trajectory_server <- function(connector) {
         )
 
         # LOESS smoothed line (if enough points)
-        if (nrow(lab_focus) >= 4L) {
+        if (nrow(lab_focus) >= 6L) {
           x_num <- as.numeric(lab_focus$measurement_date)
           lo <- tryCatch(
-            stats::loess(lab_focus$value_as_number ~ x_num, span = 0.4),
+            suppressWarnings(stats::loess(lab_focus$value_as_number ~ x_num, span = 0.4)),
             error = function(e) NULL
           )
           if (!is.null(lo)) {
@@ -917,13 +917,13 @@ trajectory_server <- function(connector) {
       drug_families <- unique(tx$drug_family)
       n_fam         <- max(length(drug_families), 0L)
 
-      LAB_Y    <- 0.50   # focus-lab scatter band centre
-      COND_Y   <- 1.30   # condition tick marks
-      MED_BASE <- 2.20   # y-centre of lowest medication row
-      ROW_GAP  <- 0.90   # vertical gap between consecutive medication rows
-      BAR_H    <- 0.35   # half-height of each medication bar
-      HOSP_Y   <- MED_BASE + max(n_fam - 1L, 0L) * ROW_GAP + 1.10
-      Y_TOP    <- HOSP_Y + 0.80
+      LAB_Y      <- 0.50   # focus-lab scatter band centre
+      COND_Y     <- 1.30   # condition tick marks
+      MED_BASE   <- 2.20   # y-centre of lowest medication row
+      ROW_GAP    <- 0.90   # vertical gap between consecutive medication rows
+      BAR_H      <- 0.35   # half-height of each medication bar
+      SHINGLE_Y  <- MED_BASE + max(n_fam - 1L, 0L) * ROW_GAP + 1.10
+      Y_TOP      <- SHINGLE_Y + 0.80
 
       family_colors <- c(
         Corticosteroids  = "#EF5350", Azathioprine = "#7E57C2",
@@ -971,40 +971,64 @@ trajectory_server <- function(connector) {
         }
       }
 
-      # Row: Hospitalizations
-      if (input$show_visits && nrow(pd$visits) > 0) {
-        inpatient <- pd$visits[pd$visits$visit_type %in%
-                               c("Inpatient Visit", "Emergency Room Visit",
-                                 "Emergency Room and Inpatient Visit"), ]
-        if (nrow(inpatient) > 0) {
-          for (i in seq_len(nrow(inpatient))) {
-            v <- inpatient[i, ]
-            fig <- plotly::add_trace(
-              fig,
-              type      = "scatter",
-              mode      = "lines",
-              x         = c(v$visit_start_date, v$visit_end_date,
-                            v$visit_end_date, v$visit_start_date,
-                            v$visit_start_date),
-              y         = c(HOSP_Y - 0.40, HOSP_Y - 0.40,
-                            HOSP_Y + 0.40, HOSP_Y + 0.40,
-                            HOSP_Y - 0.40),
-              fill      = "toself",
-              fillcolor = "rgba(117,117,117,0.35)",
-              line      = list(width = 0, color = "rgba(0,0,0,0)"),
-              name      = "Hospitalization",
-              showlegend = i == 1,
-              legendgroup = "visits",
-              hovertemplate = paste0(
-                "<b>", v$visit_type, "</b><br>",
-                format(v$visit_start_date, "%Y-%m-%d"), " \u2014 ",
-                format(v$visit_end_date, "%Y-%m-%d"),
-                "<extra></extra>"
-              ),
-              customdata = list(list(type = "visit", id = v$visit_occurrence_id))
-            )
+      # Row: Shingles incidence (VZV / herpes zoster events)
+      # Identify shingles from conditions by name or ICD code.
+      # Hover shows medications active within ±90 days of each event.
+      shingles <- pd$conditions[
+        grepl("zoster|shingles|herpes zoster|vzv",
+              paste(pd$conditions$condition_name,
+                    pd$conditions$condition_source_value),
+              ignore.case = TRUE), ]
+
+      if (nrow(shingles) > 0) {
+        # For each shingles event compute the ±90-day medication window
+        shingle_hover <- vapply(seq_len(nrow(shingles)), function(i) {
+          ev_date  <- shingles$condition_start_date[i]
+          win_lo   <- ev_date - 90L
+          win_hi   <- ev_date + 90L
+          meds_win <- pd$medications[
+            !is.na(pd$medications$drug_exposure_start_date) &
+              pd$medications$drug_exposure_start_date <= win_hi &
+              (is.na(pd$medications$drug_exposure_end_date) |
+                 pd$medications$drug_exposure_end_date >= win_lo), ]
+          if (nrow(meds_win) == 0L) {
+            med_txt <- "None recorded"
+          } else {
+            # Unique drug names sorted
+            drug_names <- sort(unique(meds_win$drug_name[!is.na(meds_win$drug_name)]))
+            med_txt    <- paste(drug_names, collapse = "<br>\u2022 ")
+            if (nzchar(med_txt)) med_txt <- paste0("\u2022 ", med_txt)
           }
-        }
+          paste0(
+            "<b>Shingles / Herpes Zoster</b><br>",
+            format(ev_date, "%Y-%m-%d"), "<br>",
+            if (!is.na(shingles$condition_source_value[i]) &&
+                nzchar(shingles$condition_source_value[i]))
+              paste0("ICD: ", shingles$condition_source_value[i], "<br>")
+            else "",
+            "<br><b>Medications \u00b13 months:</b><br>",
+            med_txt,
+            "<extra></extra>"
+          )
+        }, character(1L))
+
+        fig <- plotly::add_trace(
+          fig,
+          type        = "scatter",
+          mode        = "markers",
+          x           = shingles$condition_start_date,
+          y           = rep(SHINGLE_Y, nrow(shingles)),
+          marker      = list(
+            symbol  = "diamond",
+            size    = 14,
+            color   = "#FF6F00",
+            line    = list(width = 2, color = "#E65100")
+          ),
+          name        = "Shingles",
+          showlegend  = TRUE,
+          legendgroup = "shingles",
+          hovertemplate = shingle_hover
+        )
       }
 
       # Row: Medications (one y-level per drug family)
@@ -1166,7 +1190,7 @@ trajectory_server <- function(connector) {
           escalation_point  = COND_Y + 0.30,
           taper_point       = COND_Y + 0.10,
           medication_change = COND_Y - 0.10,
-          admission         = HOSP_Y,
+          admission         = SHINGLE_Y,
           workup_point      = COND_Y + 0.50,
           referral_point    = COND_Y + 0.40
         )
@@ -1216,12 +1240,12 @@ trajectory_server <- function(connector) {
           "Methotrexate"    = "MTX",    "Mycophenolate" = "MMF",
           "IVIG"            = "IVIG",   "Rituximab"     = "RTX",
           "JAK inhibitors"  = "JAKi",   "Other IST"     = "Other",
-          "Hospital"        = "Hosp.",  "Diagnoses"     = "Dx"
+          "Shingles"        = "VZV",   "Diagnoses"     = "Dx"
         )
         unname(abbrevs[x] %||% x)
       }
       all_y_labels <- list(
-        list(y = HOSP_Y, label = .abbrev_row("Hospital")),
+        list(y = SHINGLE_Y, label = .abbrev_row("Shingles")),
         list(y = COND_Y, label = .abbrev_row("Diagnoses")),
         list(y = LAB_Y,  label = toupper(input$focus_lab %||% "Lab"))
       )
