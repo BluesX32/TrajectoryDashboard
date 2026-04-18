@@ -56,19 +56,25 @@ trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
           style = "padding: 0 14px;",
 
           if (!is.null(person_ids)) {
-            # Build optgroup choices if shingrix split is available
+            # Split into two labelled groups when shingrix data is available.
+            # Each vaccinated ID gets a " [+Vacc]" suffix so the distinction
+            # is visible even if CSS optgroup headers don't render.
             choices <- if (!is.null(shingrix_patient_ids) &&
                            length(shingrix_patient_ids) > 0) {
-              vacc_ids    <- intersect(person_ids, shingrix_patient_ids)
-              no_vacc_ids <- setdiff(person_ids, shingrix_patient_ids)
+              vacc_ids    <- intersect(as.character(person_ids),
+                                       as.character(shingrix_patient_ids))
+              no_vacc_ids <- setdiff(as.character(person_ids),
+                                     as.character(shingrix_patient_ids))
               grps <- list()
               if (length(no_vacc_ids) > 0)
-                grps[["Shingles only"]] <- no_vacc_ids
+                grps[["── Shingles only"]] <-
+                  stats::setNames(no_vacc_ids, no_vacc_ids)
               if (length(vacc_ids) > 0)
-                grps[["Shingles + Vaccination"]] <- vacc_ids
+                grps[["── Shingles + Vaccination"]] <-
+                  stats::setNames(vacc_ids, paste0(vacc_ids, "  [+Vacc]"))
               grps
             } else {
-              person_ids
+              as.character(person_ids)
             }
             shiny::selectInput(
               "person_id", "Patient ID",

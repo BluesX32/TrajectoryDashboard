@@ -69,14 +69,16 @@ person_ids <- fetch_cohort_ids(
 message(length(person_ids), " patients in cohort.")
 
 # ----------------------------------------------------------------------------
-# Step 3: Identify vaccinated patients (optional — enables grouped selector)
+# Step 3: Identify vaccinated patients  ← REQUIRED for grouped patient selector
 # ----------------------------------------------------------------------------
-# fetch_shingrix_patients() runs a single bulk query to find which cohort
-# patients have Shingrix records. Passing the result to launch_trajectory_dashboard()
-# splits the patient selector into "Shingles only" / "Shingles + Vaccination" groups.
+# Without this step the selector shows a flat unsorted list.
+# With it, the dropdown splits into two labelled groups:
+#   "── Shingles only"          patient IDs with no Shingrix record
+#   "── Shingles + Vaccination" patient IDs that received Shingrix (shown as "ID [+Vacc]")
 
 shingrix_ids <- fetch_shingrix_patients(con, person_ids)
-message(length(shingrix_ids), " patients with Shingrix vaccination.")
+message(length(shingrix_ids), " / ", length(person_ids),
+        " patients received Shingrix vaccination.")
 
 # ----------------------------------------------------------------------------
 # Step 4: Diagnose connection / SQL issues (run once, optional)
