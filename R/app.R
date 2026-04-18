@@ -65,10 +65,6 @@
 #' @param person_ids Optional character vector of patient IDs to pre-populate
 #'   the patient selector. If `NULL`, a free-text input is shown. Typically
 #'   the output of [fetch_cohort_ids()] coerced with `as.character()`.
-#' @param preloaded_data Optional `cohort_cache` object from
-#'   [prefetch_cohort_data()]. When supplied, patient loads are served from
-#'   memory instead of issuing new database queries. Patients not present in
-#'   the cache fall back to live queries automatically.
 #' @param port Integer. Port for the Shiny server. Default `NULL` (auto).
 #' @param launch_browser Logical. Open the app in a browser automatically.
 #'   Default `TRUE`.
@@ -93,7 +89,6 @@
 #' }
 launch_trajectory_dashboard <- function(connector      = NULL,
                                          person_ids     = NULL,
-                                         preloaded_data = NULL,
                                          port           = NULL,
                                          launch_browser = TRUE,
                                          ...) {
@@ -139,7 +134,7 @@ launch_trajectory_dashboard <- function(connector      = NULL,
   }
 
   ui     <- trajectory_ui(person_ids = person_ids)
-  server <- trajectory_server(connector = connector, preloaded_data = preloaded_data)
+  server <- trajectory_server(connector = connector)
 
   shiny::shinyApp(
     ui      = ui,

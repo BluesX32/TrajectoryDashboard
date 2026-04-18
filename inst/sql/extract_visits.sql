@@ -34,5 +34,8 @@ LEFT JOIN @vocab_schema.concept ac
 WHERE vo.person_id = @person_id
   AND vo.visit_start_date >= CAST('@start_date' AS DATE)
   AND vo.visit_start_date <= CAST('@end_date'   AS DATE)
+  -- Inpatient hospitalizations only (9201=Inpatient, 32037=ICU)
+  -- ED visits (9203) and outpatient (9202) are excluded
+  AND vo.visit_concept_id IN (9201, 32037)
 
 ORDER BY vo.visit_start_date;

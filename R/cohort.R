@@ -842,6 +842,146 @@ fetch_shingles_events <- function(connector,
   }
 }
 
+# ---------------------------------------------------------------------------
+# Public: fetch_shingrix_events
+# ---------------------------------------------------------------------------
+
+#' Fetch Shingrix (recombinant zoster vaccine) events for a patient
+#'
+#' Queries PROCEDURE_OCCURRENCE and DRUG_EXPOSURE using the same concept set
+#' as `def_shingrix_vaccine.sql` (ancestors 44808679, 21601361, 706103 with
+#' exclusion of live zoster vaccines).
+#'
+#' @param connector A `trajectory_connector`.
+#' @param person_id Integer patient identifier.
+#' @param cdm_schema CDM schema (inferred from connector).
+#' @param vocab_schema Vocabulary schema (inferred from connector).
+#' @param dbms Target dialect (default `"sql server"`).
+#' @return A data.frame with columns `person_id`, `event_date`, `event_type`,
+#'   `event_name`, `source_value`.
+#' @export
+fetch_shingrix_events <- function(connector, person_id,
+                                   cdm_schema = NULL, vocab_schema = NULL,
+                                   dbms = "sql server") {
+  .fetch_sql_events(connector, person_id, "fetch_shingrix.sql",
+                    cdm_schema, vocab_schema, dbms)
+}
+
+# ---------------------------------------------------------------------------
+# Public: fetch_phn_events
+# ---------------------------------------------------------------------------
+
+#' Fetch post-herpetic neuralgia events for a patient
+#'
+#' @param connector A `trajectory_connector`.
+#' @param person_id Integer patient identifier.
+#' @param cdm_schema CDM schema (inferred from connector).
+#' @param vocab_schema Vocabulary schema (inferred from connector).
+#' @param dbms Target dialect (default `"sql server"`).
+#' @return A data.frame with columns `person_id`, `condition_start_date`,
+#'   `condition_end_date`, `condition_concept_id`, `condition_name`,
+#'   `condition_source_value`.
+#' @export
+fetch_phn_events <- function(connector, person_id,
+                              cdm_schema = NULL, vocab_schema = NULL,
+                              dbms = "sql server") {
+  .fetch_sql_events(connector, person_id, "fetch_phn_events.sql",
+                    cdm_schema, vocab_schema, dbms)
+}
+
+# ---------------------------------------------------------------------------
+# Public: fetch_vzv_organ_events
+# ---------------------------------------------------------------------------
+
+#' Fetch VZV organ involvement events for a patient
+#'
+#' Queries conditions matching VZV encephalitis, meningitis, pneumonitis,
+#' hepatitis, and disseminated zoster concept set from `def_VZV_organ.sql`.
+#'
+#' @param connector A `trajectory_connector`.
+#' @param person_id Integer patient identifier.
+#' @param cdm_schema CDM schema (inferred from connector).
+#' @param vocab_schema Vocabulary schema (inferred from connector).
+#' @param dbms Target dialect (default `"sql server"`).
+#' @return A data.frame with condition occurrence columns.
+#' @export
+fetch_vzv_organ_events <- function(connector, person_id,
+                                    cdm_schema = NULL, vocab_schema = NULL,
+                                    dbms = "sql server") {
+  .fetch_sql_events(connector, person_id, "fetch_vzv_organ_events.sql",
+                    cdm_schema, vocab_schema, dbms)
+}
+
+# ---------------------------------------------------------------------------
+# Public: fetch_rheumatic_diagnoses
+# ---------------------------------------------------------------------------
+
+#' Fetch a patient's rheumatic disease diagnoses with category labels
+#'
+#' Classifies each patient's condition occurrences into SLE, DM/Myositis, SSc,
+#' GCA, RA, SpA, or Vasculitis using the same concept sets as
+#' `cohort_VZV_antivirals.sql`. Returns one row per distinct concept per
+#' category (earliest occurrence).
+#'
+#' @param connector A `trajectory_connector`.
+#' @param person_id Integer patient identifier.
+#' @param cdm_schema CDM schema (inferred from connector).
+#' @param vocab_schema Vocabulary schema (inferred from connector).
+#' @param dbms Target dialect (default `"sql server"`).
+#' @return A data.frame with columns `disease_category`, `condition_concept_id`,
+#'   `condition_name`, `condition_start_date`, `condition_source_value`.
+#' @export
+fetch_rheumatic_diagnoses <- function(connector, person_id,
+                                       cdm_schema = NULL, vocab_schema = NULL,
+                                       dbms = "sql server") {
+  .fetch_sql_events(connector, person_id, "fetch_rheumatic_dx.sql",
+                    cdm_schema, vocab_schema, dbms)
+}
+
+# ---------------------------------------------------------------------------
+# Internal: generic SQL-event fetcher
+# ---------------------------------------------------------------------------
+
+.fetch_sql_events <- function(connector, person_id, sql_file,
+                               cdm_schema = NULL, vocab_schema = NULL,
+                               dbms = "sql server") {
+  .check_cohort_packages()
+
+  if (inherits(connector, "trajectory_connector")) {
+    cdm_schema   <- connector$cdm_schema   %||% cdm_schema
+    vocab_schema <- connector$vocab_schema %||% cdm_schema
+  } else {
+    if (is.null(cdm_schema))
+      rlang::abort("'cdm_schema' is required when 'connector' is a plain connection.")
+    vocab_schema <- vocab_schema %||% cdm_schema
+  }
+
+  sql_path <- system.file("sql", sql_file, package = "TrajectoryDashboard")
+  if (!nzchar(sql_path) || !file.exists(sql_path))
+    rlang::abort(paste0(sql_file, " not found in inst/sql/"))
+
+  sql_template <- SqlRender::readSql(sql_path)
+
+  .run <- function(conn, actual_dbms) {
+    sql <- SqlRender::render(sql_template,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             person_id    = as.integer(person_id))
+    sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
+    .exec_sql(conn, sql)
+  }
+
+  if (inherits(connector, "trajectory_connector")) {
+    with_connector(connector, function(active) {
+      actual_dbms <- active$dbms
+      if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
+      .run(active$conn, actual_dbms)
+    })
+  } else {
+    .run(connector, dbms)
+  }
+}
+
 #' Find a companion SQL file for an ATLAS cohort JSON
 #'
 #' Looks for a pre-built SqlRender-parameterised SQL file alongside the JSON.

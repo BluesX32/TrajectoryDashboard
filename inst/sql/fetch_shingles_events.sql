@@ -26,7 +26,9 @@ WITH vzv_concepts AS (
   JOIN @vocab_schema.concept c
     ON ca.descendant_concept_id = c.concept_id
   WHERE ca.ancestor_concept_id IN (
-    4205455, 35205739, 443943, 138682, 45770836, 436336, 440329
+    4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
+    45590840, 4151978, 192239, 381504, 45542548, 45556927,
+    35205737, 35205738, 35205740, 35205741
   )
     AND c.invalid_reason IS NULL
 )

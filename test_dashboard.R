@@ -17,16 +17,10 @@
 #    Uses inst/sql/cohort_VZV_antivirals.sql (pre-built SqlRender SQL);
 #    bypasses JSON parsing entirely for reliability on SAFER connections.
 #
-# 4. PRE-FETCH — call prefetch_cohort_data() to download ALL patient data
-#    (labs, medications, conditions, visits, notes, observations, shingles)
-#    for the entire cohort in ONE database connection. This avoids repeated
-#    authentication round-trips when users switch patients inside the dashboard.
-#    For SAFER/Databricks with a slow proxy, this step takes a few minutes
-#    upfront but makes the dashboard instantaneous afterwards.
-#
-# 5. LAUNCH — pass the connector, person_ids, and preloaded_data to
-#    launch_trajectory_dashboard(). Patient loads are served from memory;
-#    no database queries are issued during the interactive session.
+# 4. LAUNCH — pass the connector and person_ids to
+#    launch_trajectory_dashboard(). Patient data is fetched lazily per patient
+#    on demand using the persistent JDBC connection — no prefetch step needed.
+#    The dashboard disconnects and stops automatically when the browser closes.
 #
 # ============================================================================
 # Environment file format
@@ -75,37 +69,22 @@ person_ids <- fetch_cohort_ids(
 message(length(person_ids), " patients in cohort.")
 
 # ----------------------------------------------------------------------------
-# Step 3: Pre-fetch all patient data  (ONE connection, all patients)
-# ----------------------------------------------------------------------------
-# prefetch_cohort_data() opens a single database connection and runs
-# fetch_patient_data() + fetch_shingles_events() for every patient.
-# Nested with_connector() calls reuse the same connection automatically.
-# Result is a cohort_cache list keyed by as.character(person_id).
-
-cache <- prefetch_cohort_data(con, person_ids)
-
-# Optionally save/reload the cache to avoid re-fetching across R sessions:
-# saveRDS(cache, "cohort_cache.rds")
-# cache <- readRDS("cohort_cache.rds")
-
-# ----------------------------------------------------------------------------
-# Step 4: Diagnose connection / SQL issues (run once, optional)
+# Step 3: Diagnose connection / SQL issues (run once, optional)
 # ----------------------------------------------------------------------------
 # test_cohort_connection() runs 4 lightweight checks and reports pass/fail.
-# Use this when fetch_cohort_ids() or prefetch_cohort_data() throw errors.
+# Use this when fetch_cohort_ids() throws errors.
 
 # test_cohort_connection(con)
 
 # ----------------------------------------------------------------------------
-# Step 5: Launch
+# Step 4: Launch
 # ----------------------------------------------------------------------------
-# preloaded_data= means patient loads are instant (served from cache).
-# Falls back to live queries for any patient_id not in the cache.
+# Patient data is fetched lazily per patient using the persistent connection.
+# No prefetch needed — each patient load runs SQL queries on demand.
 
 launch_trajectory_dashboard(
   con,
-  person_ids     = as.character(person_ids),
-  preloaded_data = cache
+  person_ids = as.character(person_ids)
 )
 
 # ----------------------------------------------------------------------------

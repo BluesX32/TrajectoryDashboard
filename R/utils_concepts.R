@@ -93,33 +93,52 @@ MYOSITIS_LAB_CONCEPTS <- list(
 #' @format Named list of integer vectors.
 #' @export
 MYOSITIS_DRUG_CONCEPTS <- list(
-  # Corticosteroids (oral)
-  prednisone         = c(1518254L),
+  # Corticosteroids
+  prednisone         = c(1518254L, 19014878L),               # prednisone + ingredient-level ancestor
   prednisolone       = c(1550557L, 40224172L),
-  methylprednisolone = c(1506270L),
+  methylprednisolone = c(1506270L, 19068900L),
   dexamethasone      = c(1518005L),
   hydrocortisone     = c(975125L),
   triamcinolone      = c(903963L),
+  budesonide         = c(19003999L),
 
-  # Steroid-sparing agents
-  azathioprine       = c(1513103L),
+  # csDMARDs (conventional synthetic)
+  azathioprine       = c(1513103L, 42904205L),
   methotrexate       = c(1305058L),
-  mycophenolate      = c(1550557L, 19041542L),  # MMF / MPA
+  mycophenolate      = c(1361580L, 1593700L, 1186087L),      # MMF / MPA / mycophenolic acid
   hydroxychloroquine = c(1777087L),
-  leflunomide        = c(1310149L),
-  cyclosporine       = c(19011459L),
-  cyclophosphamide   = c(1310149L, 19041542L),
-  tacrolimus         = c(950637L),
+  leflunomide        = c(1310317L),
+  sulfasalazine      = c(1314273L),
+  cyclosporine       = c(19011459L, 1101898L),
+  cyclophosphamide   = c(40171288L, 1594587L),
+  tacrolimus         = c(950637L, 40236987L),
+  sirolimus          = c(1594587L),
+  chloroquine        = c(1777087L),
 
-  # Biologics / infusions
-  rituximab          = c(1314273L),
-  ivig               = c(528323L, 35605670L, 19041569L),
+  # bDMARDs — anti-CD20
+  rituximab          = c(1314273L, 1119119L),
+
+  # bDMARDs — other biologics
+  ivig               = c(528323L, 35605670L, 19041569L, 701470L, 19014878L),
   tocilizumab        = c(40161532L),
-  tofacitinib        = c(42873985L),
-  baricitinib        = c(1510408L),
+  abatacept          = c(40175801L, 40236987L),
+  belimumab          = c(40222444L, 42904205L),
+  anifrolumab        = c(1511348L),
+  voclosporin        = c(45892883L),
+
+  # tsDMARDs — JAK inhibitors
+  tofacitinib        = c(42873985L, 45892883L),
+  baricitinib        = c(1510408L, 746895L),
   ruxolitinib        = c(42899491L),
-  abatacept          = c(40175801L),
-  belimumab          = c(40222444L),
+  upadacitinib       = c(1151789L),
+  filgotinib         = c(1777087L),
+
+  # Anti-TNF (often used in SpA/RA patients in cohort)
+  infliximab         = c(937368L),
+  adalimumab         = c(40171288L),
+  etanercept         = c(1151789L),
+  secukinumab        = c(1186087L),
+  ixekizumab         = c(40161532L),
 
   # Pulmonary / supportive
   nintedanib         = c(44818493L),
@@ -128,17 +147,22 @@ MYOSITIS_DRUG_CONCEPTS <- list(
 
 # Drug family groupings for UI checkboxes
 .DRUG_FAMILY_MAP <- list(
-  Corticosteroids = c("prednisone", "prednisolone", "methylprednisolone",
-                      "dexamethasone", "hydrocortisone", "triamcinolone"),
-  Azathioprine    = c("azathioprine"),
-  Methotrexate    = c("methotrexate"),
-  Mycophenolate   = c("mycophenolate"),
-  IVIG            = c("ivig"),
-  Rituximab       = c("rituximab"),
-  `JAK inhibitors` = c("tofacitinib", "baricitinib", "ruxolitinib"),
-  Other           = c("hydroxychloroquine", "leflunomide", "cyclosporine",
-                      "cyclophosphamide", "tacrolimus", "tocilizumab",
-                      "abatacept", "belimumab", "nintedanib", "pirfenidone")
+  Corticosteroids  = c("prednisone", "prednisolone", "methylprednisolone",
+                       "dexamethasone", "hydrocortisone", "triamcinolone",
+                       "budesonide"),
+  Azathioprine     = c("azathioprine"),
+  Methotrexate     = c("methotrexate"),
+  Mycophenolate    = c("mycophenolate"),
+  Hydroxychloroquine = c("hydroxychloroquine", "chloroquine"),
+  IVIG             = c("ivig"),
+  Rituximab        = c("rituximab"),
+  `JAK inhibitors` = c("tofacitinib", "baricitinib", "ruxolitinib", "upadacitinib",
+                        "filgotinib"),
+  `Anti-TNF`       = c("infliximab", "adalimumab", "etanercept"),
+  Other            = c("leflunomide", "sulfasalazine", "cyclosporine", "cyclophosphamide",
+                       "tacrolimus", "sirolimus", "tocilizumab", "abatacept", "belimumab",
+                       "anifrolumab", "voclosporin", "secukinumab", "ixekizumab",
+                       "nintedanib", "pirfenidone")
 )
 
 # ---------------------------------------------------------------------------

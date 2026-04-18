@@ -390,7 +390,8 @@ trajectory_ui <- function(person_ids = NULL) {
       # ── Patient summary stats (after load) ─────────────────────────
       shiny::conditionalPanel(
         "output.patient_loaded",
-        shiny::uiOutput("patient_summary_bar")
+        shiny::uiOutput("patient_summary_bar"),
+        shiny::uiOutput("rheum_dx_ui")
       ),
 
       # ── Layer 1: Macro Trajectory ───────────────────────────────────

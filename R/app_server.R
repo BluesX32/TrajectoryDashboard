@@ -7,7 +7,7 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector, preloaded_data = NULL) {
+trajectory_server <- function(connector) {
   function(input, output, session) {
 
     # -------------------------------------------------------------------------
@@ -74,14 +74,7 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
     # -------------------------------------------------------------------------
     patient_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
-      pid_key <- as.character(input$person_id)
 
-      # Serve from pre-fetch cache when available (no DB round-trip)
-      if (!is.null(preloaded_data) && !is.null(preloaded_data[[pid_key]])) {
-        return(preloaded_data[[pid_key]]$patient)
-      }
-
-      # Fallback: live query (patient not in cache, or no cache provided)
       shiny::withProgress(message = "Loading patient data...", value = 0, {
         shiny::incProgress(0.1, detail = "Connecting...")
         data <- tryCatch(
@@ -105,23 +98,53 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
     # Shingles events via SQL (same VZV concept set as cohort query)
     shingles_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
-      pid_key <- as.character(input$person_id)
-
-      # Serve from pre-fetch cache when available
-      if (!is.null(preloaded_data) && !is.null(preloaded_data[[pid_key]])) {
-        return(preloaded_data[[pid_key]]$shingles)
-      }
-
-      # Fallback: live query
       tryCatch(
-        fetch_shingles_events(
-          connector,
-          person_id = as.integer(input$person_id)
-        ),
+        fetch_shingles_events(connector, person_id = as.integer(input$person_id)),
         error = function(e) {
           message("[shingles] fetch_shingles_events failed: ", e$message)
           .empty_shingles()
         }
+      )
+    })
+
+    # Shingrix vaccine events
+    shingrix_data <- shiny::eventReactive(input$load_patient, {
+      shiny::req(nzchar(as.character(input$person_id)))
+      tryCatch(
+        fetch_shingrix_events(connector, person_id = as.integer(input$person_id)),
+        error = function(e) { data.frame(person_id=integer(0), event_date=as.Date(character(0)),
+                                          event_type=character(0), source_value=character(0),
+                                          stringsAsFactors=FALSE) }
+      )
+    })
+
+    # PHN and VZV organ involvement events
+    phn_data <- shiny::eventReactive(input$load_patient, {
+      shiny::req(nzchar(as.character(input$person_id)))
+      tryCatch(
+        fetch_phn_events(connector, person_id = as.integer(input$person_id)),
+        error = function(e) { data.frame(person_id=integer(0), condition_start_date=as.Date(character(0)),
+                                          condition_name=character(0), stringsAsFactors=FALSE) }
+      )
+    })
+
+    vzv_organ_data <- shiny::eventReactive(input$load_patient, {
+      shiny::req(nzchar(as.character(input$person_id)))
+      tryCatch(
+        fetch_vzv_organ_events(connector, person_id = as.integer(input$person_id)),
+        error = function(e) { data.frame(person_id=integer(0), condition_start_date=as.Date(character(0)),
+                                          condition_name=character(0), stringsAsFactors=FALSE) }
+      )
+    })
+
+    # Patient's rheumatic diagnoses (disease category labels)
+    rheum_dx_data <- shiny::eventReactive(input$load_patient, {
+      shiny::req(nzchar(as.character(input$person_id)))
+      tryCatch(
+        fetch_rheumatic_diagnoses(connector, person_id = as.integer(input$person_id)),
+        error = function(e) { data.frame(disease_category=character(0), condition_name=character(0),
+                                          condition_start_date=as.Date(character(0)),
+                                          stringsAsFactors=FALSE) }
       )
     })
 
@@ -952,7 +975,8 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
       MED_BASE   <- 2.20   # y-centre of lowest medication row
       ROW_GAP    <- 0.90   # vertical gap between consecutive medication rows
       BAR_H      <- 0.35   # half-height of each medication bar
-      SHINGLE_Y  <- MED_BASE + max(n_fam - 1L, 0L) * ROW_GAP + 1.10
+      HOSP_Y     <- MED_BASE + max(n_fam - 1L, 0L) * ROW_GAP + 1.10
+      SHINGLE_Y  <- HOSP_Y + 1.10
       Y_TOP      <- SHINGLE_Y + 0.80
 
       family_colors <- c(
@@ -1065,6 +1089,154 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
           legendgroup = "shingles",
           hovertemplate = shingle_hover
         )
+      }
+
+      # Shingrix vaccine events (blue triangle-up, same SHINGLE_Y row)
+      shingrix <- shingrix_data()
+      if (!is.null(shingrix) && nrow(shingrix) > 0) {
+        fig <- plotly::add_trace(
+          fig, type = "scatter", mode = "markers",
+          x           = shingrix$event_date,
+          y           = rep(SHINGLE_Y, nrow(shingrix)),
+          marker      = list(symbol = "triangle-up", size = 13,
+                             color  = "#1565C0",
+                             line   = list(width = 2, color = "#BBDEFB")),
+          name        = "Shingrix (vaccine)",
+          showlegend  = TRUE,
+          legendgroup = "shingrix",
+          hovertemplate = paste0(
+            "<b>Shingrix Vaccine</b><br>",
+            format(shingrix$event_date, "%Y-%m-%d"), "<br>",
+            "Type: ", shingrix$event_type,
+            "<extra></extra>"
+          )
+        )
+      }
+
+      # PHN events (purple hexagon, same SHINGLE_Y row)
+      phn <- phn_data()
+      if (!is.null(phn) && nrow(phn) > 0) {
+        fig <- plotly::add_trace(
+          fig, type = "scatter", mode = "markers",
+          x           = phn$condition_start_date,
+          y           = rep(SHINGLE_Y, nrow(phn)),
+          marker      = list(symbol = "hexagram", size = 13,
+                             color  = "#7B1FA2",
+                             line   = list(width = 2, color = "#CE93D8")),
+          name        = "Post-herpetic Neuralgia",
+          showlegend  = TRUE,
+          legendgroup = "phn",
+          hovertemplate = paste0(
+            "<b>Post-herpetic Neuralgia</b><br>",
+            format(phn$condition_start_date, "%Y-%m-%d"), "<br>",
+            phn$condition_name,
+            "<extra></extra>"
+          )
+        )
+      }
+
+      # VZV organ involvement (red cross, same SHINGLE_Y row)
+      vzv_organ <- vzv_organ_data()
+      if (!is.null(vzv_organ) && nrow(vzv_organ) > 0) {
+        fig <- plotly::add_trace(
+          fig, type = "scatter", mode = "markers",
+          x           = vzv_organ$condition_start_date,
+          y           = rep(SHINGLE_Y, nrow(vzv_organ)),
+          marker      = list(symbol = "cross", size = 13,
+                             color  = "#B71C1C",
+                             line   = list(width = 2, color = "#EF9A9A")),
+          name        = "VZV Organ Involvement",
+          showlegend  = TRUE,
+          legendgroup = "vzv_organ",
+          hovertemplate = paste0(
+            "<b>VZV Organ Involvement</b><br>",
+            format(vzv_organ$condition_start_date, "%Y-%m-%d"), "<br>",
+            vzv_organ$condition_name,
+            "<extra></extra>"
+          )
+        )
+      }
+
+      # Row: Hospitalizations (inpatient-only, one row at HOSP_Y)
+      # Diagnoses during each visit are shown in hovertext; rheumatic/shingles Dx highlighted.
+      visits_hosp <- pd$visits
+      if (!is.null(visits_hosp) && nrow(visits_hosp) > 0 &&
+          "visit_start_date" %in% names(visits_hosp)) {
+        visits_hosp <- visits_hosp[!is.na(visits_hosp$visit_start_date), ]
+      }
+      if (!is.null(visits_hosp) && nrow(visits_hosp) > 0) {
+        rheum_cats   <- c("SLE","DM/Myositis","SSc","GCA","RA","SpA","Vasculitis")
+        rheum_dx_df  <- tryCatch(rheum_dx_data(), error = function(e) NULL)
+        all_conds    <- pd$conditions
+
+        .hosp_hover <- function(i) {
+          v_start <- safe_as_date(visits_hosp$visit_start_date[i])
+          v_end   <- safe_as_date(visits_hosp$visit_end_date[i])
+          if (is.na(v_end)) v_end <- v_start + 1L
+
+          # Conditions recorded during this visit
+          cond_win <- if (!is.null(all_conds) && nrow(all_conds) > 0 &&
+                          "condition_start_date" %in% names(all_conds)) {
+            all_conds[!is.na(all_conds$condition_start_date) &
+                        all_conds$condition_start_date >= v_start &
+                        all_conds$condition_start_date <= v_end, ]
+          } else data.frame()
+
+          dur_days <- as.integer(v_end - v_start)
+
+          cond_lines <- if (nrow(cond_win) > 0) {
+            vapply(seq_len(min(nrow(cond_win), 12L)), function(j) {
+              nm  <- cond_win$condition_name[j]
+              src <- cond_win$condition_source_value[j]
+              if (is.null(nm) || is.na(nm) || !nzchar(nm)) nm <- src
+              label <- if (!is.na(src) && nzchar(src)) paste0(nm, " (", src, ")") else nm
+              # highlight if shingles (B02) or rheumatic (M-chapter or known categories)
+              is_rheum   <- !is.null(rheum_dx_df) && nrow(rheum_dx_df) > 0 &&
+                            !is.na(nm) && any(grepl(nm, rheum_dx_df$condition_name, fixed = TRUE))
+              is_shingles <- !is.na(src) && grepl("^B02", src)
+              if (is_shingles) {
+                paste0("<span style='color:#FF6F00;font-weight:bold'>\u26a0 ", label, " [SHINGLES]</span>")
+              } else if (is_rheum) {
+                paste0("<span style='color:#E53935;font-weight:bold'>\u25cf ", label, " [Rheumatic]</span>")
+              } else {
+                paste0("\u2022 ", label)
+              }
+            }, character(1L))
+          } else character(0L)
+
+          paste0(
+            "<b>Hospitalization</b><br>",
+            format(v_start, "%Y-%m-%d"),
+            if (!is.na(v_end)) paste0(" \u2014 ", format(v_end, "%Y-%m-%d")) else "",
+            " (", dur_days, " days)<br>",
+            if (length(cond_lines) > 0) paste(cond_lines, collapse = "<br>") else "No diagnoses recorded",
+            "<extra></extra>"
+          )
+        }
+
+        for (vi in seq_len(nrow(visits_hosp))) {
+          v_s <- safe_as_date(visits_hosp$visit_start_date[vi])
+          v_e <- safe_as_date(visits_hosp$visit_end_date[vi])
+          if (is.na(v_s)) next
+          if (is.na(v_e) || v_e <= v_s) v_e <- v_s + 1L
+          fig <- plotly::add_trace(
+            fig, type = "scatter", mode = "lines",
+            x          = c(v_s, v_e, v_e, v_s, v_s),
+            y          = c(HOSP_Y - 0.30, HOSP_Y - 0.30,
+                           HOSP_Y + 0.30, HOSP_Y + 0.30,
+                           HOSP_Y - 0.30),
+            fill       = "toself",
+            fillcolor  = "rgba(117,117,117,0.55)",
+            line       = list(width = 0, color = "rgba(0,0,0,0)"),
+            name       = "Hospitalization",
+            showlegend = (vi == 1L),
+            legendgroup = "hosp",
+            hovertemplate = .hosp_hover(vi),
+            customdata = list(list(type = "hospitalization",
+                                   visit_start = format(v_s),
+                                   visit_end   = format(v_e)))
+          )
+        }
       }
 
       # Row: Medications (one y-level per drug family)
@@ -1226,7 +1398,6 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
           escalation_point  = COND_Y + 0.30,
           taper_point       = COND_Y + 0.10,
           medication_change = COND_Y - 0.10,
-          admission         = SHINGLE_Y,
           workup_point      = COND_Y + 0.50,
           referral_point    = COND_Y + 0.40
         )
@@ -1234,12 +1405,12 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
           escalation_point = "#D32F2F",
           taper_point      = "#0288D1",
           medication_change= "#7E57C2",
-          admission        = "#757575",
           workup_point     = "#F57C00",
           referral_point   = "#78909C"
         )
 
         for (et in unique(dps$event_type)) {
+          if (et == "admission") next   # hospitalizations are shown as bars at HOSP_Y
           sub <- dps[dps$event_type == et, ]
           fig <- plotly::add_trace(
             fig,
@@ -1282,8 +1453,9 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
       }
       all_y_labels <- list(
         list(y = SHINGLE_Y, label = .abbrev_row("Shingles")),
-        list(y = COND_Y, label = .abbrev_row("Diagnoses")),
-        list(y = LAB_Y,  label = toupper(input$focus_lab %||% "Lab"))
+        list(y = HOSP_Y,    label = "Hosp."),
+        list(y = COND_Y,    label = .abbrev_row("Diagnoses")),
+        list(y = LAB_Y,     label = toupper(input$focus_lab %||% "Lab"))
       )
       for (fam in names(family_y)) {
         all_y_labels[[length(all_y_labels) + 1L]] <- list(
@@ -1391,6 +1563,35 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
     })
 
     # -------------------------------------------------------------------------
+    # Rheumatic Dx summary panel — shown in patient summary area after load
+    output$rheum_dx_ui <- shiny::renderUI({
+      dx <- tryCatch(rheum_dx_data(), error = function(e) NULL)
+      if (is.null(dx) || nrow(dx) == 0) return(NULL)
+
+      cats <- sort(unique(dx$disease_category[!is.na(dx$disease_category)]))
+      cat_colors <- c(
+        SLE         = "#1565C0", `DM/Myositis` = "#6A1B9A",
+        SSc         = "#2E7D32", GCA           = "#E65100",
+        RA          = "#C62828", SpA           = "#00695C",
+        Vasculitis  = "#AD1457"
+      )
+      badges <- lapply(cats, function(cat) {
+        col <- cat_colors[cat] %||% "#607D8B"
+        shiny::tags$span(
+          class = "rheum-dx-badge",
+          style = paste0("background:", col, "; color:#fff; padding:2px 8px; ",
+                         "border-radius:10px; margin:2px; font-size:11px; display:inline-block;"),
+          cat
+        )
+      })
+      shiny::div(
+        style = "padding: 4px 0 6px;",
+        shiny::strong(style = "font-size:11px; color:#5A6482;", "Rheumatic Dx: "),
+        shiny::div(style = "display:inline;", badges)
+      )
+    })
+
+    # -------------------------------------------------------------------------
     # Selected event detail (Layer 3) — click handler
     # X-axis sync is handled entirely client-side in app_ui.R (three-way JS sync).
     # The R-side observer + sendCustomMessage round-trip is no longer used.
@@ -1423,7 +1624,7 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
       ev  <- selected_event()
       dps <- decision_points()
 
-      if (is.null(ev) || is.null(dps) || nrow(dps) == 0) {
+      if (is.null(ev)) {
         return(shiny::div(
           class = "welcome-banner",
           style = "margin: 4px 0;",
@@ -1436,7 +1637,71 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
         ))
       }
 
-      # Find closest decision point to click date
+      # Detect hospitalization bar click via customdata
+      cd <- ev$customdata
+      if (is.list(cd) && identical(cd$type, "hospitalization")) {
+        v_start <- tryCatch(as.Date(cd$visit_start), error = function(e) NULL)
+        v_end   <- tryCatch(as.Date(cd$visit_end),   error = function(e) NULL)
+        if (is.null(v_start)) v_start <- tryCatch(as.Date(ev$x), error = function(e) Sys.Date())
+        if (is.null(v_end))   v_end   <- v_start + 1L
+
+        pd_h <- patient_data()
+        all_conds_h <- if (!is.null(pd_h)) pd_h$conditions else data.frame()
+        cond_win_h  <- if (!is.null(all_conds_h) && nrow(all_conds_h) > 0 &&
+                            "condition_start_date" %in% names(all_conds_h)) {
+          all_conds_h[!is.na(all_conds_h$condition_start_date) &
+                        all_conds_h$condition_start_date >= v_start &
+                        all_conds_h$condition_start_date <= v_end, ]
+        } else data.frame()
+
+        rheum_df <- tryCatch(rheum_dx_data(), error = function(e) NULL)
+
+        cond_tags <- if (nrow(cond_win_h) > 0) {
+          lapply(seq_len(nrow(cond_win_h)), function(j) {
+            nm  <- cond_win_h$condition_name[j]
+            src <- cond_win_h$condition_source_value[j]
+            if (is.null(nm) || is.na(nm) || !nzchar(nm)) nm <- src
+            is_shingles <- !is.na(src) && grepl("^B02", src)
+            is_rheum    <- !is.null(rheum_df) && nrow(rheum_df) > 0 &&
+                           !is.na(nm) && any(grepl(nm, rheum_df$condition_name, fixed = TRUE))
+            badge_class <- if (is_shingles) "dx-shingles" else if (is_rheum) "dx-rheum" else "dx-other"
+            suffix      <- if (is_shingles) " \u26a0 Shingles" else if (is_rheum) " \u25cf Rheumatic" else ""
+            shiny::div(class = paste("dx-entry", badge_class),
+                        shiny::span(class = "dx-name",
+                                    paste0(nm, if (!is.na(src) && nzchar(src))
+                                             paste0(" (", src, ")") else ""),
+                                    shiny::span(class = "dx-badge", suffix)))
+          })
+        } else list(shiny::div(class = "dx-entry dx-other", "No diagnoses recorded during this visit."))
+
+        dur_days <- as.integer(v_end - v_start)
+        return(shiny::div(
+          class = "event-detail-card",
+          shiny::h4(
+            shiny::icon("hospital", style = "margin-right:8px; color:#3D6FD4;"),
+            "Hospitalization"
+          ),
+          shiny::div(
+            class = "meta-row",
+            shiny::div(class = "meta-item",
+                       shiny::icon("calendar"),
+                       paste0(format(v_start, "%B %d, %Y"), " \u2014 ",
+                              format(v_end, "%B %d, %Y"))),
+            shiny::div(class = "meta-item",
+                       shiny::icon("clock"),
+                       paste0(dur_days, " days"))
+          ),
+          shiny::div(class = "evidence-section",
+                     shiny::strong("Diagnoses during visit:"),
+                     shiny::div(style = "margin-top:6px;", cond_tags))
+        ))
+      }
+
+      # Regular decision-point click
+      if (is.null(dps) || nrow(dps) == 0) {
+        return(shiny::div("No decision points available."))
+      }
+
       click_date <- tryCatch(as.Date(ev$x), error = function(e) NULL)
       if (is.null(click_date)) return(shiny::div("Unable to identify clicked event."))
 
@@ -1444,19 +1709,14 @@ trajectory_server <- function(connector, preloaded_data = NULL) {
       dp <- dps[closest_idx, ]
 
       ev_type    <- dp$event_type
-      event_icon <- if (is.na(ev_type) || length(ev_type) != 1L) {
+      event_icon <- switch(ev_type %||% "",
+        escalation_point  = "arrow-up",
+        taper_point       = "arrow-down",
+        medication_change = "pills",
+        workup_point      = "vial",
+        referral_point    = "user-md",
         "calendar-check"
-      } else {
-        switch(ev_type,
-          admission         = "hospital",
-          escalation_point  = "arrow-up",
-          taper_point       = "arrow-down",
-          medication_change = "pills",
-          workup_point      = "vial",
-          referral_point    = "user-md",
-          "calendar-check"
-        )
-      }
+      )
 
       shiny::div(
         class = "event-detail-card",
