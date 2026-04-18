@@ -91,6 +91,15 @@ trajectory_server <- function(connector) {
           }
         )
         shiny::incProgress(0.9, detail = "Done")
+        # Enrich medications with drug_family once here so every downstream
+        # module (gaps, hover, summary bar, toxicity) sees the same values.
+        if (!is.null(data) && !is.null(data$medications) &&
+            nrow(data$medications) > 0 &&
+            "drug_name" %in% names(data$medications) &&
+            !"drug_family" %in% names(data$medications)) {
+          data$medications$drug_family <-
+            .standardize_drug_family(data$medications$drug_name)
+        }
         data
       })
     })
@@ -260,8 +269,10 @@ trajectory_server <- function(connector) {
       if (is.null(dr) || length(dr) < 2L || anyNA(dr)) return(list())
 
       all_meds <- patient_data()$medications
+      # drug_family is guaranteed present (added in patient_data reactive)
       non_steroid_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
-                                 "IVIG", "Rituximab", "JAK inhibitors")
+                                 "IVIG", "Rituximab", "JAK inhibitors",
+                                 "Hydroxychloroquine", "Anti-TNF", "Other")
       if (nrow(all_meds) == 0L || !"drug_family" %in% names(all_meds))
         return(list())
 
@@ -955,20 +966,38 @@ trajectory_server <- function(connector) {
         tx <- tx[tx$drug_family %in% sel_families, ]
       }
 
-      # Consolidate drug families to 3 display groups: Corticosteroids / IVIG / DMARD.
-      # The underlying medications data keeps original family names for gap detection.
+      # Map each treatment phase to a y-axis row (3 rows: Corticosteroids,
+      # IVIG, DMARD) while keeping the original family for color and legend.
       if (nrow(tx) > 0 && "drug_family" %in% names(tx)) {
-        tx$drug_family <- ifelse(
+        tx$drug_row <- ifelse(
           tx$drug_family %in% c("Corticosteroids", "IVIG"),
           tx$drug_family,
           ifelse(!is.na(tx$drug_family), "DMARD", NA_character_)
         )
+      } else if (nrow(tx) > 0) {
+        tx$drug_row <- NA_character_
       }
 
+      # Per-drug color palette (specific families within DMARD row get distinct colors)
+      family_colors <- c(
+        Corticosteroids    = "#EF5350",
+        IVIG               = "#42A5F5",
+        Azathioprine       = "#7E57C2",
+        Methotrexate       = "#26A69A",
+        Mycophenolate      = "#FF7043",
+        Hydroxychloroquine = "#AB47BC",
+        Rituximab          = "#66BB6A",
+        "JAK inhibitors"   = "#EC407A",
+        "Anti-TNF"         = "#FFA726",
+        Other              = "#8D6E63"
+      )
+
       # ── Layout constants (computed once, used throughout) ─────────────
-      # All y-positions derive from these so adding/removing families
-      # re-spaces every row proportionally.
-      drug_families <- unique(tx$drug_family[!is.na(tx$drug_family)])
+      # y-positions come from the 3 display rows (drug_row), not the
+      # full set of family names.
+      row_levels  <- c("Corticosteroids", "IVIG", "DMARD")
+      drug_families <- intersect(row_levels,
+                                  unique(tx$drug_row[!is.na(tx$drug_row)]))
       n_fam         <- max(length(drug_families), 0L)
 
       LAB_Y      <- 0.50   # focus-lab scatter band centre
@@ -1022,18 +1051,16 @@ trajectory_server <- function(connector) {
       shingles <- shingles_data()
       if (is.null(shingles)) shingles <- data.frame()
 
-      # All relevant immunosuppressants for peri-shingles hover (pred + IVIG + specific DMARDs)
+      # All relevant immunosuppressants for peri-shingles hover.
+      # drug_family is now always present (added in patient_data reactive).
       relevant_med_families <- c("Corticosteroids", "IVIG",
         "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
-        "Rituximab", "JAK inhibitors", "Anti-TNF")
-      all_dmards <- if (nrow(pd$medications) > 0 &&
-                        "drug_family" %in% names(pd$medications)) {
-        pd$medications[
-          !is.na(pd$medications$drug_family) &
-            pd$medications$drug_family %in% relevant_med_families, ]
-      } else {
-        pd$medications[integer(0), ]
-      }
+        "Rituximab", "JAK inhibitors", "Anti-TNF", "Other")
+      all_dmards <- pd$medications[
+        !is.na(pd$medications$drug_family) &
+          pd$medications$drug_family %in% relevant_med_families, ,
+        drop = FALSE
+      ]
 
       if (nrow(shingles) > 0) {
         # Build per-point hover text AND customdata in one pass
@@ -1264,12 +1291,16 @@ trajectory_server <- function(connector) {
 
       if (nrow(tx) > 0) {
         for (i in seq_len(nrow(tx))) {
-          ep  <- tx[i, ]
-          y0  <- family_y[ep$drug_family] %||% MED_BASE
-          col <- family_colors[ep$drug_family] %||% "#9E9E9E"
+          ep      <- tx[i, ]
+          # y-position comes from the 3-row grouping (drug_row)
+          ep_row  <- ep$drug_row %||% "DMARD"
+          y0      <- family_y[ep_row] %||% MED_BASE
+          # color and legend use the specific original drug family
+          ep_fam  <- ep$drug_family %||% "Other"
+          col     <- family_colors[ep_fam] %||% "#9E9E9E"
 
-          first_for_family <- !ep$drug_family %in% shown_families
-          if (first_for_family) shown_families <- c(shown_families, ep$drug_family)
+          first_for_family <- !ep_fam %in% shown_families
+          if (first_for_family) shown_families <- c(shown_families, ep_fam)
 
           fig <- plotly::add_trace(
             fig,
@@ -1284,17 +1315,19 @@ trajectory_server <- function(connector) {
             fill      = "toself",
             fillcolor = .hex_to_rgba(col, 0.75),
             line      = list(width = 0, color = "rgba(0,0,0,0)"),
-            name      = ep$drug_family,
+            name        = ep_fam,       # specific drug in legend
             showlegend  = first_for_family,
-            legendgroup = ep$drug_family,
+            legendgroup = ep_fam,
             hovertemplate = paste0(
-              "<b>", ep$drug_name, "</b><br>",
+              "<b>", ep$drug_name, "</b>",
+              " <i>(", ep_fam, ")</i><br>",
               format(ep$phase_start, "%Y-%m-%d"), " \u2014 ",
               format(ep$phase_end, "%Y-%m-%d"),
               " (", ep$n_days, " days)",
               "<extra></extra>"
             ),
-            customdata = list(list(type = "medication", drug = ep$drug_name))
+            customdata = list(list(type = "medication", drug = ep$drug_name,
+                                    family = ep_fam))
           )
         }
       }
@@ -1482,6 +1515,7 @@ trajectory_server <- function(connector) {
         list(y = COND_Y,    label = .abbrev_row("Diagnoses")),
         list(y = LAB_Y,     label = toupper(input$focus_lab %||% "Lab"))
       )
+      # family_y is keyed by drug_row (3 rows), label accordingly
       for (fam in names(family_y)) {
         all_y_labels[[length(all_y_labels) + 1L]] <- list(
           y = family_y[fam], label = .abbrev_row(fam)
@@ -1775,7 +1809,8 @@ trajectory_server <- function(connector) {
       dp <- dps[closest_idx, ]
 
       ev_type    <- dp$event_type
-      event_icon <- switch(ev_type %||% "",
+      ev_type    <- if (length(ev_type) == 1L && !is.na(ev_type)) ev_type else ""
+      event_icon <- switch(ev_type,
         escalation_point  = "arrow-up",
         taper_point       = "arrow-down",
         medication_change = "pills",
