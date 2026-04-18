@@ -972,14 +972,14 @@ trajectory_server <- function(connector) {
 
       # Map each treatment phase to a y-axis row (3 rows: Corticosteroids,
       # IVIG, DMARD) while keeping the original family for color and legend.
+      # Always initialise drug_row so tx$drug_row never triggers "uninitialised column" warning.
+      if (!"drug_row" %in% names(tx)) tx$drug_row <- NA_character_
       if (nrow(tx) > 0 && "drug_family" %in% names(tx)) {
         tx$drug_row <- ifelse(
           tx$drug_family %in% c("Corticosteroids", "IVIG"),
           tx$drug_family,
           ifelse(!is.na(tx$drug_family), "DMARD", NA_character_)
         )
-      } else if (nrow(tx) > 0) {
-        tx$drug_row <- NA_character_
       }
 
       # Per-drug color palette (specific families within DMARD row get distinct colors)
@@ -1314,11 +1314,11 @@ trajectory_server <- function(connector) {
         for (i in seq_len(nrow(tx))) {
           ep      <- tx[i, ]
           # y-position comes from the 3-row grouping (drug_row)
-          ep_row  <- ep$drug_row %||% "DMARD"
-          y0      <- family_y[ep_row] %||% MED_BASE
+          ep_row  <- if (!is.null(ep$drug_row) && !is.na(ep$drug_row)) ep$drug_row else "DMARD"
+          y0      <- family_y[[ep_row]] %||% MED_BASE
           # color and legend use the specific original drug family
-          ep_fam  <- ep$drug_family %||% "Unknown"
-          col     <- family_colors[ep_fam] %||% "#9E9E9E"
+          ep_fam  <- if (!is.null(ep$drug_family) && !is.na(ep$drug_family)) ep$drug_family else "Unknown"
+          col     <- family_colors[[ep_fam]] %||% "#9E9E9E"
 
           first_for_family <- !ep_fam %in% shown_families
           if (first_for_family) shown_families <- c(shown_families, ep_fam)
