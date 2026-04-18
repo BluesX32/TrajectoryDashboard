@@ -1314,11 +1314,11 @@ trajectory_server <- function(connector) {
         for (i in seq_len(nrow(tx))) {
           ep      <- tx[i, ]
           # y-position comes from the 3-row grouping (drug_row)
-          ep_row  <- if (!is.null(ep$drug_row) && !is.na(ep$drug_row)) ep$drug_row else "DMARD"
-          y0      <- family_y[[ep_row]] %||% MED_BASE
+          ep_row  <- if (!is.null(ep$drug_row) && length(ep$drug_row) == 1L && !is.na(ep$drug_row)) ep$drug_row else "DMARD"
+          y0_val  <- family_y[ep_row]; y0 <- if (length(y0_val) == 1L && !is.na(y0_val)) unname(y0_val) else MED_BASE
           # color and legend use the specific original drug family
-          ep_fam  <- if (!is.null(ep$drug_family) && !is.na(ep$drug_family)) ep$drug_family else "Unknown"
-          col     <- family_colors[[ep_fam]] %||% "#9E9E9E"
+          ep_fam  <- if (!is.null(ep$drug_family) && length(ep$drug_family) == 1L && !is.na(ep$drug_family)) ep$drug_family else "Unknown"
+          col_val <- family_colors[ep_fam]; col <- if (length(col_val) == 1L && !is.na(col_val)) unname(col_val) else "#9E9E9E"
 
           first_for_family <- !ep_fam %in% shown_families
           if (first_for_family) shown_families <- c(shown_families, ep_fam)
@@ -1564,7 +1564,7 @@ trajectory_server <- function(connector) {
                             !is.na(tx$drug_family), ]
           fam_y_off <- if (nrow(fam_guess) > 0 && length(family_y) > 0) {
             fam_nm <- fam_guess$drug_family[nrow(fam_guess)]
-            (family_y[fam_nm] %||% MED_BASE) + BAR_H + 0.15
+            (function(v) if (length(v) == 1L && !is.na(v)) unname(v) else MED_BASE)(family_y[fam_nm]) + BAR_H + 0.15
           } else {
             MED_BASE + BAR_H + 0.15
           }
