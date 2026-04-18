@@ -3,3 +3,6 @@
 .env
 errorReportSql.txt
 R.env
+.Rproj.user
+*.Rbuildignore
+*.Rproj

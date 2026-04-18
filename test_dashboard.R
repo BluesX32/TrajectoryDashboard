@@ -42,7 +42,7 @@
 #
 # ============================================================================
 
-devtools::load_all("h:/Myositis/TrajectoryDashboard")
+devtools::load_all("~/Myositis/TrajectoryDashboard")
 
 # ----------------------------------------------------------------------------
 # Step 1: Connect  —  choose SAFE or SAFER, comment out the other
