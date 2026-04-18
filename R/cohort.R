@@ -893,33 +893,38 @@ fetch_shingrix_patients <- function(connector, person_ids,
   ids <- ids[!is.na(ids)]
   if (length(ids) == 0L) return(integer(0))
 
-  sql_file <- system.file("sql", "fetch_shingrix_cohort.sql",
-                           package = "TrajectoryDashboard")
-  if (!nzchar(sql_file) || !file.exists(sql_file)) {
-    sql_file <- file.path(getwd(), "inst", "sql", "fetch_shingrix_cohort.sql")
+  # Resolve schemas the same way .fetch_sql_events() does
+  if (inherits(connector, "trajectory_connector")) {
+    cdm_schema   <- connector$cdm_schema   %||% cdm_schema
+    vocab_schema <- connector$vocab_schema %||% cdm_schema
+  } else {
+    if (is.null(cdm_schema))
+      rlang::abort("'cdm_schema' is required when 'connector' is a plain connection.")
+    vocab_schema <- vocab_schema %||% cdm_schema
   }
-  sql_raw <- paste(readLines(sql_file, warn = FALSE), collapse = "\n")
 
-  run_query <- function(conn_obj) {
-    schemas <- .infer_schemas(conn_obj, cdm_schema, vocab_schema)
-    sql <- SqlRender::renderSql(
-      sql_raw,
-      cdm_schema   = schemas$cdm,
-      vocab_schema = schemas$vocab,
-      person_ids   = ids
-    )$sql
-    sql <- SqlRender::translateSql(sql, targetDialect = dbms)$sql
-    res <- DatabaseConnector::querySql(conn_obj, sql,
-                                       snakeCaseToCamelCase = FALSE)
-    if (nrow(res) == 0L) return(integer(0))
+  sql_path <- system.file("sql", "fetch_shingrix_cohort.sql",
+                           package = "TrajectoryDashboard")
+  if (!nzchar(sql_path) || !file.exists(sql_path))
+    sql_path <- file.path(getwd(), "inst", "sql", "fetch_shingrix_cohort.sql")
+
+  sql_template <- SqlRender::readSql(sql_path)
+
+  .run <- function(active) {
+    actual_dbms <- active$dbms
+    if (!length(actual_dbms) || !nzchar(actual_dbms)) actual_dbms <- dbms
+    sql <- SqlRender::render(sql_template,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             person_ids   = ids)
+    sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
+    res <- .exec_sql(active$conn, sql)
+    if (is.null(res) || nrow(res) == 0L) return(integer(0))
     as.integer(res[[1L]])
   }
 
-  if (inherits(connector, "omop_connector")) {
-    if (!is.null(connector$conn)) {
-      return(run_query(connector$conn))
-    }
-    with_connector(connector, run_query)
+  if (inherits(connector, "trajectory_connector")) {
+    with_connector(connector, .run)
   } else {
     integer(0)
   }
