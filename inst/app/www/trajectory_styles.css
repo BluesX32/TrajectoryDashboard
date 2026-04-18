@@ -148,14 +148,15 @@ body,
   background: var(--accent) !important;
 }
 
-/* Optgroup headers in dropdown */
-.sidebar .selectize-dropdown .optgroup-header {
+/* Optgroup headers in dropdown — selector is broad because selectize
+   renders the dropdown at body level, outside .sidebar */
+.selectize-dropdown .optgroup-header {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: #1A2744 !important;
-  background: #C8D8F8;
+  background: #C8D8F8 !important;
   padding: 5px 10px 4px;
   margin-top: 2px;
   border-radius: 3px;

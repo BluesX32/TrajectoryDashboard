@@ -1036,8 +1036,8 @@ trajectory_server <- function(connector) {
       }
 
       if (nrow(shingles) > 0) {
-        # For each shingles event compute the ±90-day DMARD window
-        shingle_hover <- vapply(seq_len(nrow(shingles)), function(i) {
+        # Build per-point hover text AND customdata in one pass
+        shingle_info <- lapply(seq_len(nrow(shingles)), function(i) {
           ev_date  <- shingles$condition_start_date[i]
           win_lo   <- ev_date - 90L
           win_hi   <- ev_date + 90L
@@ -1054,25 +1054,33 @@ trajectory_server <- function(connector) {
               fam <- dmards_win$drug_family[k]
               if (is.na(nm) || !nzchar(nm)) nm <- fam
               if (!is.na(fam) && nzchar(fam) && fam != nm)
-                paste0(nm, " <i>(", fam, ")</i>")
+                paste0(nm, " (", fam, ")")
               else nm
             }, character(1L))
             drug_lines <- unique(drug_lines)
             med_txt    <- paste(drug_lines, collapse = "<br>\u2022 ")
             if (nzchar(med_txt)) med_txt <- paste0("\u2022 ", med_txt)
           }
-          paste0(
+          icd_val <- shingles$condition_source_value[i]
+          hover <- paste0(
             "<b>Shingles / Herpes Zoster</b><br>",
             format(ev_date, "%Y-%m-%d"), "<br>",
-            if (!is.na(shingles$condition_source_value[i]) &&
-                nzchar(shingles$condition_source_value[i]))
-              paste0("ICD: ", shingles$condition_source_value[i], "<br>")
-            else "",
+            if (!is.na(icd_val) && nzchar(icd_val))
+              paste0("ICD: ", icd_val, "<br>") else "",
             "<br><b>Pred/IVIG/DMARD \u00b13 months:</b><br>",
-            med_txt,
-            "<extra></extra>"
+            med_txt, "<extra></extra>"
           )
-        }, character(1L))
+          list(
+            hover = hover,
+            med_txt = med_txt,
+            customdata = list(
+              type    = "shingles",
+              date    = format(ev_date),
+              icd     = if (!is.na(icd_val) && nzchar(icd_val)) icd_val else "",
+              med_txt = med_txt
+            )
+          )
+        })
 
         fig <- plotly::add_trace(
           fig,
@@ -1086,10 +1094,11 @@ trajectory_server <- function(connector) {
             color   = "#FF6F00",
             line    = list(width = 2, color = "#E65100")
           ),
-          name        = "Shingles",
-          showlegend  = TRUE,
-          legendgroup = "shingles",
-          hovertemplate = shingle_hover
+          name          = "Shingles",
+          showlegend    = TRUE,
+          legendgroup   = "shingles",
+          hovertemplate = vapply(shingle_info, `[[`, character(1), "hover"),
+          customdata    = lapply(shingle_info, `[[`, "customdata")
         )
       }
 
@@ -1401,7 +1410,7 @@ trajectory_server <- function(connector) {
         relevant_fam_pattern <- paste(
           c("Corticosteroids", "IVIG", "Azathioprine", "Methotrexate",
             "Mycophenolate", "Hydroxychloroquine", "Rituximab",
-            "JAK inhibitors", "Anti-TNF"),
+            "JAK inhibitors", "Anti-TNF", "Other"),
           collapse = "|"
         )
         is_med_change <- !is.na(dps$event_type) & dps$event_type == "medication_change"
@@ -1527,27 +1536,8 @@ trajectory_server <- function(connector) {
         }
       }
 
-      # Rheumatic Dx annotation — top-right corner of the plot
-      rheum_annot <- list()
-      dx_for_plot <- tryCatch(rheum_dx_data(), error = function(e) NULL)
-      if (!is.null(dx_for_plot) && nrow(dx_for_plot) > 0) {
-        cats <- sort(unique(dx_for_plot$disease_category[!is.na(dx_for_plot$disease_category)]))
-        rheum_annot <- list(list(
-          text      = paste0("<b>Rheum Dx:</b> ", paste(cats, collapse = " | ")),
-          xref      = "paper", yref = "paper",
-          x = 1, y = 1.01, xanchor = "right", yanchor = "bottom",
-          showarrow = FALSE,
-          font      = list(size = 12, color = "#C62828", family = "Inter, sans-serif"),
-          bgcolor   = "#FFF3F3",
-          bordercolor = "#C62828",
-          borderwidth = 1,
-          borderpad = 4
-        ))
-      }
-
       fig <- plotly::layout(
         fig,
-        annotations = rheum_annot,
         xaxis = list(
           title     = "",
           showgrid  = TRUE,
@@ -1678,8 +1668,43 @@ trajectory_server <- function(connector) {
         ))
       }
 
-      # Detect hospitalization bar click via customdata
       cd <- ev$customdata
+
+      # Shingles event click
+      if (is.list(cd) && identical(cd$type, "shingles")) {
+        ev_date <- tryCatch(as.Date(cd$date), error = function(e) as.Date(ev$x))
+        return(shiny::div(
+          class = "event-detail-card",
+          shiny::h4(
+            shiny::icon("biohazard", style = "margin-right:8px; color:#FF6F00;"),
+            "Shingles / Herpes Zoster"
+          ),
+          shiny::div(
+            class = "meta-row",
+            shiny::div(class = "meta-item",
+                       shiny::icon("calendar"),
+                       format(ev_date, "%B %d, %Y")),
+            if (nzchar(cd$icd %||% ""))
+              shiny::div(class = "meta-item",
+                         shiny::icon("tag"),
+                         paste("ICD:", cd$icd))
+          ),
+          shiny::div(
+            class = "evidence-section",
+            shiny::strong("Pred / IVIG / DMARD \u00b13 months:"),
+            shiny::div(
+              style = "margin-top:5px; white-space:pre-wrap;",
+              if (nzchar(cd$med_txt %||% "") && cd$med_txt != "None recorded")
+                shiny::HTML(gsub("\u2022 ", "\u2022 ", cd$med_txt))
+              else
+                shiny::span(style = "color:#9099B3; font-style:italic;",
+                            "None recorded")
+            )
+          )
+        ))
+      }
+
+      # Detect hospitalization bar click via customdata
       if (is.list(cd) && identical(cd$type, "hospitalization")) {
         v_start <- tryCatch(as.Date(cd$visit_start), error = function(e) NULL)
         v_end   <- tryCatch(as.Date(cd$visit_end),   error = function(e) NULL)
