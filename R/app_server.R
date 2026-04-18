@@ -554,9 +554,7 @@ trajectory_server <- function(connector) {
                            alt="#6A1B9A", ldh="#C62828")
         enzyme_labels <- c(ck="CK", aldolase="Aldolase", ast="AST",
                            alt="ALT", ldh="LDH")
-        efig <- plotly::plot_ly(source = "macro_plot", type = "scatter",
-                                 mode = "markers", x = as.Date(character(0)),
-                                 y = numeric(0), showlegend = FALSE)
+        efig <- plotly::plot_ly(source = "macro_plot", showlegend = FALSE)
         for (ek in enzyme_keys) {
           e_ids <- .resolve_lab_concept(ek)
           e_uln <- .get_default_uln(ek)
@@ -641,14 +639,7 @@ trajectory_server <- function(connector) {
       phases <- trajectory()
 
       # Start with an invisible anchor trace
-      fig <- plotly::plot_ly(
-        source     = "macro_plot",
-        type       = "scatter",
-        mode       = "markers",
-        x          = as.Date(character(0)),
-        y          = numeric(0),
-        showlegend = FALSE
-      )
+      fig <- plotly::plot_ly(source = "macro_plot", showlegend = FALSE)
 
       # Phase background shading — use layout shapes with yref="paper" so the
       # rectangles span the full plot height without inflating the y-axis range.
@@ -997,14 +988,7 @@ trajectory_server <- function(connector) {
 
       # ── Build plot ────────────────────────────────────────────────────
       # Start with an invisible anchor trace (suppresses "no trace type" warning)
-      fig <- plotly::plot_ly(
-        source     = "event_layer",
-        type       = "scatter",
-        mode       = "markers",
-        x          = as.Date(character(0)),
-        y          = numeric(0),
-        showlegend = FALSE
-      )
+      fig <- plotly::plot_ly(source = "event_layer", showlegend = FALSE)
 
       # DMARD gap bands — pre-computed by dmard_gaps() reactive (cached).
       # Y-range is filled after layout constants are computed below; compute
@@ -2116,8 +2100,7 @@ trajectory_server <- function(connector) {
       has_cardiac <- !is.null(trop_df) || !is.null(bnp_df)
 
       if (!has_cbc && !has_cardiac) {
-        empty <- plotly::plot_ly(type = "scatter", mode = "markers",
-          x = as.Date(character(0)), y = numeric(0)) |>
+        empty <- plotly::plot_ly() |>
           plotly::layout(
             annotations = list(list(
               text = "No CBC or cardiac biomarker data for this patient.",
@@ -2137,9 +2120,7 @@ trajectory_server <- function(connector) {
 
       if (has_cbc) {
         n_rows <- n_rows + 1L
-        cbc_fig <- plotly::plot_ly(type = "scatter", mode = "markers",
-                                    x = as.Date(character(0)), y = numeric(0),
-                                    showlegend = FALSE)
+        cbc_fig <- plotly::plot_ly(showlegend = FALSE)
 
         if (!is.null(wbc_df)) {
           wbc_col <- ifelse(wbc_df$value_as_number < 3.0, "#C62828", "#2E7D32")
@@ -2195,9 +2176,7 @@ trajectory_server <- function(connector) {
 
       if (has_cardiac) {
         n_rows <- n_rows + 1L
-        card_fig <- plotly::plot_ly(type = "scatter", mode = "markers",
-                                     x = as.Date(character(0)), y = numeric(0),
-                                     showlegend = FALSE)
+        card_fig <- plotly::plot_ly(showlegend = FALSE)
         if (!is.null(trop_df)) {
           trop_col <- ifelse(trop_df$value_as_number > 0.04, "#C62828", "#2E7D32")
           card_fig <- plotly::add_trace(card_fig,
