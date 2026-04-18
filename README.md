@@ -60,11 +60,37 @@ con <- create_connection_from_env(".env")
 launch_trajectory_dashboard(con)
 ```
 
-### Restrict to specific patients
+### Restrict to a cohort with pre-fetched data
+
+```r
+# Step 1: identify the cohort (VZV antivirals example)
+person_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_VZV_antivirals.json",
+                          package = "TrajectoryDashboard")
+)
+
+# Step 2: download ALL patient data in ONE connection before launching
+#   — avoids repeated JDBC auth round-trips during the session
+cache <- prefetch_cohort_data(con, person_ids)
+
+# Optionally persist the cache between R sessions:
+# saveRDS(cache, "cohort_cache.rds")
+# cache <- readRDS("cohort_cache.rds")
+
+# Step 3: launch — patient loads are served from memory, no DB queries
+launch_trajectory_dashboard(con,
+  person_ids     = as.character(person_ids),
+  preloaded_data = cache)
+```
+
+### Ad-hoc patient list (no pre-fetch)
 
 ```r
 launch_trajectory_dashboard(con, person_ids = c("10001", "10002", "10003"))
 ```
+
+Each patient load issues live database queries in this mode.
 
 ## Dashboard layout
 
@@ -79,7 +105,7 @@ launch_trajectory_dashboard(con, person_ids = c("10001", "10002", "10003"))
 | [focus lab picker] |  | [Normalization milestone stars after each flare]         |
 | Enzyme panel mode  |  | [Prednisone pred-equiv step line (secondary y-axis)]     |
 |                    |  +--Layer 2: Events & Treatments--------------------------+
-| Medications        |  | [Hospitalizations]                                       |
+| Medications        |  | [Shingles/VZV events — orange diamonds]                  |
 | [checkboxes]       |  | [Medication bars by drug family]                         |
 |                    |  | [Decision points: escalation/taper/workup/admission]    |
 | Display Options    |  | [Drug toxicity warnings: hepatotox/lymphopenia/CrRise]  |
@@ -113,8 +139,8 @@ launch_trajectory_dashboard(con, person_ids = c("10001", "10002", "10003"))
 
 | Feature | Description |
 |---|---|
+| Shingles row | Herpes zoster events from a dedicated VZV concept-set SQL query (orange diamonds); hover shows DMARDs active ±3 months |
 | Medication bars | One row per drug family; gap-bridged episodes with 30-day merge window |
-| Hospitalizations | Inpatient/ER visits as grey bands |
 | Decision points | Automatically detected clinical decision moments (see table below) |
 | Toxicity flags | Orange/red triangles for hepatotoxicity, lymphopenia, creatinine rise |
 | DMARD gap bands | Orange bands highlighting >= 30-day periods without non-steroid DMARD (optional) |
@@ -155,7 +181,7 @@ A last-values status row shows the most recent value for each lab with trend arr
 | `escalation_point` | Flare/worsening with no new medication in prior 30 days |
 | `taper_point` | Response phase while corticosteroid is active |
 | `medication_change` | New immunosuppressant or biologic starts |
-| `admission` | Inpatient or ER visit |
+| `admission` | Shingles / VZV event (sourced from dedicated SQL query) |
 | `workup_point` | Myositis antibody result in labs |
 | `referral_point` | Referral keywords in clinical notes (low confidence) |
 
@@ -283,8 +309,14 @@ create_safer_connection("R.env")               # JHU SAFER Desktop (proxy + RJDB
 create_hpc_connection("R.env")                 # JHU Discovery HPC (direct + RJDBC)
 create_df_connector(patient_data_list)         # In-memory (tests/demos)
 
+# Cohort selection
+fetch_cohort_ids(connector, json_path)         # ATLAS JSON → integer vector of person_ids
+test_cohort_connection(connector)              # Diagnose connection / SQL issues
+
 # Data extraction
 fetch_patient_data(connector, person_id = 12345L)
+fetch_shingles_events(connector, person_id = 12345L)  # VZV/herpes zoster events
+prefetch_cohort_data(connector, person_ids)    # Batch-fetch all patients (one connection)
 
 # Analytics
 compute_trajectory_phases(labs_df, concept_id = 4013722L)
@@ -294,7 +326,7 @@ detect_decision_points(patient_data, trajectory, treatment_phases)
 detect_toxicity_flags(labs_df, medications_df)
 
 # App
-launch_trajectory_dashboard(connector = NULL, person_ids = NULL)
+launch_trajectory_dashboard(connector = NULL, person_ids = NULL, preloaded_data = NULL)
 ```
 
 ## Myositis-specific concept IDs
@@ -329,13 +361,15 @@ R/
     sql_helpers.R             render_translate_sql(), query_omop() (internal)
     utils_validate.R          assert_required_cols(), safe_as_date(), %||%
     utils_concepts.R          MYOSITIS_LAB_CONCEPTS, MYOSITIS_DRUG_CONCEPTS
-    extract_patient.R         fetch_patient_data() — master 6-domain orchestrator
+    extract_patient.R         fetch_patient_data(), prefetch_cohort_data()
     extract_labs.R            fetch_labs() S3
     extract_medications.R     fetch_medications() S3
     extract_conditions.R      fetch_conditions() S3
     extract_visits.R          fetch_visits() S3
     extract_notes.R           fetch_notes() S3
     extract_observations.R    fetch_observations() S3
+    cohort.R                  fetch_cohort_ids(), fetch_shingles_events(),
+                              build_cohort_sql(), test_cohort_connection()
     trajectory.R              compute_trajectory_phases(), compute_treatment_phases()
     data_density.R            compute_data_density()
     decision_points.R         detect_decision_points(), detect_toxicity_flags()
@@ -344,7 +378,11 @@ R/
     app_ui.R                  trajectory_ui() — shinydashboard 3-layer layout
     app_server.R              trajectory_server() — plotly reactive graph
 
-inst/sql/                     6 SqlRender-parameterized OMOP SQL templates
+inst/sql/                     SqlRender-parameterized OMOP SQL templates:
+                                cohort_VZV_antivirals.sql — full cohort query
+                                fetch_shingles_events.sql — per-patient VZV events
+                                extract_labs/medications/conditions/visits/notes.sql
+inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
 inst/extdata/                 synthetic_patient_data.rds (demo patients)
 inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)
 ```
@@ -355,7 +393,8 @@ inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint lay
 - **Observed vs inferred** — confidence levels (high/medium/low/none) on every phase and decision point
 - **Connector-first** — all functions work with both live OMOP databases and in-memory data frames
 - **Cross-platform SQL** — SqlRender translates all queries to the target DBMS dialect
-- **Single connection per patient load** — all 6 domain queries share one JDBC connection
+- **Pre-fetch, then serve from memory** — `prefetch_cohort_data()` batches all patients in one JDBC connection before launch; the dashboard never re-queries the database during an interactive session
+- **Concept-set consistency** — shingles events use the same VZV ancestor concept IDs as the cohort SQL, so eligibility and visualization are always aligned
 
 ## Related packages
 

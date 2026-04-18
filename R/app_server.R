@@ -7,7 +7,7 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector) {
+trajectory_server <- function(connector, preloaded_data = NULL) {
   function(input, output, session) {
 
     # -------------------------------------------------------------------------
@@ -74,7 +74,14 @@ trajectory_server <- function(connector) {
     # -------------------------------------------------------------------------
     patient_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
+      pid_key <- as.character(input$person_id)
 
+      # Serve from pre-fetch cache when available (no DB round-trip)
+      if (!is.null(preloaded_data) && !is.null(preloaded_data[[pid_key]])) {
+        return(preloaded_data[[pid_key]]$patient)
+      }
+
+      # Fallback: live query (patient not in cache, or no cache provided)
       shiny::withProgress(message = "Loading patient data...", value = 0, {
         shiny::incProgress(0.1, detail = "Connecting...")
         data <- tryCatch(
@@ -98,6 +105,14 @@ trajectory_server <- function(connector) {
     # Shingles events via SQL (same VZV concept set as cohort query)
     shingles_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
+      pid_key <- as.character(input$person_id)
+
+      # Serve from pre-fetch cache when available
+      if (!is.null(preloaded_data) && !is.null(preloaded_data[[pid_key]])) {
+        return(preloaded_data[[pid_key]]$shingles)
+      }
+
+      # Fallback: live query
       tryCatch(
         fetch_shingles_events(
           connector,
@@ -105,15 +120,7 @@ trajectory_server <- function(connector) {
         ),
         error = function(e) {
           message("[shingles] fetch_shingles_events failed: ", e$message)
-          data.frame(
-            person_id = integer(0), condition_occurrence_id = integer(0),
-            condition_start_date = as.Date(character(0)),
-            condition_end_date   = as.Date(character(0)),
-            condition_concept_id = integer(0),
-            condition_name       = character(0),
-            condition_source_value = character(0),
-            stringsAsFactors = FALSE
-          )
+          .empty_shingles()
         }
       )
     })
