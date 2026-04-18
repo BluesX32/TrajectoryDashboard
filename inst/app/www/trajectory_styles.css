@@ -150,12 +150,15 @@ body,
 
 /* Optgroup headers in dropdown */
 .sidebar .selectize-dropdown .optgroup-header {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.6px;
   text-transform: uppercase;
-  color: rgba(255,255,255,0.4) !important;
-  padding: 8px 10px 3px;
+  color: #1A2744 !important;
+  background: #C8D8F8;
+  padding: 5px 10px 4px;
+  margin-top: 2px;
+  border-radius: 3px;
 }
 
 /* Checkbox groups */

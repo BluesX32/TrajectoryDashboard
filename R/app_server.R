@@ -1022,14 +1022,15 @@ trajectory_server <- function(connector) {
       shingles <- shingles_data()
       if (is.null(shingles)) shingles <- data.frame()
 
-      # DMARDs only (non-steroid immunosuppressants) for hover context
-      dmard_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
-                          "IVIG", "Rituximab", "JAK inhibitors")
+      # All relevant immunosuppressants for peri-shingles hover (pred + IVIG + specific DMARDs)
+      relevant_med_families <- c("Corticosteroids", "IVIG",
+        "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
+        "Rituximab", "JAK inhibitors", "Anti-TNF")
       all_dmards <- if (nrow(pd$medications) > 0 &&
                         "drug_family" %in% names(pd$medications)) {
         pd$medications[
           !is.na(pd$medications$drug_family) &
-            pd$medications$drug_family %in% dmard_families, ]
+            pd$medications$drug_family %in% relevant_med_families, ]
       } else {
         pd$medications[integer(0), ]
       }
@@ -1048,8 +1049,16 @@ trajectory_server <- function(connector) {
           if (nrow(dmards_win) == 0L) {
             med_txt <- "None recorded"
           } else {
-            drug_names <- sort(unique(dmards_win$drug_name[!is.na(dmards_win$drug_name)]))
-            med_txt    <- paste(drug_names, collapse = "<br>\u2022 ")
+            drug_lines <- vapply(seq_len(nrow(dmards_win)), function(k) {
+              nm  <- dmards_win$drug_name[k]
+              fam <- dmards_win$drug_family[k]
+              if (is.na(nm) || !nzchar(nm)) nm <- fam
+              if (!is.na(fam) && nzchar(fam) && fam != nm)
+                paste0(nm, " <i>(", fam, ")</i>")
+              else nm
+            }, character(1L))
+            drug_lines <- unique(drug_lines)
+            med_txt    <- paste(drug_lines, collapse = "<br>\u2022 ")
             if (nzchar(med_txt)) med_txt <- paste0("\u2022 ", med_txt)
           }
           paste0(
@@ -1059,7 +1068,7 @@ trajectory_server <- function(connector) {
                 nzchar(shingles$condition_source_value[i]))
               paste0("ICD: ", shingles$condition_source_value[i], "<br>")
             else "",
-            "<br><b>DMARDs \u00b13 months:</b><br>",
+            "<br><b>Pred/IVIG/DMARD \u00b13 months:</b><br>",
             med_txt,
             "<extra></extra>"
           )
@@ -1386,6 +1395,20 @@ trajectory_server <- function(connector) {
       }
 
       # Row: Decision points as diamond markers
+      # For medication_change events, only keep entries involving pred/IVIG/DMARDs.
+      # The evidence_summary contains the drug_family in parentheses, e.g. "(IVIG)".
+      if (!is.null(dps) && nrow(dps) > 0) {
+        relevant_fam_pattern <- paste(
+          c("Corticosteroids", "IVIG", "Azathioprine", "Methotrexate",
+            "Mycophenolate", "Hydroxychloroquine", "Rituximab",
+            "JAK inhibitors", "Anti-TNF"),
+          collapse = "|"
+        )
+        is_med_change <- !is.na(dps$event_type) & dps$event_type == "medication_change"
+        keep_med <- !is_med_change |
+          grepl(relevant_fam_pattern, dps$evidence_summary, ignore.case = TRUE)
+        dps <- dps[keep_med, , drop = FALSE]
+      }
       if (input$show_dp && !is.null(dps) && nrow(dps) > 0) {
         dp_y_map <- c(
           escalation_point  = COND_Y + 0.30,
@@ -1504,8 +1527,27 @@ trajectory_server <- function(connector) {
         }
       }
 
+      # Rheumatic Dx annotation — top-right corner of the plot
+      rheum_annot <- list()
+      dx_for_plot <- tryCatch(rheum_dx_data(), error = function(e) NULL)
+      if (!is.null(dx_for_plot) && nrow(dx_for_plot) > 0) {
+        cats <- sort(unique(dx_for_plot$disease_category[!is.na(dx_for_plot$disease_category)]))
+        rheum_annot <- list(list(
+          text      = paste0("<b>Rheum Dx:</b> ", paste(cats, collapse = " | ")),
+          xref      = "paper", yref = "paper",
+          x = 1, y = 1.01, xanchor = "right", yanchor = "bottom",
+          showarrow = FALSE,
+          font      = list(size = 12, color = "#C62828", family = "Inter, sans-serif"),
+          bgcolor   = "#FFF3F3",
+          bordercolor = "#C62828",
+          borderwidth = 1,
+          borderpad = 4
+        ))
+      }
+
       fig <- plotly::layout(
         fig,
+        annotations = rheum_annot,
         xaxis = list(
           title     = "",
           showgrid  = TRUE,
@@ -1578,9 +1620,15 @@ trajectory_server <- function(connector) {
         )
       })
       shiny::div(
-        style = "padding: 4px 0 6px;",
-        shiny::strong(style = "font-size:11px; color:#5A6482;", "Rheumatic Dx: "),
-        shiny::div(style = "display:inline;", badges)
+        style = paste0(
+          "margin: 6px 0 4px; padding: 8px 12px; border-radius: 6px;",
+          "background: #FFF3F3; border-left: 4px solid #C62828;"
+        ),
+        shiny::span(
+          style = "font-size:12px; font-weight:700; color:#C62828; margin-right:8px;",
+          "\u2665 Rheumatic Dx:"
+        ),
+        badges
       )
     })
 
