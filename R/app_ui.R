@@ -174,8 +174,23 @@ trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
               style = "padding: 4px 10px 10px;",
               shiny::checkboxGroupInput(
                 "med_categories", NULL,
-                choices  = c("Corticosteroids", "IVIG", "DMARD"),
-                selected = c("Corticosteroids", "IVIG", "DMARD")
+                choices = c(
+                  "Corticosteroids",
+                  "IVIG",
+                  "Rituximab",
+                  "Azathioprine",
+                  "Methotrexate",
+                  "Mycophenolate",
+                  "Hydroxychloroquine",
+                  "JAK inhibitors",
+                  "Anti-TNF",
+                  "Other"
+                ),
+                selected = c(
+                  "Corticosteroids", "IVIG", "Rituximab",
+                  "Azathioprine", "Methotrexate", "Mycophenolate",
+                  "Hydroxychloroquine", "JAK inhibitors", "Anti-TNF"
+                )
               )
             )
           ),
