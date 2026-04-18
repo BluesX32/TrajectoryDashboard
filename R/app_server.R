@@ -270,9 +270,13 @@ trajectory_server <- function(connector) {
 
       all_meds <- patient_data()$medications
       # drug_family is guaranteed present (added in patient_data reactive)
-      non_steroid_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
-                                 "IVIG", "Rituximab", "JAK inhibitors",
-                                 "Hydroxychloroquine", "Anti-TNF", "Other")
+      non_steroid_families <- c(
+        "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
+        "Leflunomide", "Sulfasalazine", "Cyclosporine", "Cyclophosphamide",
+        "Tacrolimus", "Sirolimus", "IVIG", "Rituximab", "Tocilizumab",
+        "Abatacept", "Belimumab", "Anifrolumab", "Voclosporin",
+        "JAK inhibitors", "Anti-TNF", "Nintedanib", "Pirfenidone"
+      )
       if (nrow(all_meds) == 0L || !"drug_family" %in% names(all_meds))
         return(list())
 
@@ -989,7 +993,19 @@ trajectory_server <- function(connector) {
         Rituximab          = "#66BB6A",
         "JAK inhibitors"   = "#EC407A",
         "Anti-TNF"         = "#FFA726",
-        Other              = "#8D6E63"
+        Leflunomide        = "#5C6BC0",
+        Sulfasalazine      = "#00897B",
+        Cyclosporine       = "#F4511E",
+        Cyclophosphamide   = "#8E24AA",
+        Tacrolimus         = "#039BE5",
+        Sirolimus          = "#7CB342",
+        Tocilizumab        = "#FB8C00",
+        Abatacept          = "#E53935",
+        Belimumab          = "#00ACC1",
+        Anifrolumab        = "#6D4C41",
+        Voclosporin        = "#546E7A",
+        Nintedanib         = "#43A047",
+        Pirfenidone        = "#FFB300"
       )
 
       # ── Layout constants (computed once, used throughout) ─────────────
@@ -1053,9 +1069,14 @@ trajectory_server <- function(connector) {
 
       # All relevant immunosuppressants for peri-shingles hover.
       # drug_family is now always present (added in patient_data reactive).
-      relevant_med_families <- c("Corticosteroids", "IVIG",
+      relevant_med_families <- c(
+        "Corticosteroids", "IVIG",
         "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
-        "Rituximab", "JAK inhibitors", "Anti-TNF", "Other")
+        "Leflunomide", "Sulfasalazine", "Cyclosporine", "Cyclophosphamide",
+        "Tacrolimus", "Sirolimus", "Rituximab", "Tocilizumab", "Abatacept",
+        "Belimumab", "Anifrolumab", "Voclosporin",
+        "JAK inhibitors", "Anti-TNF", "Nintedanib", "Pirfenidone"
+      )
       all_dmards <- pd$medications[
         !is.na(pd$medications$drug_family) &
           pd$medications$drug_family %in% relevant_med_families, ,
@@ -1296,7 +1317,7 @@ trajectory_server <- function(connector) {
           ep_row  <- ep$drug_row %||% "DMARD"
           y0      <- family_y[ep_row] %||% MED_BASE
           # color and legend use the specific original drug family
-          ep_fam  <- ep$drug_family %||% "Other"
+          ep_fam  <- ep$drug_family %||% "Unknown"
           col     <- family_colors[ep_fam] %||% "#9E9E9E"
 
           first_for_family <- !ep_fam %in% shown_families
@@ -1441,9 +1462,12 @@ trajectory_server <- function(connector) {
       # The evidence_summary contains the drug_family in parentheses, e.g. "(IVIG)".
       if (!is.null(dps) && nrow(dps) > 0) {
         relevant_fam_pattern <- paste(
-          c("Corticosteroids", "IVIG", "Azathioprine", "Methotrexate",
-            "Mycophenolate", "Hydroxychloroquine", "Rituximab",
-            "JAK inhibitors", "Anti-TNF", "Other"),
+          c("Corticosteroids", "IVIG",
+            "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
+            "Leflunomide", "Sulfasalazine", "Cyclosporine", "Cyclophosphamide",
+            "Tacrolimus", "Sirolimus", "Rituximab", "Tocilizumab", "Abatacept",
+            "Belimumab", "Anifrolumab", "Voclosporin",
+            "JAK inhibitors", "Anti-TNF", "Nintedanib", "Pirfenidone"),
           collapse = "|"
         )
         is_med_change <- !is.na(dps$event_type) & dps$event_type == "medication_change"

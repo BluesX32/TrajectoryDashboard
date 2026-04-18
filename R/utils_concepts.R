@@ -145,24 +145,34 @@ MYOSITIS_DRUG_CONCEPTS <- list(
   pirfenidone        = c(45776887L)
 )
 
-# Drug family groupings for UI checkboxes
+# Drug family groupings for UI checkboxes and concept ID resolution
 .DRUG_FAMILY_MAP <- list(
-  Corticosteroids  = c("prednisone", "prednisolone", "methylprednisolone",
-                       "dexamethasone", "hydrocortisone", "triamcinolone",
-                       "budesonide"),
-  Azathioprine     = c("azathioprine"),
-  Methotrexate     = c("methotrexate"),
-  Mycophenolate    = c("mycophenolate"),
+  Corticosteroids    = c("prednisone", "prednisolone", "methylprednisolone",
+                         "dexamethasone", "hydrocortisone", "triamcinolone",
+                         "budesonide"),
+  IVIG               = c("ivig"),
+  Azathioprine       = c("azathioprine"),
+  Methotrexate       = c("methotrexate"),
+  Mycophenolate      = c("mycophenolate"),
   Hydroxychloroquine = c("hydroxychloroquine", "chloroquine"),
-  IVIG             = c("ivig"),
-  Rituximab        = c("rituximab"),
-  `JAK inhibitors` = c("tofacitinib", "baricitinib", "ruxolitinib", "upadacitinib",
-                        "filgotinib"),
-  `Anti-TNF`       = c("infliximab", "adalimumab", "etanercept"),
-  Other            = c("leflunomide", "sulfasalazine", "cyclosporine", "cyclophosphamide",
-                       "tacrolimus", "sirolimus", "tocilizumab", "abatacept", "belimumab",
-                       "anifrolumab", "voclosporin", "secukinumab", "ixekizumab",
-                       "nintedanib", "pirfenidone")
+  Leflunomide        = c("leflunomide"),
+  Sulfasalazine      = c("sulfasalazine"),
+  Cyclosporine       = c("cyclosporine"),
+  Cyclophosphamide   = c("cyclophosphamide"),
+  Tacrolimus         = c("tacrolimus"),
+  Sirolimus          = c("sirolimus"),
+  Rituximab          = c("rituximab"),
+  Tocilizumab        = c("tocilizumab"),
+  Abatacept          = c("abatacept"),
+  Belimumab          = c("belimumab"),
+  Anifrolumab        = c("anifrolumab"),
+  Voclosporin        = c("voclosporin"),
+  `JAK inhibitors`   = c("tofacitinib", "baricitinib", "ruxolitinib", "upadacitinib",
+                          "filgotinib"),
+  `Anti-TNF`         = c("infliximab", "adalimumab", "etanercept",
+                          "secukinumab", "ixekizumab"),
+  Nintedanib         = c("nintedanib"),
+  Pirfenidone        = c("pirfenidone")
 )
 
 # ---------------------------------------------------------------------------
@@ -209,13 +219,28 @@ MYOSITIS_DRUG_CONCEPTS <- list(
 .standardize_drug_family <- function(drug_names) {
   s <- tolower(drug_names)
   dplyr::case_when(
-    grepl("prednisone|prednisolone|methylpred|dexamethasone|hydrocortisone|triamcinolone", s) ~ "Corticosteroids",
+    grepl("prednisone|prednisolone|methylpred|dexamethasone|hydrocortisone|triamcinolone|budesonide", s) ~ "Corticosteroids",
+    grepl("intravenous immunoglobulin|ivig|immune globulin", s) ~ "IVIG",
     grepl("azathioprine", s) ~ "Azathioprine",
     grepl("methotrexate", s) ~ "Methotrexate",
     grepl("mycophenolate|cellcept|myfortic", s) ~ "Mycophenolate",
-    grepl("intravenous immunoglobulin|ivig|immune globulin", s) ~ "IVIG",
+    grepl("hydroxychloroquine|chloroquine", s) ~ "Hydroxychloroquine",
+    grepl("leflunomide", s) ~ "Leflunomide",
+    grepl("sulfasalazine", s) ~ "Sulfasalazine",
+    grepl("cyclosporine|ciclosporin", s) ~ "Cyclosporine",
+    grepl("cyclophosphamide", s) ~ "Cyclophosphamide",
+    grepl("tacrolimus", s) ~ "Tacrolimus",
+    grepl("sirolimus", s) ~ "Sirolimus",
     grepl("rituximab", s) ~ "Rituximab",
-    grepl("tofacitinib|baricitinib|ruxolitinib|upadacitinib", s) ~ "JAK inhibitors",
-    TRUE ~ "Other"
+    grepl("tocilizumab", s) ~ "Tocilizumab",
+    grepl("abatacept", s) ~ "Abatacept",
+    grepl("belimumab", s) ~ "Belimumab",
+    grepl("anifrolumab", s) ~ "Anifrolumab",
+    grepl("voclosporin", s) ~ "Voclosporin",
+    grepl("tofacitinib|baricitinib|ruxolitinib|upadacitinib|filgotinib", s) ~ "JAK inhibitors",
+    grepl("infliximab|adalimumab|etanercept|secukinumab|ixekizumab", s) ~ "Anti-TNF",
+    grepl("nintedanib", s) ~ "Nintedanib",
+    grepl("pirfenidone", s) ~ "Pirfenidone",
+    TRUE ~ NA_character_
   )
 }

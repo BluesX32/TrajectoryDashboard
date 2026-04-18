@@ -188,14 +188,30 @@ trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
                   "Methotrexate",
                   "Mycophenolate",
                   "Hydroxychloroquine",
+                  "Leflunomide",
+                  "Sulfasalazine",
+                  "Cyclosporine",
+                  "Cyclophosphamide",
+                  "Tacrolimus",
+                  "Sirolimus",
+                  "Tocilizumab",
+                  "Abatacept",
+                  "Belimumab",
+                  "Anifrolumab",
+                  "Voclosporin",
                   "JAK inhibitors",
                   "Anti-TNF",
-                  "Other"
+                  "Nintedanib",
+                  "Pirfenidone"
                 ),
                 selected = c(
                   "Corticosteroids", "IVIG", "Rituximab",
                   "Azathioprine", "Methotrexate", "Mycophenolate",
-                  "Hydroxychloroquine", "JAK inhibitors", "Anti-TNF"
+                  "Hydroxychloroquine", "JAK inhibitors", "Anti-TNF",
+                  "Leflunomide", "Sulfasalazine", "Cyclosporine",
+                  "Cyclophosphamide", "Tacrolimus", "Sirolimus",
+                  "Tocilizumab", "Abatacept", "Belimumab",
+                  "Anifrolumab", "Voclosporin", "Nintedanib", "Pirfenidone"
                 )
               )
             )
