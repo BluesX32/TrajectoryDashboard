@@ -868,6 +868,64 @@ fetch_shingrix_events <- function(connector, person_id,
 }
 
 # ---------------------------------------------------------------------------
+# Public: fetch_shingrix_patients  (cohort-level bulk query)
+# ---------------------------------------------------------------------------
+
+#' Identify which patients in a cohort received Shingrix vaccination
+#'
+#' Runs a single bulk query across the entire cohort and returns the subset of
+#' person_ids with any Shingrix record. Use this at dashboard startup to split
+#' the patient list into "shingles only" vs "shingles + vaccination" groups.
+#'
+#' @param connector A `trajectory_connector`.
+#' @param person_ids Integer or character vector of cohort patient IDs.
+#' @param cdm_schema CDM schema (inferred from connector if NULL).
+#' @param vocab_schema Vocabulary schema (inferred from connector if NULL).
+#' @param dbms Target SQL dialect (default `"sql server"`).
+#' @return Integer vector of person_ids who have Shingrix records.
+#' @export
+fetch_shingrix_patients <- function(connector, person_ids,
+                                     cdm_schema = NULL, vocab_schema = NULL,
+                                     dbms = "sql server") {
+  .check_cohort_packages()
+
+  ids <- as.integer(person_ids)
+  ids <- ids[!is.na(ids)]
+  if (length(ids) == 0L) return(integer(0))
+
+  sql_file <- system.file("sql", "fetch_shingrix_cohort.sql",
+                           package = "TrajectoryDashboard")
+  if (!nzchar(sql_file) || !file.exists(sql_file)) {
+    sql_file <- file.path(getwd(), "inst", "sql", "fetch_shingrix_cohort.sql")
+  }
+  sql_raw <- paste(readLines(sql_file, warn = FALSE), collapse = "\n")
+
+  run_query <- function(conn_obj) {
+    schemas <- .infer_schemas(conn_obj, cdm_schema, vocab_schema)
+    sql <- SqlRender::renderSql(
+      sql_raw,
+      cdm_schema   = schemas$cdm,
+      vocab_schema = schemas$vocab,
+      person_ids   = ids
+    )$sql
+    sql <- SqlRender::translateSql(sql, targetDialect = dbms)$sql
+    res <- DatabaseConnector::querySql(conn_obj, sql,
+                                       snakeCaseToCamelCase = FALSE)
+    if (nrow(res) == 0L) return(integer(0))
+    as.integer(res[[1L]])
+  }
+
+  if (inherits(connector, "omop_connector")) {
+    if (!is.null(connector$conn)) {
+      return(run_query(connector$conn))
+    }
+    with_connector(connector, run_query)
+  } else {
+    integer(0)
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Public: fetch_phn_events
 # ---------------------------------------------------------------------------
 

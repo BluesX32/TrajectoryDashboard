@@ -11,7 +11,7 @@
 #'   the selector. If NULL, the selector is a free-text input.
 #' @return A `shinydashboard::dashboardPage()` UI object.
 #' @noRd
-trajectory_ui <- function(person_ids = NULL) {
+trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
@@ -56,9 +56,23 @@ trajectory_ui <- function(person_ids = NULL) {
           style = "padding: 0 14px;",
 
           if (!is.null(person_ids)) {
+            # Build optgroup choices if shingrix split is available
+            choices <- if (!is.null(shingrix_patient_ids) &&
+                           length(shingrix_patient_ids) > 0) {
+              vacc_ids    <- intersect(person_ids, shingrix_patient_ids)
+              no_vacc_ids <- setdiff(person_ids, shingrix_patient_ids)
+              grps <- list()
+              if (length(no_vacc_ids) > 0)
+                grps[["Shingles only"]] <- no_vacc_ids
+              if (length(vacc_ids) > 0)
+                grps[["Shingles + Vaccination"]] <- vacc_ids
+              grps
+            } else {
+              person_ids
+            }
             shiny::selectInput(
               "person_id", "Patient ID",
-              choices  = c("Select patient..." = "", person_ids),
+              choices  = c(list("Select patient..." = ""), choices),
               selected = "",
               width    = "100%"
             )
@@ -160,18 +174,8 @@ trajectory_ui <- function(person_ids = NULL) {
               style = "padding: 4px 10px 10px;",
               shiny::checkboxGroupInput(
                 "med_categories", NULL,
-                choices = c(
-                  "Corticosteroids",
-                  "Azathioprine",
-                  "Methotrexate",
-                  "Mycophenolate",
-                  "IVIG",
-                  "Rituximab",
-                  "JAK inhibitors",
-                  "Other IST"
-                ),
-                selected = c("Corticosteroids", "IVIG", "Rituximab",
-                             "Azathioprine", "Methotrexate", "Mycophenolate")
+                choices  = c("Corticosteroids", "IVIG", "DMARD"),
+                selected = c("Corticosteroids", "IVIG", "DMARD")
               )
             )
           ),

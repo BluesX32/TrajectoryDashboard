@@ -87,10 +87,11 @@
 #' )
 #' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
-launch_trajectory_dashboard <- function(connector      = NULL,
-                                         person_ids     = NULL,
-                                         port           = NULL,
-                                         launch_browser = TRUE,
+launch_trajectory_dashboard <- function(connector           = NULL,
+                                         person_ids          = NULL,
+                                         shingrix_patient_ids = NULL,
+                                         port                = NULL,
+                                         launch_browser      = TRUE,
                                          ...) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
@@ -133,7 +134,8 @@ launch_trajectory_dashboard <- function(connector      = NULL,
     message("Pass a connector to launch_trajectory_dashboard() to use real OMOP data.")
   }
 
-  ui     <- trajectory_ui(person_ids = person_ids)
+  ui     <- trajectory_ui(person_ids           = person_ids,
+                          shingrix_patient_ids = as.character(shingrix_patient_ids))
   server <- trajectory_server(connector = connector)
 
   shiny::shinyApp(

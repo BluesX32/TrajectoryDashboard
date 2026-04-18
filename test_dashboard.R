@@ -69,7 +69,17 @@ person_ids <- fetch_cohort_ids(
 message(length(person_ids), " patients in cohort.")
 
 # ----------------------------------------------------------------------------
-# Step 3: Diagnose connection / SQL issues (run once, optional)
+# Step 3: Identify vaccinated patients (optional — enables grouped selector)
+# ----------------------------------------------------------------------------
+# fetch_shingrix_patients() runs a single bulk query to find which cohort
+# patients have Shingrix records. Passing the result to launch_trajectory_dashboard()
+# splits the patient selector into "Shingles only" / "Shingles + Vaccination" groups.
+
+shingrix_ids <- fetch_shingrix_patients(con, person_ids)
+message(length(shingrix_ids), " patients with Shingrix vaccination.")
+
+# ----------------------------------------------------------------------------
+# Step 4: Diagnose connection / SQL issues (run once, optional)
 # ----------------------------------------------------------------------------
 # test_cohort_connection() runs 4 lightweight checks and reports pass/fail.
 # Use this when fetch_cohort_ids() throws errors.
@@ -77,14 +87,15 @@ message(length(person_ids), " patients in cohort.")
 # test_cohort_connection(con)
 
 # ----------------------------------------------------------------------------
-# Step 4: Launch
+# Step 5: Launch
 # ----------------------------------------------------------------------------
 # Patient data is fetched lazily per patient using the persistent connection.
-# No prefetch needed — each patient load runs SQL queries on demand.
+# The grouped selector shows "Shingles only" vs "Shingles + Vaccination" patients.
 
 launch_trajectory_dashboard(
   con,
-  person_ids = as.character(person_ids)
+  person_ids           = as.character(person_ids),
+  shingrix_patient_ids = as.character(shingrix_ids)
 )
 
 # ----------------------------------------------------------------------------

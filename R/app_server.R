@@ -964,10 +964,20 @@ trajectory_server <- function(connector) {
         tx <- tx[tx$drug_family %in% sel_families, ]
       }
 
+      # Consolidate drug families to 3 display groups: Corticosteroids / IVIG / DMARD.
+      # The underlying medications data keeps original family names for gap detection.
+      if (nrow(tx) > 0 && "drug_family" %in% names(tx)) {
+        tx$drug_family <- ifelse(
+          tx$drug_family %in% c("Corticosteroids", "IVIG"),
+          tx$drug_family,
+          ifelse(!is.na(tx$drug_family), "DMARD", NA_character_)
+        )
+      }
+
       # ── Layout constants (computed once, used throughout) ─────────────
       # All y-positions derive from these so adding/removing families
       # re-spaces every row proportionally.
-      drug_families <- unique(tx$drug_family)
+      drug_families <- unique(tx$drug_family[!is.na(tx$drug_family)])
       n_fam         <- max(length(drug_families), 0L)
 
       LAB_Y      <- 0.50   # focus-lab scatter band centre
@@ -980,10 +990,9 @@ trajectory_server <- function(connector) {
       Y_TOP      <- SHINGLE_Y + 0.80
 
       family_colors <- c(
-        Corticosteroids  = "#EF5350", Azathioprine = "#7E57C2",
-        Methotrexate     = "#26A69A", Mycophenolate = "#FF7043",
-        IVIG             = "#42A5F5", Rituximab     = "#66BB6A",
-        "JAK inhibitors" = "#EC407A", "Other IST"   = "#8D6E63"
+        Corticosteroids = "#EF5350",
+        IVIG            = "#42A5F5",
+        DMARD           = "#7E57C2"
       )
 
       # ── Build plot ────────────────────────────────────────────────────
@@ -1443,11 +1452,11 @@ trajectory_server <- function(connector) {
       # Y-axis tick labels — abbreviated row names, one per visible row.
       .abbrev_row <- function(x) {
         abbrevs <- c(
-          "Corticosteroids" = "Pred.",  "Azathioprine"  = "AZA",
-          "Methotrexate"    = "MTX",    "Mycophenolate" = "MMF",
-          "IVIG"            = "IVIG",   "Rituximab"     = "RTX",
-          "JAK inhibitors"  = "JAKi",   "Other IST"     = "Other",
-          "Shingles"        = "VZV",   "Diagnoses"     = "Dx"
+          "Corticosteroids" = "Pred.",
+          "IVIG"            = "IVIG",
+          "DMARD"           = "DMARD",
+          "Shingles"        = "VZV",
+          "Diagnoses"       = "Dx"
         )
         unname(abbrevs[x] %||% x)
       }
