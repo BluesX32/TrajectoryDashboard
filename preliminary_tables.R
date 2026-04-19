@@ -28,8 +28,8 @@ library(labelled)
 # ----------------------------------------------------------------------------
 # Connection — choose SAFE or SAFER, comment out the other
 # ----------------------------------------------------------------------------
-con <- TrajectoryDashboard::create_connection_from_env(".env")
-# con <- TrajectoryDashboard::create_safer_connection("R.env")
+# con <- TrajectoryDashboard::create_connection_from_env(".env")
+con <- TrajectoryDashboard::create_safer_connection("R.env")
 
 # ============================================================================
 # Helper: render + translate + execute an inline SQL template
