@@ -40,11 +40,15 @@ run_sql <- function(con, sql_template, ...) {
   sql  <- do.call(SqlRender::render, c(list(sql = sql_template), params))
   dbms <- con$dbms %||% "sql server"
   sql  <- SqlRender::translate(sql, targetDialect = dbms)
-  if (inherits(con$conn, "JDBCConnection")) {
+  result <- if (inherits(con$conn, "JDBCConnection")) {
     as.data.frame(DBI::dbGetQuery(con$conn, sql))
   } else {
     DatabaseConnector::querySql(con$conn, sql, snakeCaseToCamelCase = FALSE)
   }
+  # Normalize to lowercase so code works regardless of DB column-case convention
+  # (Databricks/Spark returns lowercase; SQL Server may return uppercase).
+  names(result) <- tolower(names(result))
+  result
 }
 
 cdm   <- con$cdm_schema
@@ -153,7 +157,7 @@ base_cohort <- run_sql(con, base_cohort_sql,
                        vocab_schema = vocab)
 
 message(nrow(base_cohort), " patients in base cohort.")
-cohort_ids <- base_cohort$PERSON_ID
+cohort_ids <- base_cohort$person_id
 
 # ============================================================================
 # STEP 2: Shingles (VZV) status — codeset 0 from cohort_VZV_antivirals.sql
@@ -193,7 +197,7 @@ vzv_pts <- run_sql(con, vzv_sql,
                    vocab_schema = vocab,
                    person_ids   = cohort_ids)
 
-shingles_ids <- vzv_pts$PERSON_ID
+shingles_ids <- vzv_pts$person_id
 message(length(shingles_ids), " / ", length(cohort_ids), " patients had shingles.")
 
 # ============================================================================
@@ -338,17 +342,14 @@ drug_flags <- run_sql(con, drug_flags_sql,
 message("Assembling analysis dataset...")
 
 analysis_df <- base_cohort |>
-  rename_with(tolower) |>
   mutate(
-    shingles_group = if_else(person_id %in% tolower(shingles_ids) |
-                               person_id %in% shingles_ids,
-                             "Shingles", "No Shingles"),
+    shingles_group = if_else(person_id %in% shingles_ids, "Shingles", "No Shingles"),
     age = as.integer(format(obs_start, "%Y")) - year_of_birth,
     sex = if_else(gender_concept_id == 8532, "Female", "Male")
   ) |>
-  left_join(disease_flags |> rename_with(tolower), by = "person_id") |>
-  left_join(dm_flags      |> rename_with(tolower), by = "person_id") |>
-  left_join(drug_flags    |> rename_with(tolower), by = "person_id") |>
+  left_join(disease_flags, by = "person_id") |>
+  left_join(dm_flags,      by = "person_id") |>
+  left_join(drug_flags,    by = "person_id") |>
   mutate(across(starts_with("dx_") | starts_with("drug_"), \(x) replace_na(x, 0L))) |>
   mutate(across(starts_with("dx_") | starts_with("drug_"), as.logical))
 
@@ -595,14 +596,14 @@ organ_pts <- run_sql(con, vzv_organ_sql,
                      person_ids   = shingles_ids)
 
 # Build Table 2 summary stats
-n_shingles_pts    <- length(shingles_ids)
-total_episodes    <- nrow(shingles_episodes)
-unique_pts_shingles <- n_distinct(shingles_episodes$PERSON_ID)
-avg_episodes      <- round(total_episodes / max(unique_pts_shingles, 1), 2)
-n_phn             <- n_distinct(phn_pts$PERSON_ID)
-pct_phn           <- sprintf("%.1f%%", 100 * n_phn / max(n_shingles_pts, 1))
-n_organ           <- n_distinct(organ_pts$PERSON_ID)
-pct_organ         <- sprintf("%.1f%%", 100 * n_organ / max(n_shingles_pts, 1))
+n_shingles_pts      <- length(shingles_ids)
+total_episodes      <- nrow(shingles_episodes)
+unique_pts_shingles <- n_distinct(shingles_episodes$person_id)
+avg_episodes        <- round(total_episodes / max(unique_pts_shingles, 1), 2)
+n_phn               <- n_distinct(phn_pts$person_id)
+pct_phn             <- sprintf("%.1f%%", 100 * n_phn   / max(n_shingles_pts, 1))
+n_organ             <- n_distinct(organ_pts$person_id)
+pct_organ           <- sprintf("%.1f%%", 100 * n_organ / max(n_shingles_pts, 1))
 
 table2_data <- tibble(
   Characteristic = c(
