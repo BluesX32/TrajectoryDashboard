@@ -424,9 +424,9 @@ table1 <- tbl1_data |>
     type             = list(
       age               ~ "continuous",
       sex               ~ "categorical",
-      all_logical()     ~ "dichotomous"
+      where(is.logical)     ~ "dichotomous"
     ),
-    value            = list(all_logical() ~ TRUE)
+    value            = list(where(is.logical) ~ TRUE)
   ) |>
   add_overall(last = FALSE) |>
   add_p(
