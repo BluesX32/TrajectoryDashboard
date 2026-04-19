@@ -381,8 +381,11 @@ R/
 inst/sql/                     SqlRender-parameterized OMOP SQL templates:
                                 cohort_VZV_antivirals.sql — full cohort query
                                 fetch_shingles_events.sql — per-patient VZV events
+                                fetch_phn_events.sql / fetch_vzv_organ_events.sql
                                 extract_labs/medications/conditions/visits/notes.sql
 inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
+preliminary_tables.R          Table 1 (base cohort characteristics by shingles status)
+                              Table 2 (shingles episode stats: incidence, PHN, organ involvement)
 inst/extdata/                 synthetic_patient_data.rds (demo patients)
 inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)
 ```

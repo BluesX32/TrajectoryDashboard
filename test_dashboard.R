@@ -104,3 +104,11 @@ launch_trajectory_dashboard(
 # Demo mode (no database required)
 # ----------------------------------------------------------------------------
 # launch_trajectory_dashboard()
+
+# ----------------------------------------------------------------------------
+# Preliminary descriptive tables (separate script)
+# ----------------------------------------------------------------------------
+# Run preliminary_tables.R for:
+#   Table 1 — base cohort characteristics (Total / Shingles / No Shingles)
+#   Table 2 — shingles episode stats (incidence, PHN, VZV organ involvement)
+# source("preliminary_tables.R")
