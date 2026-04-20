@@ -531,15 +531,27 @@ table1 <- tbl1_data |>
 print(table1)
 
 # ============================================================================
-# TABLE 2: Shingles episode characteristics
-# (patients who ever had shingles in the base cohort)
+# TABLE 2: Shingles episode characteristics — 3 columns
+#   Overall | Pre-vaccine | Post-vaccine
+#
+# Classification rule (applied per event date):
+#   Post-vaccine = event occurred > 14 days after the most recent prior
+#                  Shingrix dose (vaccine had time to confer protection).
+#   Pre-vaccine  = no prior Shingrix, OR most recent prior dose was ≤14 days
+#                  before the event (vaccine not yet effective).
+#
+# Bias note: a patient with episodes in both windows contributes to both
+# columns.  To avoid inflated denominators, % for pre- and post-vaccine rows
+# uses the distinct patient count WITHIN each period, not the overall N.
 # ============================================================================
 
 message("Fetching Table 2 data...")
 
-# All shingles episodes (for total incidence and episodes per person)
+# ---- All shingles episodes (condition_occurrence level, with dates) --------
 shingles_episodes_sql <- "
-SELECT co.person_id, co.condition_occurrence_id, co.condition_start_date
+SELECT co.person_id,
+  co.condition_occurrence_id,
+  CAST(co.condition_start_date AS DATE) AS condition_start_date
 FROM @cdm_schema.condition_occurrence co
 WHERE co.person_id IN (@person_ids)
   AND co.condition_concept_id IN (
@@ -565,9 +577,10 @@ WHERE co.person_id IN (@person_ids)
   )
 "
 
-# PHN: post-herpetic neuralgia — concept IDs from fetch_phn_events.sql
+# ---- PHN: earliest occurrence date per patient ----------------------------
 phn_sql <- "
-SELECT DISTINCT co.person_id
+SELECT co.person_id,
+  CAST(MIN(co.condition_start_date) AS DATE) AS complication_date
 FROM @cdm_schema.condition_occurrence co
 WHERE co.person_id IN (@person_ids)
   AND co.condition_concept_id IN (
@@ -580,12 +593,13 @@ WHERE co.person_id IN (@person_ids)
     WHERE ca.ancestor_concept_id IN (4044396, 4071164)
       AND cv.invalid_reason IS NULL
   )
+GROUP BY co.person_id
 "
 
-# VZV organ involvement: retinopathy, hepatitis, meningitis, encephalitis,
-# pneumonitis, colitis — concept IDs from fetch_vzv_organ_events.sql / def_VZV_organ.sql
+# ---- VZV organ involvement: earliest occurrence date per patient -----------
 vzv_organ_sql <- "
-SELECT DISTINCT co.person_id
+SELECT co.person_id,
+  CAST(MIN(co.condition_start_date) AS DATE) AS complication_date
 FROM @cdm_schema.condition_occurrence co
 WHERE co.person_id IN (@person_ids)
   AND co.condition_concept_id IN (
@@ -594,69 +608,196 @@ WHERE co.person_id IN (@person_ids)
     440323, 36712850, 4310159, 45757253, 37108968, 45581141, 45581142,
     35205738, 45561737, 42484196, 45571453
   )
+GROUP BY co.person_id
+"
+
+# ---- Shingrix vaccination dates for all shingles patients ------------------
+# Concept set mirrors fetch_shingrix.sql: ancestors 44808679/21601361/706103
+# with exclusion of live zoster vaccines 40213260/706104/40213255/40213256.
+vacc_sql <- "
+WITH shingrix_incl AS (
+  SELECT DISTINCT concept_id FROM @vocab_schema.concept
+  WHERE concept_id IN (44808679, 21601361, 706103)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (44808679, 21601361, 706103)
+    AND c.invalid_reason IS NULL
+),
+shingrix_excl AS (
+  SELECT DISTINCT concept_id FROM @vocab_schema.concept
+  WHERE concept_id IN (40213260, 706104, 40213255, 40213256)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (40213260, 706104)
+    AND c.invalid_reason IS NULL
+),
+shingrix_cs AS (
+  SELECT i.concept_id FROM shingrix_incl i
+  LEFT JOIN shingrix_excl e ON i.concept_id = e.concept_id
+  WHERE e.concept_id IS NULL
+)
+SELECT po.person_id, CAST(po.procedure_date AS DATE) AS vacc_date
+FROM @cdm_schema.procedure_occurrence po
+JOIN shingrix_cs sc ON po.procedure_concept_id = sc.concept_id
+WHERE po.person_id IN (@person_ids)
+UNION ALL
+SELECT de.person_id, CAST(de.drug_exposure_start_date AS DATE) AS vacc_date
+FROM @cdm_schema.drug_exposure de
+JOIN shingrix_cs sc ON de.drug_concept_id = sc.concept_id
+WHERE de.person_id IN (@person_ids)
 "
 
 shingles_episodes <- run_sql(con, shingles_episodes_sql,
                               cdm_schema   = cdm,
                               vocab_schema = vocab,
-                              person_ids   = shingles_ids)
+                              person_ids   = shingles_ids) |>
+  mutate(condition_start_date = as.Date(condition_start_date))
 
-phn_pts   <- run_sql(con, phn_sql,
-                     cdm_schema   = cdm,
-                     vocab_schema = vocab,
-                     person_ids   = shingles_ids)
+phn_pts <- run_sql(con, phn_sql,
+                   cdm_schema   = cdm,
+                   vocab_schema = vocab,
+                   person_ids   = shingles_ids) |>
+  mutate(complication_date = as.Date(complication_date))
 
 organ_pts <- run_sql(con, vzv_organ_sql,
                      cdm_schema   = cdm,
                      vocab_schema = vocab,
-                     person_ids   = shingles_ids)
+                     person_ids   = shingles_ids) |>
+  mutate(complication_date = as.Date(complication_date))
 
-# Build Table 2 summary stats
-n_shingles_pts      <- length(shingles_ids)
-total_episodes      <- nrow(shingles_episodes)
-unique_pts_shingles <- n_distinct(shingles_episodes$person_id)
-avg_episodes        <- round(total_episodes / max(unique_pts_shingles, 1), 2)
-n_phn               <- n_distinct(phn_pts$person_id)
-pct_phn             <- sprintf("%.1f%%", 100 * n_phn   / max(n_shingles_pts, 1))
-n_organ             <- n_distinct(organ_pts$person_id)
-pct_organ           <- sprintf("%.1f%%", 100 * n_organ / max(n_shingles_pts, 1))
+vacc_bulk <- run_sql(con, vacc_sql,
+                     cdm_schema   = cdm,
+                     vocab_schema = vocab,
+                     person_ids   = shingles_ids) |>
+  mutate(vacc_date = as.Date(vacc_date))
+
+message(n_distinct(vacc_bulk$person_id), " / ", length(shingles_ids),
+        " shingles patients have a Shingrix record.")
+
+# ============================================================================
+# Classify each event by vaccination status
+# Rule: find the most recent Shingrix dose ON OR BEFORE the event date.
+#   > 14 days since that dose  →  post_vaccine
+#   ≤ 14 days, or no prior dose  →  pre_vaccine
+# ============================================================================
+
+# Per-patient list of vaccination dates (NULL for unvaccinated)
+vacc_per_pt <- vacc_bulk |>
+  group_by(person_id) |>
+  summarise(vacc_dates_list = list(as.Date(vacc_date)), .groups = "drop")
+
+classify_vacc_status <- function(event_date, vacc_vec) {
+  if (is.null(vacc_vec) || all(is.na(vacc_vec))) return("pre_vaccine")
+  prior <- vacc_vec[!is.na(vacc_vec) & vacc_vec <= event_date]
+  if (length(prior) == 0L) return("pre_vaccine")
+  if (as.integer(event_date - max(prior)) > 14L) "post_vaccine" else "pre_vaccine"
+}
+
+add_vacc_status <- function(df, date_col) {
+  df |>
+    left_join(vacc_per_pt, by = "person_id") |>
+    mutate(
+      vacc_dates_list = lapply(vacc_dates_list, \(x) if (is.null(x)) as.Date(NA) else x),
+      vacc_status = mapply(classify_vacc_status,
+                           .data[[date_col]], vacc_dates_list,
+                           SIMPLIFY = TRUE, USE.NAMES = FALSE)
+    ) |>
+    select(-vacc_dates_list)
+}
+
+episodes_cl <- add_vacc_status(shingles_episodes, "condition_start_date")
+phn_cl      <- add_vacc_status(phn_pts,           "complication_date")
+organ_cl    <- add_vacc_status(organ_pts,          "complication_date")
+
+# ============================================================================
+# Compute statistics for each column
+# ============================================================================
+
+ep_pre  <- episodes_cl |> filter(vacc_status == "pre_vaccine")
+ep_post <- episodes_cl |> filter(vacc_status == "post_vaccine")
+
+n_pts_all  <- n_distinct(shingles_episodes$person_id)
+n_pts_pre  <- n_distinct(ep_pre$person_id)
+n_pts_post <- n_distinct(ep_post$person_id)
+
+fmt_np <- function(n, denom) {
+  if (denom == 0L) return("0")
+  sprintf("%d (%.1f%%)", n, 100 * n / denom)
+}
+
+stats <- list(
+  all  = list(ep = shingles_episodes, n_pts = n_pts_all,
+              phn = n_distinct(phn_pts$person_id),
+              org = n_distinct(organ_pts$person_id)),
+  pre  = list(ep = ep_pre,  n_pts = n_pts_pre,
+              phn = n_distinct(phn_cl[phn_cl$vacc_status   == "pre_vaccine",  "person_id"]),
+              org = n_distinct(organ_cl[organ_cl$vacc_status == "pre_vaccine", "person_id"])),
+  post = list(ep = ep_post, n_pts = n_pts_post,
+              phn = n_distinct(phn_cl[phn_cl$vacc_status   == "post_vaccine",  "person_id"]),
+              org = n_distinct(organ_cl[organ_cl$vacc_status == "post_vaccine", "person_id"]))
+)
+
+make_col <- function(s) {
+  n_ep  <- nrow(s$ep)
+  n_pts <- s$n_pts
+  c(
+    as.character(n_ep),
+    as.character(n_pts),
+    as.character(round(n_ep / max(n_pts, 1L), 2)),
+    fmt_np(s$phn, n_pts),
+    fmt_np(s$org, n_pts)
+  )
+}
 
 table2_data <- tibble(
   Characteristic = c(
-    "Total shingles incidence (all episodes)",
-    "Patients with \u22651 shingles episode",
-    "Average shingles episodes per person",
+    "Total shingles episodes (all occurrences)",
+    "Patients with \u22651 episode, n",
+    "Average episodes per person",
     "Post-herpetic neuralgia (PHN), n (%)",
     "VZV organ involvement\u00b9, n (%)"
   ),
-  Value = c(
-    as.character(total_episodes),
-    as.character(unique_pts_shingles),
-    as.character(avg_episodes),
-    sprintf("%d (%s)", n_phn, pct_phn),
-    sprintf("%d (%s)", n_organ, pct_organ)
-  )
+  Overall      = make_col(stats$all),
+  `Pre-vaccine`  = make_col(stats$pre),
+  `Post-vaccine` = make_col(stats$post)
 )
+
+# ============================================================================
+# Render Table 2
+# ============================================================================
 
 table2 <- table2_data |>
   gt() |>
   tab_header(
     title    = "Table 2. Shingles Episode Characteristics",
     subtitle = md(sprintf(
-      "Among %d rheumatic disease patients with at least one shingles episode",
-      n_shingles_pts
+      "Among %d patients in the VZV antiviral cohort; pre/post columns reflect episode timing relative to Shingrix vaccination",
+      length(shingles_ids)
     ))
   ) |>
   cols_label(
     Characteristic = md("**Characteristic**"),
-    Value          = md("**Value**")
+    Overall        = md(sprintf("**Overall**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_all)),
+    `Pre-vaccine`  = md(sprintf("**Pre-vaccine**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_pre)),
+    `Post-vaccine` = md(sprintf("**Post-vaccine**<br><small>N\u00a0=\u00a0%d</small>", n_pts_post))
   ) |>
-  cols_align(align = "left",  columns = Characteristic) |>
-  cols_align(align = "center", columns = Value) |>
+  tab_spanner(
+    label   = md("**Shingrix Vaccination Status**"),
+    columns = c(`Pre-vaccine`, `Post-vaccine`)
+  ) |>
+  cols_align(align = "left",   columns = Characteristic) |>
+  cols_align(align = "center", columns = c(Overall, `Pre-vaccine`, `Post-vaccine`)) |>
   tab_footnote(
-    footnote = md("VZV organ involvement includes: retinopathy, hepatitis, meningitis, encephalitis, pneumonitis, and colitis (concept IDs from `def_VZV_organ.sql`). Each patient counted once."),
-    locations = cells_body(columns = Characteristic,
-                           rows    = grepl("organ", Characteristic))
+    footnote = md("VZV organ involvement includes: retinopathy, hepatitis, meningitis, encephalitis, pneumonitis, and colitis (concept IDs from `def_VZV_organ.sql`). Each patient counted once per period."),
+    locations = cells_body(columns = Characteristic, rows = grepl("organ", Characteristic))
+  ) |>
+  tab_footnote(
+    footnote = md("Pre-vaccine: no prior Shingrix, OR most recent dose \u226414 days before episode (vaccine not yet effective). Post-vaccine: episode >14 days after most recent prior Shingrix dose. Patients with episodes in both windows contribute to both columns; denominators (N) reflect distinct patient counts within each period."),
+    locations = cells_column_spanners()
   ) |>
   tab_style(
     style     = cell_text(weight = "bold"),
@@ -679,7 +820,7 @@ table2 <- table2_data |>
     table.border.bottom.color = "#2c3e50",
     column_labels.border.bottom.width = px(1),
     column_labels.border.bottom.color = "#6c757d",
-    table.width               = pct(60)
+    table.width               = pct(75)
   )
 
 print(table2)
