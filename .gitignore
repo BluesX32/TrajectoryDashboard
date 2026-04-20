@@ -9,3 +9,5 @@ R.env
 *.Rproj
 dev.md
 
+output/*
+

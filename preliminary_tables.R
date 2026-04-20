@@ -20,6 +20,7 @@
 devtools::load_all("~/Myositis/TrajectoryDashboard")
 
 # install.packages(c("gtsummary", "gt", "dplyr", "labelled"))
+library(rlang)
 library(dplyr)
 library(gtsummary)
 library(gt)
