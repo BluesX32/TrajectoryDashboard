@@ -354,59 +354,67 @@ tbl1_data <- analysis_df |>
     age, sex,
     # Rheumatologic diagnoses
     dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
-    # Medications
-    drug_prednisone, drug_ivig,
-    # Conventional synthetic DMARDs
-    drug_methotrexate, drug_hydroxychloroquine, drug_mycophenolate,
-    drug_azathioprine, drug_cyclosporine, drug_cyclophosphamide,
-    drug_tacrolimus, drug_leflunomide, drug_sulfasalazine, drug_sirolimus,
+    # Corticosteroid
+    drug_prednisone,
+    # Immunomodulator
+    drug_sulfasalazine,
+    # csDMARDs
+    drug_methotrexate, drug_leflunomide,
+    # Antimetabolites
+    drug_azathioprine, drug_mycophenolate,
+    # Alkylating agent
+    drug_cyclophosphamide,
+    # CNI/mTOR inhibitor
+    drug_tacrolimus, drug_cyclosporine,
     # Biologics
     drug_rituximab, drug_belimumab, drug_abatacept, drug_tocilizumab,
-    drug_etanercept, drug_infliximab, drug_adalimumab, drug_anakinra,
-    drug_ustekinumab, drug_secukinumab, drug_ixekizumab,
+    drug_adalimumab, drug_infliximab, drug_etanercept,
+    drug_anakinra, drug_ustekinumab,
+    drug_ixekizumab, drug_secukinumab,
     # JAK inhibitors
     drug_tofacitinib, drug_baricitinib
   ) |>
   set_variable_labels(
-    age                    = "Age, years",
-    sex                    = "Sex",
+    age                   = "Age, years",
+    sex                   = "Sex",
     # Diagnoses
-    dx_sle                 = "Systemic Lupus Erythematosus (SLE)",
-    dx_dm_myositis         = "Dermatomyositis / Myositis",
-    dx_ssc                 = "Systemic Sclerosis (SSc)",
-    dx_gca                 = "Giant Cell Arteritis (GCA)",
-    dx_ra                  = "Rheumatoid Arthritis (RA)",
-    dx_spa                 = "Spondyloarthropathy (SpA)",
-    dx_vasculitis          = "Vasculitis",
-    # Medications
-    drug_prednisone        = "Prednisone",
-    drug_ivig              = "IVIG",
+    dx_sle                = "Systemic Lupus Erythematosus (SLE)",
+    dx_dm_myositis        = "Dermatomyositis / Myositis",
+    dx_ssc                = "Systemic Sclerosis (SSc)",
+    dx_gca                = "Giant Cell Arteritis (GCA)",
+    dx_ra                 = "Rheumatoid Arthritis (RA)",
+    dx_spa                = "Spondyloarthropathy (SpA)",
+    dx_vasculitis         = "ANCA-Associated Vasculitis",
+    # Corticosteroid
+    drug_prednisone       = "Prednisone",
+    # Immunomodulator
+    drug_sulfasalazine    = "Sulfasalazine",
     # csDMARDs
-    drug_methotrexate      = "Methotrexate",
-    drug_hydroxychloroquine = "Hydroxychloroquine",
-    drug_mycophenolate     = "Mycophenolate Mofetil",
-    drug_azathioprine      = "Azathioprine",
-    drug_cyclosporine      = "Cyclosporine",
-    drug_cyclophosphamide  = "Cyclophosphamide",
-    drug_tacrolimus        = "Tacrolimus",
-    drug_leflunomide       = "Leflunomide",
-    drug_sulfasalazine     = "Sulfasalazine",
-    drug_sirolimus         = "Sirolimus",
-    # bDMARDs
-    drug_rituximab         = "Rituximab",
-    drug_belimumab         = "Belimumab",
-    drug_abatacept         = "Abatacept",
-    drug_tocilizumab       = "Tocilizumab",
-    drug_etanercept        = "Etanercept",
-    drug_infliximab        = "Infliximab",
-    drug_adalimumab        = "Adalimumab",
-    drug_anakinra          = "Anakinra",
-    drug_ustekinumab       = "Ustekinumab",
-    drug_secukinumab       = "Secukinumab",
-    drug_ixekizumab        = "Ixekizumab",
+    drug_methotrexate     = "Methotrexate",
+    drug_leflunomide      = "Leflunomide",
+    # Antimetabolites
+    drug_azathioprine     = "Azathioprine",
+    drug_mycophenolate    = "Mycophenolate Mofetil (MMF)",
+    # Alkylating agent
+    drug_cyclophosphamide = "Cyclophosphamide",
+    # CNI/mTOR inhibitor
+    drug_tacrolimus       = "Tacrolimus",
+    drug_cyclosporine     = "Cyclosporine",
+    # Biologics
+    drug_rituximab        = "Rituximab",
+    drug_belimumab        = "Belimumab",
+    drug_abatacept        = "Abatacept",
+    drug_tocilizumab      = "Tocilizumab",
+    drug_adalimumab       = "Adalimumab",
+    drug_infliximab       = "Infliximab",
+    drug_etanercept       = "Etanercept",
+    drug_anakinra         = "Anakinra",
+    drug_ustekinumab      = "Ustekinumab",
+    drug_ixekizumab       = "Ixekizumab",
+    drug_secukinumab      = "Secukinumab",
     # JAKi
-    drug_tofacitinib       = "Tofacitinib",
-    drug_baricitinib       = "Baricitinib"
+    drug_tofacitinib      = "Tofacitinib",
+    drug_baricitinib      = "Baricitinib"
   )
 
 table1 <- tbl1_data |>
@@ -449,26 +457,45 @@ table1 <- tbl1_data |>
     all_stat_cols() ~ "Continuous: median (IQR); categorical: n (%)"
   ) |>
   add_stat_label() |>
-  # Group the rows into sections
+  # Group rows into mechanistic sections
   modify_table_body(
     \(x) x |>
       mutate(groupname_col = case_when(
-        variable %in% c("age", "sex")                        ~ "Demographics",
-        grepl("^dx_", variable)                              ~ "Rheumatologic Diagnosis",
-        variable %in% c("drug_prednisone", "drug_ivig")      ~ "Other Immunosuppressants",
-        variable %in% c("drug_methotrexate","drug_hydroxychloroquine",
-                        "drug_mycophenolate","drug_azathioprine",
-                        "drug_cyclosporine","drug_cyclophosphamide",
-                        "drug_tacrolimus","drug_leflunomide",
-                        "drug_sulfasalazine","drug_sirolimus") ~ "Conventional DMARDs",
-        variable %in% c("drug_rituximab","drug_belimumab",
-                        "drug_abatacept","drug_tocilizumab",
-                        "drug_etanercept","drug_infliximab",
-                        "drug_adalimumab","drug_anakinra",
-                        "drug_ustekinumab","drug_secukinumab",
-                        "drug_ixekizumab")                   ~ "Biologic DMARDs",
-        variable %in% c("drug_tofacitinib","drug_baricitinib") ~ "JAK Inhibitors",
-        TRUE                                                 ~ NA_character_
+        variable %in% c("age", "sex")
+          ~ "Demographics",
+        grepl("^dx_", variable)
+          ~ "Rheumatologic Diagnosis",
+        variable == "drug_prednisone"
+          ~ "Corticosteroid",
+        variable == "drug_sulfasalazine"
+          ~ "Immunomodulator",
+        variable %in% c("drug_methotrexate", "drug_leflunomide")
+          ~ "csDMARDs",
+        variable %in% c("drug_azathioprine", "drug_mycophenolate")
+          ~ "Antimetabolites",
+        variable == "drug_cyclophosphamide"
+          ~ "Alkylating Agent",
+        variable %in% c("drug_tacrolimus", "drug_cyclosporine")
+          ~ "CNI/mTOR Inhibitor",
+        variable == "drug_rituximab"
+          ~ "CD20 Inhibitor",
+        variable == "drug_belimumab"
+          ~ "BAFF Inhibitor",
+        variable == "drug_abatacept"
+          ~ "T Cell Co-stimulation Inhibitor",
+        variable == "drug_tocilizumab"
+          ~ "IL-6 Inhibitor",
+        variable %in% c("drug_adalimumab", "drug_infliximab", "drug_etanercept")
+          ~ "TNF Inhibitor",
+        variable == "drug_anakinra"
+          ~ "IL-1 Inhibitor",
+        variable == "drug_ustekinumab"
+          ~ "IL-12/23 Inhibitor",
+        variable %in% c("drug_ixekizumab", "drug_secukinumab")
+          ~ "IL-17 Inhibitor",
+        variable %in% c("drug_tofacitinib", "drug_baricitinib")
+          ~ "JAK Inhibitor",
+        TRUE ~ NA_character_
       ))
   ) |>
   as_gt() |>
