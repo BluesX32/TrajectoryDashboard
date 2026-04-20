@@ -20,8 +20,8 @@
 devtools::load_all("~/Myositis/TrajectoryDashboard")
 
 # install.packages(c("gtsummary", "gt", "dplyr", "labelled"))
-library(rlang)
-library(dplyr)
+library(rlang, lib.loc = "~/R/win-library/4.5")
+library(dplyr, lib.loc = "~/R/win-library/4.5")
 library(gtsummary)
 library(gt)
 library(labelled)
@@ -829,7 +829,7 @@ print(table2)
 # ============================================================================
 # Optional: Save tables as HTML
 # ============================================================================
-# gtsave(table1, "table1_baseline_characteristics.html")
-# gtsave(table2, "table2_shingles_episodes.html")
-# gtsave(table1, "table1_baseline_characteristics.docx")  # requires webshot2
-# gtsave(table2, "table2_shingles_episodes.docx")
+gtsave(table1, "output/table1_baseline_characteristics_Apr19.html")
+gtsave(table2, "output/table2_shingles_episodes_Apr19.html")
+gtsave(table1, "output/table1_baseline_characteristics_Apr19.docx")  # requires webshot2
+gtsave(table2, "output/table2_shingles_episodes_Apr19.docx")
