@@ -87,12 +87,13 @@
 #' )
 #' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
-launch_trajectory_dashboard <- function(connector           = NULL,
-                                         person_ids          = NULL,
-                                         shingrix_patient_ids = NULL,
-                                         port                = NULL,
-                                         launch_browser      = TRUE,
-                                         ...) {
+launch_trajectory_dashboard <- function(connector            = NULL,
+                                        person_ids           = NULL,
+                                        shingrix_patient_ids = NULL,
+                                        post_vacc_summary    = NULL,
+                                        port                 = NULL,
+                                        launch_browser       = TRUE,
+                                        ...) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
@@ -135,8 +136,10 @@ launch_trajectory_dashboard <- function(connector           = NULL,
   }
 
   ui     <- trajectory_ui(person_ids           = person_ids,
-                          shingrix_patient_ids = as.character(shingrix_patient_ids))
-  server <- trajectory_server(connector = connector)
+                          shingrix_patient_ids = as.character(shingrix_patient_ids),
+                          post_vacc_summary    = post_vacc_summary)
+  server <- trajectory_server(connector         = connector,
+                              post_vacc_summary = post_vacc_summary)
 
   shiny::shinyApp(
     ui      = ui,

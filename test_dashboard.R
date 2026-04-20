@@ -111,4 +111,9 @@ launch_trajectory_dashboard(
 # Run preliminary_tables.R for:
 #   Table 1 — base cohort characteristics (Total / Shingles / No Shingles)
 #   Table 2 — shingles episode stats (incidence, PHN, VZV organ involvement)
+#             Pre/post vaccine columns with episode-proportion weighting
+#   Step 6  — post-vaccine cohort summary table; also launches the dashboard
+#             with the "Post-Vaccine Shingles Cohort" panel pre-populated.
+#             Columns per patient: age, sex, diagnoses, DMARDs ±30d around
+#             vaccination and shingles, lymphocyte at shingles, prednisone.
 # source("preliminary_tables.R")

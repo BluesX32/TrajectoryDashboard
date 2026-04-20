@@ -716,55 +716,104 @@ organ_cl    <- add_vacc_status(organ_pts,          "complication_date")
 
 # ============================================================================
 # Compute statistics for each column
+#
+# Bias handling: patients with episodes in BOTH pre- and post-vaccine windows
+# contribute to both columns.  To prevent inflated denominators we apply
+# episode-proportion weighting:
+#   w_pre_i  = n_pre_episodes_i  / n_total_episodes_i
+#   w_post_i = n_post_episodes_i / n_total_episodes_i
+# "Pre-only" patients have w_pre = 1, w_post = 0 (and vice versa).
+# Weighted counts in both columns sum to exactly n_pts_all.
+# PHN / organ rows use the same weights so the reported rates are coherent.
 # ============================================================================
 
 ep_pre  <- episodes_cl |> filter(vacc_status == "pre_vaccine")
 ep_post <- episodes_cl |> filter(vacc_status == "post_vaccine")
 
 n_pts_all  <- n_distinct(shingles_episodes$person_id)
-n_pts_pre  <- n_distinct(ep_pre$person_id)
-n_pts_post <- n_distinct(ep_post$person_id)
+
+# Episode-proportion weights per patient
+ep_weights <- episodes_cl |>
+  group_by(person_id) |>
+  summarise(
+    n_ep_total = n(),
+    n_ep_pre   = sum(vacc_status == "pre_vaccine"),
+    n_ep_post  = sum(vacc_status == "post_vaccine"),
+    .groups = "drop"
+  ) |>
+  mutate(
+    w_pre  = n_ep_pre  / n_ep_total,
+    w_post = n_ep_post / n_ep_total
+  )
+
+# Weighted unique patient counts (sum to n_pts_all)
+w_pts_pre  <- sum(ep_weights$w_pre)
+w_pts_post <- sum(ep_weights$w_post)
+
+# Weighted PHN counts — each patient contributes their window-specific weight
+w_phn_pre <- phn_cl |>
+  filter(vacc_status == "pre_vaccine") |>
+  distinct(person_id) |>
+  left_join(ep_weights |> select(person_id, w_pre), by = "person_id") |>
+  summarise(n = sum(coalesce(w_pre, 1), na.rm = TRUE)) |>
+  pull(n)
+
+w_phn_post <- phn_cl |>
+  filter(vacc_status == "post_vaccine") |>
+  distinct(person_id) |>
+  left_join(ep_weights |> select(person_id, w_post), by = "person_id") |>
+  summarise(n = sum(coalesce(w_post, 1), na.rm = TRUE)) |>
+  pull(n)
+
+# Weighted organ counts
+w_org_pre <- organ_cl |>
+  filter(vacc_status == "pre_vaccine") |>
+  distinct(person_id) |>
+  left_join(ep_weights |> select(person_id, w_pre), by = "person_id") |>
+  summarise(n = sum(coalesce(w_pre, 1), na.rm = TRUE)) |>
+  pull(n)
+
+w_org_post <- organ_cl |>
+  filter(vacc_status == "post_vaccine") |>
+  distinct(person_id) |>
+  left_join(ep_weights |> select(person_id, w_post), by = "person_id") |>
+  summarise(n = sum(coalesce(w_post, 1), na.rm = TRUE)) |>
+  pull(n)
 
 fmt_np <- function(n, denom) {
-  if (denom == 0L) return("0")
-  sprintf("%d (%.1f%%)", n, 100 * n / denom)
-}
-
-stats <- list(
-  all  = list(ep = shingles_episodes, n_pts = n_pts_all,
-              phn = n_distinct(phn_pts$person_id),
-              org = n_distinct(organ_pts$person_id)),
-  pre  = list(ep = ep_pre,  n_pts = n_pts_pre,
-              phn = n_distinct(phn_cl[phn_cl$vacc_status   == "pre_vaccine",  "person_id"]),
-              org = n_distinct(organ_cl[organ_cl$vacc_status == "pre_vaccine", "person_id"])),
-  post = list(ep = ep_post, n_pts = n_pts_post,
-              phn = n_distinct(phn_cl[phn_cl$vacc_status   == "post_vaccine",  "person_id"]),
-              org = n_distinct(organ_cl[organ_cl$vacc_status == "post_vaccine", "person_id"]))
-)
-
-make_col <- function(s) {
-  n_ep  <- nrow(s$ep)
-  n_pts <- s$n_pts
-  c(
-    as.character(n_ep),
-    as.character(n_pts),
-    as.character(round(n_ep / max(n_pts, 1L), 2)),
-    fmt_np(s$phn, n_pts),
-    fmt_np(s$org, n_pts)
-  )
+  if (denom < 0.01) return("0")
+  sprintf("%d (%.1f%%)", as.integer(round(n)), 100 * n / denom)
 }
 
 table2_data <- tibble(
   Characteristic = c(
     "Total shingles episodes (all occurrences)",
-    "Patients with \u22651 episode, n",
-    "Average episodes per person",
+    "Unique patients with \u22651 episode, n (episode-weighted\u00b2)",
+    "Average episodes per patient",
     "Post-herpetic neuralgia (PHN), n (%)",
     "VZV organ involvement\u00b9, n (%)"
   ),
-  Overall      = make_col(stats$all),
-  `Pre-vaccine`  = make_col(stats$pre),
-  `Post-vaccine` = make_col(stats$post)
+  Overall = c(
+    as.character(nrow(shingles_episodes)),
+    as.character(n_pts_all),
+    as.character(round(nrow(shingles_episodes) / max(n_pts_all, 1L), 2)),
+    fmt_np(n_distinct(phn_pts$person_id),   n_pts_all),
+    fmt_np(n_distinct(organ_pts$person_id), n_pts_all)
+  ),
+  `Pre-vaccine` = c(
+    as.character(nrow(ep_pre)),
+    sprintf("%.1f", w_pts_pre),
+    as.character(round(nrow(ep_pre) / max(w_pts_pre, 0.01), 2)),
+    fmt_np(w_phn_pre, w_pts_pre),
+    fmt_np(w_org_pre, w_pts_pre)
+  ),
+  `Post-vaccine` = c(
+    as.character(nrow(ep_post)),
+    sprintf("%.1f", w_pts_post),
+    as.character(round(nrow(ep_post) / max(w_pts_post, 0.01), 2)),
+    fmt_np(w_phn_post, w_pts_post),
+    fmt_np(w_org_post, w_pts_post)
+  )
 )
 
 # ============================================================================
@@ -783,8 +832,8 @@ table2 <- table2_data |>
   cols_label(
     Characteristic = md("**Characteristic**"),
     Overall        = md(sprintf("**Overall**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_all)),
-    `Pre-vaccine`  = md(sprintf("**Pre-vaccine**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_pre)),
-    `Post-vaccine` = md(sprintf("**Post-vaccine**<br><small>N\u00a0=\u00a0%d</small>", n_pts_post))
+    `Pre-vaccine`  = md(sprintf("**Pre-vaccine**<br><small>N\u00a0=\u00a0%.1f wt</small>",  w_pts_pre)),
+    `Post-vaccine` = md(sprintf("**Post-vaccine**<br><small>N\u00a0=\u00a0%.1f wt</small>", w_pts_post))
   ) |>
   tab_spanner(
     label   = md("**Shingrix Vaccination Status**"),
@@ -797,7 +846,11 @@ table2 <- table2_data |>
     locations = cells_body(columns = Characteristic, rows = grepl("organ", Characteristic))
   ) |>
   tab_footnote(
-    footnote = md("Pre-vaccine: no prior Shingrix, OR most recent dose \u226414 days before episode (vaccine not yet effective). Post-vaccine: episode >14 days after most recent prior Shingrix dose. Patients with episodes in both windows contribute to both columns; denominators (N) reflect distinct patient counts within each period."),
+    footnote = md("Episode-proportion weighting: a patient with episodes in both windows contributes w\u2009=\u2009k\u209a\u1d52\u02b3\u1d4f\u2009/\u2009k\u209c\u2092\u209c\u2090\u2097 toward the pre-vaccine count and (1\u2212w) toward post-vaccine. Weighted pre\u2009+\u2009post\u2009=\u2009overall N exactly. PHN and organ rows use the same weights."),
+    locations = cells_body(columns = Characteristic, rows = grepl("weighted", Characteristic))
+  ) |>
+  tab_footnote(
+    footnote = md("Pre-vaccine: no prior Shingrix, OR most recent dose \u226414 days before episode (vaccine not yet effective). Post-vaccine: episode >14 days after most recent prior Shingrix dose."),
     locations = cells_column_spanners()
   ) |>
   tab_style(
@@ -827,9 +880,248 @@ table2 <- table2_data |>
 print(table2)
 
 # ============================================================================
+# STEP 6: Post-vaccine shingles cohort summary
+# One row per post-vaccine shingles patient. Passed to the dashboard so the
+# "Post-Vaccine Shingles Cohort" panel can display:
+#   Age / Sex / Rheumatologic diagnoses
+#   DMARDs within ±30 d of vaccination
+#   DMARDs within ±30 d of shingles episode
+#   Lymphocyte count closest to shingles (within ±90 d)
+#   Prednisone exposure at shingles ±30 d (yes/no, quantity, days_supply)
+# ============================================================================
+
+message("Building post-vaccine cohort summary...")
+
+# Post-vaccine patients: first post-vaccine episode date per patient
+post_vacc_pts <- episodes_cl |>
+  filter(vacc_status == "post_vaccine") |>
+  group_by(person_id) |>
+  slice_min(condition_start_date, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id, shingles_date = condition_start_date)
+
+# The Shingrix dose that triggered the "post-vaccine" classification for each patient
+post_vacc_pts <- post_vacc_pts |>
+  left_join(vacc_per_pt, by = "person_id") |>
+  mutate(
+    vacc_dates_list = lapply(vacc_dates_list, \(x) if (is.null(x)) as.Date(NA) else x),
+    vacc_date = as.Date(mapply(function(sd, vv) {
+      prior <- vv[!is.na(vv) & vv <= sd]
+      if (length(prior) == 0L) return(NA_real_)
+      as.numeric(max(prior))
+    }, shingles_date, vacc_dates_list), origin = "1970-01-01")
+  ) |>
+  select(-vacc_dates_list)
+
+pv_ids <- post_vacc_pts$person_id
+message(length(pv_ids), " post-vaccine shingles patients identified.")
+
+# ---- Drug exposures for post-vaccine patients (all relevant ancestors) ------
+pv_drug_sql <- "
+SELECT de.person_id,
+  CAST(de.drug_exposure_start_date AS DATE) AS drug_start,
+  ca.ancestor_concept_id,
+  de.quantity,
+  de.days_supply
+FROM @cdm_schema.drug_exposure de
+JOIN @vocab_schema.concept_ancestor ca
+  ON de.drug_concept_id = ca.descendant_concept_id
+ AND ca.ancestor_concept_id IN (
+    1551099,
+    19014878, 19003999, 1361580,  1305058,  1101898,  1594587,
+    1310317,  1314273,
+    42904205, 40171288, 701470,   40236987, 746895,   1119119,  937368,
+    1151789,  1511348,  1186087,  1777087,
+    40161532, 45892883
+  )
+WHERE de.person_id IN (@person_ids)
+"
+
+pv_drug_raw <- run_sql(con, pv_drug_sql,
+                       cdm_schema   = cdm,
+                       vocab_schema = vocab,
+                       person_ids   = pv_ids) |>
+  mutate(drug_start = as.Date(drug_start))
+
+# Map ancestor concept_id → human-readable drug name
+ancestor_labels <- c(
+  "1551099"  = "Prednisone",
+  "19014878" = "Methotrexate",
+  "19003999" = "Mycophenolate",
+  "1361580"  = "Azathioprine",
+  "1305058"  = "Cyclosporine",
+  "1101898"  = "Cyclophosphamide",
+  "1594587"  = "Tacrolimus",
+  "1310317"  = "Leflunomide",
+  "1314273"  = "Sulfasalazine",
+  "42904205" = "Rituximab",
+  "40171288" = "Belimumab",
+  "701470"   = "Abatacept",
+  "40236987" = "Tocilizumab",
+  "746895"   = "Etanercept",
+  "1119119"  = "Infliximab",
+  "937368"   = "Adalimumab",
+  "1151789"  = "Anakinra",
+  "1511348"  = "Ustekinumab",
+  "1186087"  = "Secukinumab",
+  "1777087"  = "Ixekizumab",
+  "40161532" = "Tofacitinib",
+  "45892883" = "Baricitinib"
+)
+
+pv_drug_named <- pv_drug_raw |>
+  mutate(drug_name = dplyr::recode(as.character(ancestor_concept_id),
+                                   !!!ancestor_labels,
+                                   .default = as.character(ancestor_concept_id)))
+
+# Helper: comma-separated drug list within ±30d of a reference date
+get_dmards_periwindow <- function(drug_df, dates_df, date_col, window_days = 30L) {
+  drug_df |>
+    filter(ancestor_concept_id != 1551099) |>  # prednisone handled separately
+    left_join(dates_df |> select(person_id, ref_date = dplyr::all_of(date_col)),
+              by = "person_id") |>
+    filter(!is.na(ref_date),
+           drug_start >= ref_date - window_days,
+           drug_start <= ref_date + window_days) |>
+    group_by(person_id) |>
+    summarise(dmards = paste(sort(unique(drug_name)), collapse = ", "), .groups = "drop")
+}
+
+dmards_perivacc    <- get_dmards_periwindow(pv_drug_named, post_vacc_pts, "vacc_date")
+dmards_perishingles <- get_dmards_periwindow(pv_drug_named, post_vacc_pts, "shingles_date")
+
+# Prednisone at shingles ±30 d: yes/no and dose info
+pred_at_shingles <- pv_drug_named |>
+  filter(ancestor_concept_id == 1551099) |>
+  left_join(post_vacc_pts |> select(person_id, shingles_date), by = "person_id") |>
+  filter(!is.na(shingles_date),
+         drug_start >= shingles_date - 30L,
+         drug_start <= shingles_date + 30L) |>
+  group_by(person_id) |>
+  slice_min(abs(as.integer(drug_start - shingles_date)), n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id,
+         pred_quantity    = quantity,
+         pred_days_supply = days_supply)
+
+# ---- Lymphocyte count closest to shingles (within ±90 d) -------------------
+lymph_sql <- "
+SELECT m.person_id,
+  CAST(m.measurement_date AS DATE) AS meas_date,
+  m.value_as_number,
+  m.unit_source_value
+FROM @cdm_schema.measurement m
+WHERE m.person_id IN (@person_ids)
+  AND m.value_as_number IS NOT NULL
+  AND m.measurement_concept_id IN (
+    SELECT DISTINCT ca.descendant_concept_id
+    FROM @vocab_schema.concept_ancestor ca
+    JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+    WHERE ca.ancestor_concept_id IN (4206426, 3004327)
+      AND c.invalid_reason IS NULL
+    UNION
+    SELECT concept_id FROM @vocab_schema.concept
+    WHERE concept_id IN (4206426, 3004327, 3006505, 37045722)
+  )
+"
+
+lymph_raw <- run_sql(con, lymph_sql,
+                     cdm_schema   = cdm,
+                     vocab_schema = vocab,
+                     person_ids   = pv_ids) |>
+  mutate(meas_date = as.Date(meas_date))
+
+lymph_at_shingles <- post_vacc_pts |>
+  select(person_id, shingles_date) |>
+  left_join(lymph_raw, by = "person_id") |>
+  filter(!is.na(meas_date),
+         abs(as.integer(meas_date - shingles_date)) <= 90L) |>
+  mutate(days_offset = abs(as.integer(meas_date - shingles_date))) |>
+  group_by(person_id) |>
+  slice_min(days_offset, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id,
+         lymphocyte            = value_as_number,
+         lymph_unit            = unit_source_value,
+         lymph_days_vs_shingles = days_offset)
+
+# ---- Diagnoses as a comma-separated string per patient ----------------------
+dx_label_map <- c(
+  dx_sle         = "SLE",
+  dx_dm_myositis = "DM/Myositis",
+  dx_ssc         = "SSc",
+  dx_gca         = "GCA",
+  dx_ra          = "RA",
+  dx_spa         = "SpA",
+  dx_vasculitis  = "ANCA Vasculitis"
+)
+
+dx_summary <- analysis_df |>
+  filter(person_id %in% pv_ids) |>
+  select(person_id, dplyr::all_of(names(dx_label_map))) |>
+  tidyr::pivot_longer(-person_id, names_to = "dx", values_to = "present") |>
+  filter(present) |>
+  mutate(dx_label = dplyr::recode(dx, !!!dx_label_map)) |>
+  group_by(person_id) |>
+  summarise(diagnoses = paste(sort(dx_label), collapse = ", "), .groups = "drop")
+
+# ---- Assemble summary dataframe ----------------------------------------------
+post_vacc_summary <- post_vacc_pts |>
+  left_join(
+    base_cohort |> select(person_id, year_of_birth, gender_concept_id, obs_start),
+    by = "person_id"
+  ) |>
+  mutate(
+    age = as.integer(format(obs_start, "%Y")) - year_of_birth,
+    sex = if_else(gender_concept_id == 8532L, "Female", "Male")
+  ) |>
+  left_join(dx_summary,            by = "person_id") |>
+  left_join(dmards_perivacc    |> rename(dmards_perivacc    = dmards), by = "person_id") |>
+  left_join(dmards_perishingles |> rename(dmards_perishingles = dmards), by = "person_id") |>
+  left_join(lymph_at_shingles,    by = "person_id") |>
+  left_join(pred_at_shingles,     by = "person_id") |>
+  mutate(
+    diagnoses           = coalesce(diagnoses,           "(none)"),
+    dmards_perivacc     = coalesce(dmards_perivacc,     "(none)"),
+    dmards_perishingles = coalesce(dmards_perishingles, "(none)"),
+    prednisone_at_shingles = if_else(!is.na(pred_quantity), "Yes", "No")
+  ) |>
+  select(
+    `Patient ID`          = person_id,
+    Age                   = age,
+    Sex                   = sex,
+    Diagnoses             = diagnoses,
+    `Vacc Date`           = vacc_date,
+    `Shingles Date`       = shingles_date,
+    `DMARDs ±30d Vacc`    = dmards_perivacc,
+    `DMARDs ±30d Shingles` = dmards_perishingles,
+    `Lymphocytes`         = lymphocyte,
+    `Lymph Unit`          = lymph_unit,
+    `Lymph Days vs Shingles` = lymph_days_vs_shingles,
+    `Prednisone at Shingles` = prednisone_at_shingles,
+    `Pred Quantity`       = pred_quantity,
+    `Pred Days Supply`    = pred_days_supply
+  )
+
+message(nrow(post_vacc_summary), " post-vaccine patients in cohort summary.")
+
+# ============================================================================
 # Optional: Save tables as HTML
 # ============================================================================
-gtsave(table1, "output/table1_baseline_characteristics_Apr19.html")
-gtsave(table2, "output/table2_shingles_episodes_Apr19.html")
-gtsave(table1, "output/table1_baseline_characteristics_Apr19.docx")  # requires webshot2
-gtsave(table2, "output/table2_shingles_episodes_Apr19.docx")
+# gtsave(table1, "table1_baseline_characteristics.html")
+# gtsave(table2, "table2_shingles_episodes.html")
+# gtsave(table1, "table1_baseline_characteristics.docx")  # requires webshot2
+# gtsave(table2, "table2_shingles_episodes.docx")
+
+# ============================================================================
+# Launch dashboard with post-vaccine cohort panel
+# ============================================================================
+# Pass post_vacc_summary to the dashboard to populate the
+# "Post-Vaccine Shingles Cohort" research panel tab.
+
+launch_trajectory_dashboard(
+  con,
+  person_ids           = as.character(shingles_ids),
+  shingrix_patient_ids = as.character(unique(vacc_bulk$person_id)),
+  post_vacc_summary    = post_vacc_summary
+)

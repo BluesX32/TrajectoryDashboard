@@ -385,7 +385,12 @@ inst/sql/                     SqlRender-parameterized OMOP SQL templates:
                                 extract_labs/medications/conditions/visits/notes.sql
 inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
 preliminary_tables.R          Table 1 (base cohort characteristics by shingles status)
-                              Table 2 (shingles episode stats: incidence, PHN, organ involvement)
+                              Table 2 (shingles episode stats; pre/post vaccine columns with
+                                       episode-proportion weighting for overlap patients)
+                              Step 6 post-vaccine cohort summary: per-patient age, sex,
+                                     diagnoses, DMARDs ±30d around vaccination and shingles,
+                                     lymphocyte at shingles, prednisone — passed to the dashboard
+                                     "Post-Vaccine Shingles Cohort" panel on launch
 inst/extdata/                 synthetic_patient_data.rds (demo patients)
 inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)
 ```

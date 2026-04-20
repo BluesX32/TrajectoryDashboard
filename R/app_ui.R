@@ -11,7 +11,9 @@
 #'   the selector. If NULL, the selector is a free-text input.
 #' @return A `shinydashboard::dashboardPage()` UI object.
 #' @noRd
-trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
+trajectory_ui <- function(person_ids        = NULL,
+                          shingrix_patient_ids = NULL,
+                          post_vacc_summary    = NULL) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
@@ -660,6 +662,33 @@ trajectory_ui <- function(person_ids = NULL, shingrix_patient_ids = NULL) {
           )
         )
       ),
+
+      # ── Post-Vaccine Shingles Cohort ─────────────────────────────────
+      if (!is.null(post_vacc_summary) && nrow(post_vacc_summary) > 0) {
+        shinydashboard::box(
+          title = shiny::tags$span(
+            shiny::icon("syringe", style = "margin-right:6px; color:#5B8DEF;"),
+            "Post-Vaccine Shingles Cohort",
+            shiny::tags$small(
+              style = "font-size:11px; color:#999; margin-left:10px; font-weight:400;",
+              sprintf("n\u00a0=\u00a0%d patients", nrow(post_vacc_summary))
+            )
+          ),
+          status      = "primary",
+          solidHeader = TRUE,
+          collapsible = TRUE,
+          collapsed   = TRUE,
+          width       = 12,
+          shiny::tags$p(
+            style = "font-size:11px; color:#9099B3; margin-bottom:8px;",
+            shiny::icon("info-circle", style = "margin-right:4px;"),
+            "Patients with shingles >14 days after most recent Shingrix dose. ",
+            "DMARD windows: \u00b130 days from vaccination or shingles date. ",
+            "Lymphocyte: closest measurement within \u00b190 days of shingles."
+          ),
+          DT::dataTableOutput("post_vacc_cohort_table")
+        )
+      },
 
       # ── Download Report ─────────────────────────────────────────────
       shiny::conditionalPanel(

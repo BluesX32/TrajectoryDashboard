@@ -7,8 +7,39 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector) {
+trajectory_server <- function(connector, post_vacc_summary = NULL) {
   function(input, output, session) {
+
+    # Post-vaccine cohort table (rendered once at startup; static)
+    if (!is.null(post_vacc_summary) && nrow(post_vacc_summary) > 0) {
+      output$post_vacc_cohort_table <- DT::renderDataTable({
+        DT::datatable(
+          post_vacc_summary,
+          rownames  = FALSE,
+          filter    = "top",
+          extensions = "Buttons",
+          options   = list(
+            dom          = "Bfrtip",
+            buttons      = list("csv", "excel"),
+            pageLength   = 15,
+            scrollX      = TRUE,
+            autoWidth    = FALSE,
+            columnDefs   = list(
+              list(width = "80px",  targets = c(0, 1, 2)),   # ID, Age, Sex
+              list(width = "150px", targets = c(3)),          # Diagnoses
+              list(width = "90px",  targets = c(4, 5)),       # dates
+              list(width = "220px", targets = c(6, 7)),       # DMARD cols
+              list(width = "90px",  targets = c(8, 9, 10)),   # lymph cols
+              list(width = "100px", targets = c(11, 12, 13))  # pred cols
+            )
+          ),
+          class = "compact stripe hover"
+        ) |>
+          DT::formatDate(c("Vacc Date", "Shingles Date"), method = "toLocaleDateString") |>
+          DT::formatRound("Lymphocytes", digits = 0)
+      })
+    }
+
 
     # -------------------------------------------------------------------------
     # Connection lifecycle — disconnect DB and stop app when browser closes
