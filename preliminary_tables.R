@@ -1130,6 +1130,16 @@ gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt
 gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".html")))
 gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt, ".docx")))
 gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".docx")))
+saveRDS(table1,            file.path("output", paste0("table1_baseline_characteristics_", dt, ".rds")))
+saveRDS(table2,            file.path("output", paste0("table2_shingles_episodes_",        dt, ".rds")))
+saveRDS(tbl1_data,         file.path("output", paste0("data_table1_",                     dt, ".rds")))
+saveRDS(table2_data,       file.path("output", paste0("data_table2_",                     dt, ".rds")))
+saveRDS(post_vacc_summary, file.path("output", paste0("data_post_vacc_summary_",          dt, ".rds")))
+saveRDS(list(base_cohort   = cohort_ids,
+             shingles      = shingles_ids,
+             shingrix      = unique(vacc_bulk$person_id),
+             post_vaccine  = pv_ids),
+        file.path("output", paste0("patient_lists_",                              dt, ".rds")))
 
 # ============================================================================
 # Launch dashboard with post-vaccine cohort panel
