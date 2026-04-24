@@ -780,15 +780,31 @@ w_org_post <- organ_cl |>
   summarise(n = sum(coalesce(w_post, 1), na.rm = TRUE)) |>
   pull(n)
 
+# Raw unique patient counts (unweighted) \u2014 for display in the "Unique patients" row
+n_pts_pre_raw  <- n_distinct(ep_pre$person_id)
+n_pts_post_raw <- n_distinct(ep_post$person_id)
+n_overlap      <- n_distinct(intersect(ep_pre$person_id, ep_post$person_id))
+
+# fmt_np uses the WEIGHTED denominator so the % is bias-adjusted, but the
+# numerator is rounded to a whole number for readability.
 fmt_np <- function(n, denom) {
   if (denom < 0.01) return("0")
   sprintf("%d (%.1f%%)", as.integer(round(n)), 100 * n / denom)
 }
 
+# For the "Unique patients" row we show the raw count with an overlap note.
+# The weighted denominator is used only for the PHN / organ % calculations.
+fmt_pts <- function(n_raw, n_ovlp) {
+  if (n_ovlp > 0L)
+    sprintf("%d (%d in both windows\u00b2)", n_raw, n_ovlp)
+  else
+    as.character(n_raw)
+}
+
 table2_data <- tibble(
   Characteristic = c(
     "Total shingles episodes (all occurrences)",
-    "Unique patients with \u22651 episode, n (episode-weighted\u00b2)",
+    "Unique patients with \u22651 episode, n",
     "Average episodes per patient",
     "Post-herpetic neuralgia (PHN), n (%)",
     "VZV organ involvement\u00b9, n (%)"
@@ -802,14 +818,14 @@ table2_data <- tibble(
   ),
   `Pre-vaccine` = c(
     as.character(nrow(ep_pre)),
-    sprintf("%.1f", w_pts_pre),
+    fmt_pts(n_pts_pre_raw, n_overlap),
     as.character(round(nrow(ep_pre) / max(w_pts_pre, 0.01), 2)),
-    fmt_np(w_phn_pre, w_pts_pre),
-    fmt_np(w_org_pre, w_pts_pre)
+    fmt_np(w_phn_pre,  w_pts_pre),
+    fmt_np(w_org_pre,  w_pts_pre)
   ),
   `Post-vaccine` = c(
     as.character(nrow(ep_post)),
-    sprintf("%.1f", w_pts_post),
+    fmt_pts(n_pts_post_raw, n_overlap),
     as.character(round(nrow(ep_post) / max(w_pts_post, 0.01), 2)),
     fmt_np(w_phn_post, w_pts_post),
     fmt_np(w_org_post, w_pts_post)
@@ -832,8 +848,8 @@ table2 <- table2_data |>
   cols_label(
     Characteristic = md("**Characteristic**"),
     Overall        = md(sprintf("**Overall**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_all)),
-    `Pre-vaccine`  = md(sprintf("**Pre-vaccine**<br><small>N\u00a0=\u00a0%.1f wt</small>",  w_pts_pre)),
-    `Post-vaccine` = md(sprintf("**Post-vaccine**<br><small>N\u00a0=\u00a0%.1f wt</small>", w_pts_post))
+    `Pre-vaccine`  = md(sprintf("**Pre-vaccine**<br><small>N\u00a0=\u00a0%d</small>",  n_pts_pre_raw)),
+    `Post-vaccine` = md(sprintf("**Post-vaccine**<br><small>N\u00a0=\u00a0%d</small>", n_pts_post_raw))
   ) |>
   tab_spanner(
     label   = md("**Shingrix Vaccination Status**"),
@@ -846,8 +862,8 @@ table2 <- table2_data |>
     locations = cells_body(columns = Characteristic, rows = grepl("organ", Characteristic))
   ) |>
   tab_footnote(
-    footnote = md("Episode-proportion weighting: a patient with episodes in both windows contributes w\u2009=\u2009k\u209a\u1d52\u02b3\u1d4f\u2009/\u2009k\u209c\u2092\u209c\u2090\u2097 toward the pre-vaccine count and (1\u2212w) toward post-vaccine. Weighted pre\u2009+\u2009post\u2009=\u2009overall N exactly. PHN and organ rows use the same weights."),
-    locations = cells_body(columns = Characteristic, rows = grepl("weighted", Characteristic))
+    footnote = md("Patients with shingles episodes in both windows are counted in both columns (hence pre\u2009+\u2009post can exceed Overall). For PHN and organ involvement percentages the denominator uses episode-proportion weighting (w\u2009=\u2009k_window\u2009/\u2009k_total per patient) so rates are not inflated by overlap patients."),
+    locations = cells_body(columns = Characteristic, rows = grepl("Unique", Characteristic))
   ) |>
   tab_footnote(
     footnote = md("Pre-vaccine: no prior Shingrix, OR most recent dose \u226414 days before episode (vaccine not yet effective). Post-vaccine: episode >14 days after most recent prior Shingrix dose."),
