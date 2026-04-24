@@ -6,20 +6,38 @@
 --
 -- Parameters: @cdm_schema, @vocab_schema, @person_ids
 
+-- Concept-set logic mirrors def_shingrix_vaccine.sql exactly:
+--   Included  : root ancestors + their valid descendants
+--   Excluded  : 40213260/706104 + their descendants; 40213255/40213256 directly only
+--              (40213255 and 40213256 are NOT used as ancestor IDs for expansion —
+--               this was the previous bug that caused over-exclusion of valid concepts)
 WITH shingrix_included AS (
-  SELECT DISTINCT ca.descendant_concept_id AS concept_id
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (44808679, 21601361, 706103)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
   FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
   WHERE ca.ancestor_concept_id IN (44808679, 21601361, 706103)
+    AND c.invalid_reason IS NULL
 ),
 shingrix_excluded AS (
-  SELECT DISTINCT ca.descendant_concept_id AS concept_id
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (40213260, 706104, 40213255, 40213256)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
   FROM @vocab_schema.concept_ancestor ca
-  WHERE ca.ancestor_concept_id IN (40213260, 706104, 40213255, 40213256)
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (40213260, 706104)
+    AND c.invalid_reason IS NULL
 ),
 shingrix_concepts AS (
-  SELECT concept_id FROM shingrix_included
-  EXCEPT
-  SELECT concept_id FROM shingrix_excluded
+  SELECT i.concept_id
+  FROM shingrix_included i
+  LEFT JOIN shingrix_excluded e ON i.concept_id = e.concept_id
+  WHERE e.concept_id IS NULL
 ),
 vaccinated AS (
   SELECT DISTINCT person_id
