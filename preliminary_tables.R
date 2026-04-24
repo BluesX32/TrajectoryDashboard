@@ -1124,10 +1124,12 @@ message(nrow(post_vacc_summary), " post-vaccine patients in cohort summary.")
 # ============================================================================
 # Optional: Save tables as HTML
 # ============================================================================
-# gtsave(table1, "table1_baseline_characteristics.html")
-# gtsave(table2, "table2_shingles_episodes.html")
-# gtsave(table1, "table1_baseline_characteristics.docx")  # requires webshot2
-# gtsave(table2, "table2_shingles_episodes.docx")
+dt <- format(Sys.Date(), "%b%d")
+if (!dir.exists("output")) dir.create("output")
+gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt, ".html")))
+gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".html")))
+gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt, ".docx")))
+gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".docx")))
 
 # ============================================================================
 # Launch dashboard with post-vaccine cohort panel
