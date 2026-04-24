@@ -241,6 +241,15 @@ trajectory_ui <- function(person_ids        = NULL,
                   min = 30, max = 180, value = 90, step = 30,
                   width = "100%"
                 )
+              ),
+              shiny::tags$div(
+                style = "margin-top: 8px;",
+                shiny::sliderInput(
+                  "shingles_gap_days",
+                  "Shingles episode gap (days)",
+                  min = 14, max = 365, value = 90, step = 1,
+                  width = "100%"
+                )
               )
             )
           ),

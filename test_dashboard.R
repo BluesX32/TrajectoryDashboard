@@ -45,6 +45,15 @@
 devtools::load_all("~/Myositis/TrajectoryDashboard")
 
 # ----------------------------------------------------------------------------
+# Episode-collapsing window
+# Condition occurrences within this many days of the preceding episode are
+# merged into one on the patient timeline. Adjust before launching; the
+# dashboard also exposes this as a "Shingles episode gap" slider under
+# Display Options so it can be changed interactively without restarting.
+# ----------------------------------------------------------------------------
+# SHINGLES_GAP_DAYS <- 90L   # (informational — set via UI slider at runtime)
+
+# ----------------------------------------------------------------------------
 # Step 1: Connect  —  choose SAFE or SAFER, comment out the other
 # ----------------------------------------------------------------------------
 

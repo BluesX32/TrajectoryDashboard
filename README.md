@@ -384,7 +384,11 @@ inst/sql/                     SqlRender-parameterized OMOP SQL templates:
                                 fetch_phn_events.sql / fetch_vzv_organ_events.sql
                                 extract_labs/medications/conditions/visits/notes.sql
 inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
-preliminary_tables.R          Table 1 (base cohort characteristics by shingles status)
+preliminary_tables.R          SHINGLES_GAP_DAYS parameter (default 90): consecutive
+                                     condition occurrences within this window are collapsed
+                                     into one episode (earliest date kept). Same default
+                                     used by the dashboard's "Shingles episode gap" slider.
+                              Table 1 (base cohort characteristics by shingles status)
                               Table 2 (shingles episode stats; pre/post vaccine columns with
                                        episode-proportion weighting for overlap patients)
                               Step 6 post-vaccine cohort summary: per-patient age, sex,

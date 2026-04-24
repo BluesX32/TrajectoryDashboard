@@ -7,8 +7,14 @@
 #         DMARDs (each drug), IVIG, prednisone
 #
 # Table 2: Shingles episode characteristics (patients who ever had shingles)
-#   Rows: total incidence, unique episodes per patient, avg outbreaks/person,
+#   Columns: Overall | Pre-vaccine | Post-vaccine
+#   Rows: total incidence, unique patients (episode-weighted), avg episodes/person,
 #         post-herpetic neuralgia, VZV organ involvement
+#
+# Episode collapsing: consecutive condition occurrences for the same patient
+#   within SHINGLES_GAP_DAYS of each other are merged into one episode (earliest
+#   date kept).  Adjust SHINGLES_GAP_DAYS below to change the window.
+#   The same parameter controls episode collapsing in the Trajectory Dashboard.
 #
 # Base cohort: rheumatic Dx seen by relevant specialist + (DMARD OR prednisone OR IVIG),
 # age >= 18.  Concept sets match cohort_VZV_antivirals.sql (codesets 5-12).
@@ -25,6 +31,12 @@ library(dplyr, lib.loc = "~/R/win-library/4.5")
 library(gtsummary)
 library(gt)
 library(labelled)
+
+# ── Episode-collapsing window ────────────────────────────────────────────────
+# Condition occurrences within this many days of the preceding episode are
+# merged into one episode (earliest date retained).
+# The same value is used as the default in the Trajectory Dashboard UI.
+SHINGLES_GAP_DAYS <- 90L
 
 # ----------------------------------------------------------------------------
 # Connection — choose SAFE or SAFER, comment out the other
@@ -50,6 +62,27 @@ run_sql <- function(con, sql_template, ...) {
   # (Databricks/Spark returns lowercase; SQL Server may return uppercase).
   names(result) <- tolower(names(result))
   result
+}
+
+# ============================================================================
+# Helper: collapse nearby shingles episodes into one
+# Episodes within gap_days of the preceding episode (per patient, sorted by
+# date) are merged. The earliest date in each run is kept as the episode date.
+# ============================================================================
+
+collapse_episodes <- function(df, date_col = "condition_start_date", gap_days = 90L) {
+  df |>
+    arrange(person_id, .data[[date_col]]) |>
+    group_by(person_id) |>
+    mutate(
+      .gap  = as.integer(.data[[date_col]] -
+                           lag(.data[[date_col]], default = .data[[date_col]][1L])),
+      .epid = cumsum(.gap > as.integer(gap_days))
+    ) |>
+    group_by(person_id, .epid) |>
+    slice_min(.data[[date_col]], n = 1L, with_ties = FALSE) |>
+    ungroup() |>
+    select(-.gap, -.epid)
 }
 
 cdm   <- con$cdm_schema
@@ -652,11 +685,16 @@ JOIN shingrix_cs sc ON de.drug_concept_id = sc.concept_id
 WHERE de.person_id IN (@person_ids)
 "
 
-shingles_episodes <- run_sql(con, shingles_episodes_sql,
-                              cdm_schema   = cdm,
-                              vocab_schema = vocab,
-                              person_ids   = shingles_ids) |>
+shingles_episodes_raw <- run_sql(con, shingles_episodes_sql,
+                                  cdm_schema   = cdm,
+                                  vocab_schema = vocab,
+                                  person_ids   = shingles_ids) |>
   mutate(condition_start_date = as.Date(condition_start_date))
+
+shingles_episodes <- collapse_episodes(shingles_episodes_raw,
+                                        gap_days = SHINGLES_GAP_DAYS)
+message(nrow(shingles_episodes_raw), " raw → ", nrow(shingles_episodes),
+        " collapsed shingles episodes (gap = ", SHINGLES_GAP_DAYS, " days).")
 
 phn_pts <- run_sql(con, phn_sql,
                    cdm_schema   = cdm,

@@ -99,6 +99,9 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
     date_range_d <- shiny::debounce(
       shiny::reactive(input$date_range), 600
     )
+    shingles_gap_d <- shiny::debounce(
+      shiny::reactive(input$shingles_gap_days %||% 90L), 400
+    )
 
     # -------------------------------------------------------------------------
     # Reactive: patient data (loaded on button click)
@@ -135,8 +138,9 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       })
     })
 
-    # Shingles events via SQL (same VZV concept set as cohort query)
-    shingles_data <- shiny::eventReactive(input$load_patient, {
+    # Shingles events: raw fetch on patient load, collapse applied separately
+    # so changing the gap slider does not re-query the database.
+    shingles_raw <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
       tryCatch(
         fetch_shingles_events(connector, person_id = as.integer(input$person_id)),
@@ -145,6 +149,24 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
           .empty_shingles()
         }
       )
+    })
+
+    shingles_data <- shiny::reactive({
+      raw <- shingles_raw()
+      if (is.null(raw) || nrow(raw) == 0L) return(raw)
+      gap <- as.integer(shingles_gap_d())
+      raw |>
+        dplyr::arrange(condition_start_date) |>
+        dplyr::mutate(
+          .gap  = as.integer(condition_start_date -
+                               dplyr::lag(condition_start_date,
+                                          default = condition_start_date[1L])),
+          .epid = cumsum(.gap > gap)
+        ) |>
+        dplyr::group_by(.epid) |>
+        dplyr::slice_min(condition_start_date, n = 1L, with_ties = FALSE) |>
+        dplyr::ungroup() |>
+        dplyr::select(-.gap, -.epid)
     })
 
     # Shingrix vaccine events
