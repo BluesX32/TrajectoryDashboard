@@ -113,7 +113,7 @@ SELECT DISTINCT
 FROM @cdm_schema.person p
 JOIN @cdm_schema.observation_period op
   ON p.person_id = op.person_id
- AND YEAR(op.observation_period_start_date) - p.year_of_birth > 18
+ AND YEAR(op.observation_period_start_date) - p.year_of_birth >= 18
 WHERE
   (
     -- Rheumatic Dx (SLE / SSc / GCA / RA / SpA / Vasculitis) — exact match
@@ -203,25 +203,47 @@ message(nrow(base_cohort), " patients in base cohort.")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
-# STEP 2: Shingles cohort — use the SAME cohort_VZV_antivirals.sql as
-# test_dashboard.R so both scripts agree on who "had shingles."
-# That SQL requires VZV diagnosis + antiviral treatment + rheum Dx + DMARD.
-# Using just a VZV condition-occurrence query would over-count (no antiviral
-# requirement) and diverge from the test_dashboard.R cohort count.
+# STEP 2: Shingles cohort
+# Among base cohort patients, who has a VZV / herpes zoster diagnosis?
+# No antiviral requirement — any shingles diagnosis qualifies.
 # ============================================================================
 
-message("Identifying shingles patients (cohort_VZV_antivirals.sql)...")
+message("Identifying shingles patients (VZV diagnosis among base cohort)...")
 
-shingles_ids <- as.integer(TrajectoryDashboard::fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_VZV_antivirals.json",
-                          package = "TrajectoryDashboard"),
-  verbose = FALSE
-))
+shingles_dx_sql <- "
+SELECT DISTINCT co.person_id
+FROM @cdm_schema.condition_occurrence co
+WHERE co.person_id IN (@person_ids)
+  AND co.condition_concept_id IN (
+    SELECT DISTINCT concept_id FROM @vocab_schema.concept
+    WHERE concept_id IN (
+      4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
+      45590840, 4151978, 192239, 381504, 45542548, 45556927,
+      35205737, 35205738, 35205740, 35205741, 141374, 37165237,
+      4221382, 4066727, 37165216, 4080937, 4299673, 37110753,
+      4064036, 4067067, 40175007, 37165342, 4080929, 4063440,
+      4272156, 4033204, 4033778, 4206461, 135618, 4033777
+    )
+    UNION
+    SELECT DISTINCT ca.descendant_concept_id
+    FROM @vocab_schema.concept_ancestor ca
+    JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+    WHERE ca.ancestor_concept_id IN (
+      4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
+      45590840, 4151978, 192239, 381504, 45542548, 45556927,
+      35205737, 35205738, 35205740, 35205741
+    )
+    AND c.invalid_reason IS NULL
+  )
+"
 
-message(length(shingles_ids), " shingles patients (VZV + antiviral cohort).")
-message(length(cohort_ids), " patients in base cohort.")
-message(length(intersect(shingles_ids, cohort_ids)), " shingles patients also in base cohort.")
+shingles_ids <- run_sql(con, shingles_dx_sql,
+                        cdm_schema   = cdm,
+                        vocab_schema = vocab,
+                        person_ids   = cohort_ids)$person_id
+
+message(sprintf("%d / %d base cohort patients had a shingles diagnosis.",
+                length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
 # STEP 3: Shingles vaccine cohort
