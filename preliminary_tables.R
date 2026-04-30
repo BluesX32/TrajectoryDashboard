@@ -1096,7 +1096,7 @@ dmard_labels <- tibble::tribble(
   35603563L, "IVIG",                "Immunoglobulin"
 )
 
-episodes_t3 <- shingles_episodes |>
+episodes_t3 <- ep_post |>
   select(person_id, episode_date = condition_start_date)
 
 n_episodes_t3 <- nrow(episodes_t3)
@@ -1170,14 +1170,14 @@ table3 <- t3_display |>
     table.width                         = pct(60)
   ) |>
   tab_header(
-    title    = "Table 3. DMARD Use in the 90 Days Before Shingles Episodes",
+    title    = "Table 3. DMARD Use in the 90 Days Before Post-Vaccine Shingles Episodes",
     subtitle = md(sprintf(
-      "Episode-level; %d shingles patients, %d total collapsed episodes. DMARDs are not mutually exclusive.",
-      length(shingles_ids), n_episodes_t3
+      "Episode-level; %d patients with post-vaccine shingles, %d post-vaccine episodes. DMARDs are not mutually exclusive.",
+      n_distinct(ep_post$person_id), n_episodes_t3
     ))
   ) |>
   tab_footnote(
-    footnote = "Window: [episode date − 90 days, episode date]. A patient with multiple shingles episodes contributes once per episode.",
+    footnote = "Only shingles episodes classified as post-vaccine (>14 days after most recent Shingrix dose) are included. Window: [episode date − 90 days, episode date].",
     locations = cells_column_labels(columns = cell)
   )
 
@@ -1192,20 +1192,16 @@ print(table3)
 
 message("Building Table 4 (DMARD use around vaccine date)...")
 
+post_vacc_shingles_ids <- unique(ep_post$person_id)
+
 vacc_episodes_t4 <- vacc_bulk |>
-  filter(person_id %in% shingles_vaccine_ids) |>
+  filter(person_id %in% post_vacc_shingles_ids) |>
   distinct(person_id, vacc_date)
 
 n_vax_episodes <- nrow(vacc_episodes_t4)
 
-dmard_exp_vax <- run_sql(con, dmard_exposure_sql,
-                          cdm_schema   = cdm,
-                          vocab_schema = vocab,
-                          person_ids   = shingles_vaccine_ids) |>
-  mutate(drug_date = as.Date(drug_date))
-
 t4_hits <- vacc_episodes_t4 |>
-  left_join(dmard_exp_vax, by = "person_id", relationship = "many-to-many") |>
+  left_join(dmard_exposures, by = "person_id", relationship = "many-to-many") |>
   filter(!is.na(drug_date),
          drug_date >= vacc_date - 90L,
          drug_date <= vacc_date + 30L) |>
@@ -1273,14 +1269,14 @@ table4 <- t4_display |>
     table.width                         = pct(60)
   ) |>
   tab_header(
-    title    = "Table 4. DMARD Use Around the Shingles Vaccine Date",
+    title    = "Table 4. DMARD Use Around the Vaccine Date (Post-Vaccine Shingles Patients)",
     subtitle = md(sprintf(
-      "Among %d vaccinated shingles patients (%d vaccine dose episodes). Window: [vaccine − 90 d, vaccine + 30 d]. DMARDs are not mutually exclusive.",
-      length(shingles_vaccine_ids), n_vax_episodes
+      "Among %d patients who developed shingles post-vaccine (%d vaccine dose episodes). Window: [vaccine − 90 d, vaccine + 30 d]. DMARDs are not mutually exclusive.",
+      length(post_vacc_shingles_ids), n_vax_episodes
     ))
   ) |>
   tab_footnote(
-    footnote = "Window: [vaccine date − 90 days, vaccine date + 30 days]. Each distinct vaccine date is one episode; a patient with 2 doses contributes 2 episodes.",
+    footnote = "Only patients with at least one post-vaccine shingles episode are included. Window: [vaccine date − 90 days, vaccine date + 30 days]. Each distinct vaccine date is one episode.",
     locations = cells_column_labels(columns = cell)
   )
 
