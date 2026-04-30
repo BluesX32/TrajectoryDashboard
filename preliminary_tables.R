@@ -539,14 +539,19 @@ analysis_df <- base_cohort |>
   left_join(race_df,       by = "person_id") |>
   left_join(vacc_count_df, by = "person_id") |>
   mutate(
-    race = coalesce(race, "Unknown"),
+    race = case_when(
+      coalesce(race, "Unknown") == "White"                  ~ "White",
+      coalesce(race, "Unknown") == "Black or African American" ~ "Black",
+      TRUE                                                  ~ "Other"
+    ),
     vaccine_doses = factor(
       case_when(
         is.na(vaccine_dose_count) | vaccine_dose_count == 0 ~ "0",
         vaccine_dose_count == 1L                             ~ "1",
-        vaccine_dose_count >= 2L                             ~ "2+"
+        vaccine_dose_count == 2L                             ~ "2",
+        vaccine_dose_count >= 3L                             ~ ">=3"
       ),
-      levels = c("0", "1", "2+")
+      levels = c("0", "1", "2", ">=3")
     )
   ) |>
   left_join(disease_flags, by = "person_id") |>
