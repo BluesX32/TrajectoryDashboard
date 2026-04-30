@@ -6,8 +6,9 @@
 #   cohort_ids            -- Base cohort: rheumatic disease + DMARD, age >= 18
 #                            Concept sets and criteria follow
 #                            inst/sql/templates/rheum-dmard-cohort-omop.sql
-#   shingles_ids          -- Shingles infection: any VZV / herpes zoster
-#                            diagnosis within cohort_ids (no antiviral required)
+#   shingles_ids          -- Treated shingles: VZV / herpes zoster diagnosis
+#                            + antiviral (acyclovir/valacyclovir/famciclovir)
+#                            on or after diagnosis, within cohort_ids
 #   shingles_vaccine_ids  -- Received zoster vaccine (Shingrix/Zostavax),
 #                            among shingles_ids
 #
@@ -202,38 +203,67 @@ message(nrow(base_cohort), " patients in base cohort.")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
-# STEP 2: Shingles cohort
-# Among base cohort patients, who has a VZV / herpes zoster diagnosis?
-# No antiviral requirement — any shingles diagnosis qualifies.
+# STEP 2: Shingles cohort — mirrors cohort_VZV_antivirals.sql
+# Among base cohort patients, who:
+#   1. Has a VZV / herpes zoster diagnosis (index event)
+#   2. Received an antiviral (acyclovir / valacyclovir / famciclovir) on or
+#      after the index date
+# Note: immunosuppressant requirement is already satisfied by the base cohort.
 # ============================================================================
 
-message("Identifying shingles patients (VZV diagnosis among base cohort)...")
+message("Identifying shingles patients (VZV Dx + antiviral among base cohort)...")
 
 shingles_dx_sql <- "
-SELECT DISTINCT co.person_id
-FROM @cdm_schema.condition_occurrence co
-WHERE co.person_id IN (@person_ids)
-  AND co.condition_concept_id IN (
-    SELECT DISTINCT concept_id FROM @vocab_schema.concept
-    WHERE concept_id IN (
-      4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
-      45590840, 4151978, 192239, 381504, 45542548, 45556927,
-      35205737, 35205738, 35205740, 35205741, 141374, 37165237,
-      4221382, 4066727, 37165216, 4080937, 4299673, 37110753,
-      4064036, 4067067, 40175007, 37165342, 4080929, 4063440,
-      4272156, 4033204, 4033778, 4206461, 135618, 4033777
-    )
-    UNION
-    SELECT DISTINCT ca.descendant_concept_id
-    FROM @vocab_schema.concept_ancestor ca
-    JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
-    WHERE ca.ancestor_concept_id IN (
-      4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
-      45590840, 4151978, 192239, 381504, 45542548, 45556927,
-      35205737, 35205738, 35205740, 35205741
-    )
-    AND c.invalid_reason IS NULL
+WITH
+vzv_concepts AS (
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (
+    4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
+    45590840, 4151978, 192239, 381504, 45542548, 45556927,
+    35205737, 35205738, 35205740, 35205741, 141374, 37165237,
+    4221382, 4066727, 37165216, 4080937, 4299673, 37110753,
+    4064036, 4067067, 40175007, 37165342, 4080929, 4063440,
+    4272156, 4033204, 4033778, 4206461, 135618, 4033777
   )
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (
+    4205455, 35205739, 443943, 138682, 45770836, 436336, 440329,
+    45590840, 4151978, 192239, 381504, 45542548, 45556927,
+    35205737, 35205738, 35205740, 35205741
+  )
+  AND c.invalid_reason IS NULL
+),
+antiviral_concepts AS (
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (1703687, 1703603, 1717704)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (1703687, 1703603, 1717704)
+    AND c.invalid_reason IS NULL
+),
+index_events AS (
+  SELECT co.person_id, MIN(co.condition_start_date) AS index_date
+  FROM @cdm_schema.condition_occurrence co
+  JOIN vzv_concepts vc ON co.condition_concept_id = vc.concept_id
+  WHERE co.person_id IN (@person_ids)
+  GROUP BY co.person_id
+)
+SELECT DISTINCT ie.person_id
+FROM index_events ie
+WHERE EXISTS (
+  SELECT 1
+  FROM @cdm_schema.drug_exposure de
+  JOIN antiviral_concepts ac ON de.drug_concept_id = ac.concept_id
+  WHERE de.person_id = ie.person_id
+    AND de.drug_exposure_start_date >= ie.index_date
+)
 "
 
 shingles_ids <- run_sql(con, shingles_dx_sql,
@@ -241,7 +271,7 @@ shingles_ids <- run_sql(con, shingles_dx_sql,
                         vocab_schema = vocab,
                         person_ids   = cohort_ids)$person_id
 
-message(sprintf("%d / %d base cohort patients had a shingles diagnosis.",
+message(sprintf("%d / %d base cohort patients had treated shingles (VZV Dx + antiviral).",
                 length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
