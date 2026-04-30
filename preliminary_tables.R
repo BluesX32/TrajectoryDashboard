@@ -1,6 +1,16 @@
 # preliminary_tables.R
 # Preliminary descriptive tables for VZV/shingles in rheumatic disease patients.
 #
+# Three-tier cohort design
+# ------------------------
+#   cohort_ids            -- Base cohort: rheumatic disease + DMARD, age > 18
+#                            Concept sets and criteria follow
+#                            inst/sql/templates/rheum-dmard-cohort-omop.sql
+#   shingles_ids          -- Shingles infection: cohort_VZV_antivirals.sql,
+#                            intersected with cohort_ids
+#   shingles_vaccine_ids  -- Received zoster vaccine (Shingrix/Zostavax),
+#                            among shingles_ids
+#
 # Table 1: Base cohort characteristics
 #   Columns: Total | Had Shingles (>=1 episode) | Never Had Shingles
 #   Rows: age, sex, rheumatologic Dx (SLE/DM-Myositis/SSc/GCA/RA/SpA/Vasculitis),
@@ -15,9 +25,6 @@
 #   within SHINGLES_GAP_DAYS of each other are merged into one episode (earliest
 #   date kept).  Adjust SHINGLES_GAP_DAYS below to change the window.
 #   The same parameter controls episode collapsing in the Trajectory Dashboard.
-#
-# Base cohort: rheumatic Dx seen by relevant specialist + (DMARD OR prednisone OR IVIG),
-# age >= 18.  Concept sets match cohort_VZV_antivirals.sql (codesets 5-12).
 #
 # Run interactively in RStudio.  Requires DatabaseConnector, SqlRender,
 # gtsummary, gt, dplyr, labelled.
@@ -90,11 +97,12 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
 # STEP 1: Identify base cohort
-# Base: rheumatic Dx (seen by rheum/IM/derm specialist) +
-#       (DMARD [codeset 12] OR prednisone OR IVIG) + age >= 18
+# Follows inst/sql/templates/rheum-dmard-cohort-omop.sql:
+#   rheumatic disease diagnosis + DMARD exposure (codeset 8) + age > 18
+# No specialist filter; DMARD only (prednisone/IVIG not required here).
 # ============================================================================
 
-message("Fetching base cohort person IDs...")
+message("Fetching base cohort person IDs (rheum disease + DMARD, age > 18)...")
 
 base_cohort_sql <- "
 SELECT DISTINCT
@@ -105,28 +113,21 @@ SELECT DISTINCT
 FROM @cdm_schema.person p
 JOIN @cdm_schema.observation_period op
   ON p.person_id = op.person_id
- AND YEAR(op.observation_period_start_date) - p.year_of_birth >= 18
+ AND YEAR(op.observation_period_start_date) - p.year_of_birth > 18
 WHERE
   (
-    -- Rheumatic Dx (SLE / SSc / GCA / RA / SpA / Vasculitis) seen by relevant specialist
+    -- Rheumatic Dx (SLE / SSc / GCA / RA / SpA / Vasculitis) — exact match
     EXISTS (
       SELECT 1
       FROM @cdm_schema.condition_occurrence co
-      LEFT JOIN @cdm_schema.provider pr ON co.provider_id = pr.provider_id
       WHERE co.person_id = p.person_id
-        AND pr.specialty_concept_id IN (44777791, 38004491, 38003882)
         AND co.condition_concept_id IN (
-          -- SLE (codeset 5)
+          -- SLE (codeset 0)
           37016279, 4319305, 4300204, 4324123, 4066824, 432919, 606388, 46273369,
           4055640, 35208699, 45562709, 45567545, 257628, 606386, 255891, 46270384,
           35208826, 35208701, 45606214, 3321233, 45601434, 606430, 4145240, 4343923,
           35208700, 44819941, 4344158, 4149913, 45582126, 35208827, 45591820,
-          -- SSc (codeset 7)
-          4126439, 37397763, 4337524, 4128222, 134442, 4331739, 441928, 4105026,
-          44811612, 40352976, 4027230,
-          -- GCA (codeset 8)
-          314963, 35208820, 4343935, 35208821,
-          -- RA (codeset 9)
+          -- Myositis / inflammatory myopathy (codeset 3)
           45548265, 45586838, 45606052, 45543436, 45572339, 45553046, 45591705,
           45562599, 45543443, 45562600, 45567422, 45567423, 45586845, 725373,
           45606064, 45538639, 45606063, 45543442, 45601289, 45572346, 45577117,
@@ -142,45 +143,53 @@ WHERE
           45586836, 45557754, 45591686, 45572332, 45538631, 45567415, 45591694,
           45548258, 45548257, 45567413, 45596428, 45596427, 45572327, 4083556,
           37207809, 4035611,
-          -- SpA (codeset 10)
+          -- SSc (codeset 4)
           36716891, 37017494, 1077506, 766408, 766409, 766411, 766410, 766402,
           37110375, 37205058, 40319772, 45548197, 46274123, 4064048, 437082,
           45548419, 45533841, 45586969, 45601454, 45548418, 45533840, 45553184,
           45543577, 45582150, 45567561,
-          -- Vasculitis (codeset 11)
-          42535714, 4146124, 4096220, 37166813, 4236160, 37110370, 4137275,
-          37110368, 37110369, 37167489
+          -- GCA (codeset 5)
+          4126439, 37397763, 4337524, 4128222, 134442, 4331739, 441928, 4105026,
+          44811612, 40352976, 4027230,
+          -- Lupus/spondyloarthropathy (codeset 6)
+          314963, 35208820, 4343935, 35208821
         )
     )
     OR EXISTS (
-      -- DM/Myositis (codeset 6) — requires ancestor traversal
+      -- RA and related (codesets 1, 2) — requires ancestor traversal
       SELECT 1
       FROM @cdm_schema.condition_occurrence co
       JOIN @vocab_schema.concept_ancestor ca ON co.condition_concept_id = ca.descendant_concept_id
       JOIN @vocab_schema.concept cv           ON co.condition_concept_id = cv.concept_id
-      LEFT JOIN @cdm_schema.provider pr       ON co.provider_id = pr.provider_id
       WHERE co.person_id = p.person_id
-        AND ca.ancestor_concept_id IN (4270868, 4005037, 80182, 4081250, 4344161)
+        AND ca.ancestor_concept_id IN (
+          4270868, 4005037, 80182, 4081250, 4344161,
+          42535714
+        )
         AND cv.invalid_reason IS NULL
-        AND pr.specialty_concept_id IN (44777791, 38004491, 38003882)
+    )
+    OR EXISTS (
+      -- Spondylitis / ankylosing spondylitis (codeset 7) — with descendants
+      SELECT 1
+      FROM @cdm_schema.condition_occurrence co
+      JOIN @vocab_schema.concept_ancestor ca ON co.condition_concept_id = ca.descendant_concept_id
+      JOIN @vocab_schema.concept cv           ON co.condition_concept_id = cv.concept_id
+      WHERE co.person_id = p.person_id
+        AND ca.ancestor_concept_id IN (4305666, 313223, 4344493, 606328, 320749)
+        AND cv.invalid_reason IS NULL
     )
   )
-  -- Has DMARD (codeset 12) OR prednisone OR IVIG (with descendants)
+  -- Has DMARD / immunosuppressant (codeset 8) with descendants
   AND EXISTS (
     SELECT 1
     FROM @cdm_schema.drug_exposure de
     JOIN @vocab_schema.concept_ancestor ca ON de.drug_concept_id = ca.descendant_concept_id
     WHERE de.person_id = p.person_id
       AND ca.ancestor_concept_id IN (
-        -- DMARD / immunosuppressant (codeset 12)
         19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
         1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
         746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
-        1186087,  1777087,
-        -- Prednisone (RxNorm ingredient)
-        1551099,
-        -- IVIG (Immune Globulin, Normal Human)
-        19049029
+        1186087,  1777087,  35603563
       )
   )
 GROUP BY p.person_id, p.year_of_birth, p.gender_concept_id
@@ -215,7 +224,58 @@ message(length(cohort_ids), " patients in base cohort.")
 message(length(intersect(shingles_ids, cohort_ids)), " shingles patients also in base cohort.")
 
 # ============================================================================
-# STEP 3: Disease category flags (one row per patient)
+# STEP 3: Shingles vaccine cohort
+# Among shingles_ids, who received the herpes zoster vaccine?
+# Concept set matches inst/sql/templates/def_shingrix_vaccine.sql:
+#   ancestors 44808679/21601361/706103, minus live-zoster exclusions.
+# ============================================================================
+
+message("Identifying shingles vaccine patients (Shingrix/Zostavax)...")
+
+shingles_vaccine_sql <- "
+WITH vaccine_concepts AS (
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (44808679, 21601361, 706103)
+    AND invalid_reason IS NULL
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (44808679, 21601361, 706103)
+    AND c.invalid_reason IS NULL
+    AND ca.descendant_concept_id NOT IN (40213260, 706104, 40213255, 40213256)
+)
+SELECT DISTINCT person_id
+FROM (
+  SELECT de.person_id
+  FROM @cdm_schema.drug_exposure de
+  JOIN vaccine_concepts vc ON de.drug_concept_id = vc.concept_id
+  WHERE de.person_id IN (@person_ids)
+  UNION
+  SELECT po.person_id
+  FROM @cdm_schema.procedure_occurrence po
+  JOIN vaccine_concepts vc ON po.procedure_concept_id = vc.concept_id
+  WHERE po.person_id IN (@person_ids)
+) combined
+"
+
+shingles_vaccine_ids <- run_sql(con, shingles_vaccine_sql,
+                                 cdm_schema   = cdm,
+                                 vocab_schema = vocab,
+                                 person_ids   = shingles_ids)$person_id
+
+message(sprintf(
+  "%d / %d shingles patients have a zoster vaccine record.",
+  length(shingles_vaccine_ids), length(shingles_ids)
+))
+message(sprintf(
+  "Cohort summary: %d base | %d shingles | %d shingles+vaccine",
+  length(cohort_ids), length(shingles_ids), length(shingles_vaccine_ids)
+))
+
+# ============================================================================
+# STEP 4: Disease category flags (one row per patient)
 # ============================================================================
 
 message("Fetching disease category flags...")
@@ -288,11 +348,11 @@ dm_flags <- run_sql(con, dm_flag_sql,
                     person_ids   = cohort_ids)
 
 # ============================================================================
-# STEP 4: Drug exposure flags
+# STEP 5: Drug exposure flags
 # One join over concept_ancestor — ancestor_concept_id drives the category.
 # Prednisone: RxNorm ingredient 1551099
 # IVIG: Immune Globulin, Normal Human 19049029
-# DMARDs: codeset 12 ancestors
+# DMARDs: codeset 8 ancestors
 # ============================================================================
 
 message("Fetching drug exposure flags...")
@@ -349,7 +409,7 @@ drug_flags <- run_sql(con, drug_flags_sql,
                       person_ids   = cohort_ids)
 
 # ============================================================================
-# STEP 5: Assemble analysis dataset
+# STEP 6: Assemble analysis dataset
 # ============================================================================
 
 message("Assembling analysis dataset...")
@@ -934,7 +994,7 @@ table2 <- table2_data |>
 print(table2)
 
 # ============================================================================
-# STEP 6: Post-vaccine shingles cohort summary
+# STEP 7: Post-vaccine shingles cohort summary
 # One row per post-vaccine shingles patient. Passed to the dashboard so the
 # "Post-Vaccine Shingles Cohort" panel can display:
 #   Age / Sex / Rheumatologic diagnoses
@@ -1175,7 +1235,7 @@ saveRDS(table2_data,       file.path("output", paste0("data_table2_",           
 saveRDS(post_vacc_summary, file.path("output", paste0("data_post_vacc_summary_",          dt, ".rds")))
 saveRDS(list(base_cohort   = cohort_ids,
              shingles      = shingles_ids,
-             shingrix      = unique(vacc_bulk$person_id),
+             shingrix      = shingles_vaccine_ids,
              post_vaccine  = pv_ids),
         file.path("output", paste0("patient_lists_",                              dt, ".rds")))
 
