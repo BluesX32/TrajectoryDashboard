@@ -1122,9 +1122,23 @@ t3_counts <- dmard_labels |>
   ) |>
   arrange(drug_class, desc(n_ep))
 
-table3 <- t3_counts |>
-  select(drug_class, drug_name, cell) |>
+n_no_dmard_t3 <- n_episodes_t3 -
+  n_distinct(paste(t3_hits$person_id, t3_hits$episode_date))
+
+t3_display <- bind_rows(
+  tibble(
+    drug_class = "No DMARD Use",
+    drug_name  = "No DMARD use in window",
+    cell       = sprintf("%d (%.1f%%)", n_no_dmard_t3,
+                         100 * n_no_dmard_t3 / max(n_episodes_t3, 1L))
+  ),
+  t3_counts |> select(drug_class, drug_name, cell)
+)
+
+table3 <- t3_display |>
   gt(groupname_col = "drug_class") |>
+  row_group_order(groups = c("No DMARD Use", "Biologic",
+                             "JAK Inhibitor", "csDMARD", "Immunoglobulin")) |>
   cols_label(
     drug_name = md("**DMARD**"),
     cell      = md(sprintf("**Episodes with DMARD use**<br><small>N episodes = %d</small>", n_episodes_t3))
@@ -1211,9 +1225,23 @@ t4_counts <- dmard_labels |>
   ) |>
   arrange(drug_class, desc(n_ep))
 
-table4 <- t4_counts |>
-  select(drug_class, drug_name, cell) |>
+n_no_dmard_t4 <- n_vax_episodes -
+  n_distinct(paste(t4_hits$person_id, t4_hits$vacc_date))
+
+t4_display <- bind_rows(
+  tibble(
+    drug_class = "No DMARD Use",
+    drug_name  = "No DMARD use in window",
+    cell       = sprintf("%d (%.1f%%)", n_no_dmard_t4,
+                         100 * n_no_dmard_t4 / max(n_vax_episodes, 1L))
+  ),
+  t4_counts |> select(drug_class, drug_name, cell)
+)
+
+table4 <- t4_display |>
   gt(groupname_col = "drug_class") |>
+  row_group_order(groups = c("No DMARD Use", "Biologic",
+                             "JAK Inhibitor", "csDMARD", "Immunoglobulin")) |>
   cols_label(
     drug_name = md("**DMARD**"),
     cell      = md(sprintf("**Vaccine episodes with DMARD use**<br><small>N vaccine episodes = %d</small>", n_vax_episodes))
