@@ -93,20 +93,56 @@ message(nrow(infection_notes), " infection note records from LLM.")
 
 # ============================================================================
 # 2. note_id → person_id  (anchors the patient list to the EHR)
+#
+# Diagnostic first: the JSONL note_ids may be source-system IDs stored in
+# NOTE.note_source_value rather than the OMOP NOTE.note_id surrogate key.
+# We try note_id first, then note_source_value, and report both hit rates.
 # ============================================================================
 
 all_note_ids <- unique(c(vaccine_notes$note_id, infection_notes$note_id))
+message(length(all_note_ids), " unique note_ids in LLM output files.")
 
-note_person <- run_sql(con,
-  "SELECT note_id, person_id
+# ---- Diagnostic: sample the NOTE table to understand its structure ----------
+note_sample <- run_sql(con,
+  "SELECT TOP 5 note_id, person_id, note_source_value, note_date
+   FROM @cdm_schema.note
+   ORDER BY note_id",
+  cdm_schema = cdm
+)
+message("NOTE table sample (first 5 rows):")
+print(note_sample)
+
+# ---- Try matching via NOTE.note_id (OMOP surrogate key) --------------------
+match_by_id <- run_sql(con,
+  "SELECT note_id AS llm_note_id, person_id
    FROM @cdm_schema.note
    WHERE note_id IN (@note_ids)",
   cdm_schema = cdm,
   note_ids   = all_note_ids
 )
+message(nrow(match_by_id), " / ", length(all_note_ids),
+        " JSONL note_ids matched via NOTE.note_id")
 
-# This is the definitive patient list — every row in the final tables
-# corresponds to one of these patients
+# ---- Try matching via NOTE.note_source_value (source-system ID) -------------
+match_by_src <- run_sql(con,
+  "SELECT CAST(note_source_value AS BIGINT) AS llm_note_id, person_id
+   FROM @cdm_schema.note
+   WHERE TRY_CAST(note_source_value AS BIGINT) IN (@note_ids)",
+  cdm_schema = cdm,
+  note_ids   = all_note_ids
+)
+message(nrow(match_by_src), " / ", length(all_note_ids),
+        " JSONL note_ids matched via NOTE.note_source_value")
+
+# ---- Use whichever join gives more matches ----------------------------------
+note_person <- if (nrow(match_by_src) >= nrow(match_by_id)) {
+  message("Using note_source_value for person linkage.")
+  match_by_src
+} else {
+  message("Using note_id for person linkage.")
+  match_by_id
+}
+
 patients <- data.frame(person_id = unique(note_person$person_id))
 n_pts    <- nrow(patients)
 message(n_pts, " unique patients linked from LLM notes.")
@@ -122,7 +158,7 @@ prio_label <- c("2" = "yes", "1" = "uncertain", "0" = "no")
 
 agg_llm <- function(note_df, col) {
   note_df |>
-    left_join(note_person, by = "note_id") |>    # left: keep all notes even if no person link
+    left_join(note_person, by = c("note_id" = "llm_note_id")) |>
     filter(!is.na(person_id)) |>
     mutate(.p = prio[.data[[col]]]) |>
     group_by(person_id) |>
