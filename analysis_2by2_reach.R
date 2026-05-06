@@ -2,25 +2,28 @@
 # 2×3 contingency tables: ICD-code-based vs LLM-based classification
 # for shingles INFECTION and shingles VACCINE.
 #
-# Population: all patients whose notes appear in output/LLM/ (no cohort filter).
+# Population: every patient whose notes appear in output/LLM/ — no cohort filter.
+# The patient list is derived from the NOTE table (note_id → person_id), so
+# every patient is guaranteed to exist in the EHR.  ICD status is then looked
+# up for all of them; patients without a matching ICD record are Absent.
 #
-# Table layout (one for infection, one for vaccine):
+# Table layout (one table for infection, one for vaccine):
 #
 #                         ┌──────── LLM Classification ────────┐
-#                         │ No        Yes       Uncertain       │ Row Total
+#                         │  No       Yes      Uncertain        │ Row Total
 #   ICD: Absent           │ n (row%)  n (row%)  n (row%)        │   n
 #   ICD: Present          │ n (row%)  n (row%)  n (row%)        │   n
 #   Column Total          │   n          n          n           │   N
 #
 # LLM per-note rules:
-#   Infection: yes = has_shingles_infection=="yes" & confidence=="high"
-#              uncertain = has_shingles_infection=="yes" & confidence=="medium"
-#              no  = otherwise
-#   Vaccine:   yes = shingles_vaccine_received=="yes"
-#              uncertain = vaccine_event_type %in% {ordered_or_recommended, due_or_needed}
-#              no  = vaccine_event_type=="absent"
+#   Infection: Yes       = has_shingles_infection=="yes" & confidence=="high"
+#              Uncertain = has_shingles_infection=="yes" & confidence=="medium"
+#              No        = otherwise
+#   Vaccine:   Yes       = shingles_vaccine_received=="yes"
+#              Uncertain = vaccine_event_type %in% {ordered_or_recommended, due_or_needed}
+#              No        = vaccine_event_type=="absent"
 #
-# Patient-level aggregation: any "yes" → Yes; else any "uncertain" → Uncertain; else No.
+# Patient-level aggregation: any Yes → Yes; else any Uncertain → Uncertain; else No.
 # ============================================================================
 
 devtools::load_all("~/Myositis/TrajectoryDashboard")
@@ -48,7 +51,7 @@ run_sql <- function(con, sql_template, ...) {
 }
 
 # ============================================================================
-# 1. Load LLM files
+# 1. Load LLM output files and classify each note
 # ============================================================================
 
 read_jsonl <- function(path) {
@@ -62,13 +65,7 @@ llm_dir       <- file.path("output", "LLM")
 vaccine_raw   <- read_jsonl(file.path(llm_dir, "vaccine_final.jsonl"))
 infection_raw <- read_jsonl(file.path(llm_dir, "infection_final.jsonl"))
 
-message(nrow(vaccine_raw),   " vaccine note records.")
-message(nrow(infection_raw), " infection note records.")
-
-# ============================================================================
-# 2. Per-note LLM classification
-# ============================================================================
-
+# Per-note classification
 vaccine_notes <- vaccine_raw |>
   mutate(
     note_id     = as.integer(note_id),
@@ -91,43 +88,53 @@ infection_notes <- infection_raw |>
   ) |>
   select(note_id, llm_infection)
 
+message(nrow(vaccine_notes),   " vaccine note records from LLM.")
+message(nrow(infection_notes), " infection note records from LLM.")
+
 # ============================================================================
-# 3. note_id → person_id
+# 2. note_id → person_id  (anchors the patient list to the EHR)
 # ============================================================================
 
 all_note_ids <- unique(c(vaccine_notes$note_id, infection_notes$note_id))
 
 note_person <- run_sql(con,
-  "SELECT note_id, person_id FROM @cdm_schema.note WHERE note_id IN (@note_ids)",
+  "SELECT note_id, person_id
+   FROM @cdm_schema.note
+   WHERE note_id IN (@note_ids)",
   cdm_schema = cdm,
   note_ids   = all_note_ids
 )
 
-person_ids <- unique(note_person$person_id)
-message(length(person_ids), " unique patients in LLM output.")
+# This is the definitive patient list — every row in the final tables
+# corresponds to one of these patients
+patients <- data.frame(person_id = unique(note_person$person_id))
+n_pts    <- nrow(patients)
+message(n_pts, " unique patients linked from LLM notes.")
 
 # ============================================================================
-# 4. Patient-level LLM aggregation  (yes > uncertain > no)
+# 3. Aggregate LLM classification to patient level
+#    Priority: yes (2) > uncertain (1) > no (0)
+#    Patients whose notes don't link (shouldn't happen) get "No"
 # ============================================================================
 
 prio       <- c("yes" = 2L, "uncertain" = 1L, "no" = 0L)
 prio_label <- c("2" = "yes", "1" = "uncertain", "0" = "no")
 
-aggregate_llm <- function(note_df, col) {
+agg_llm <- function(note_df, col) {
   note_df |>
-    inner_join(note_person, by = "note_id") |>
+    left_join(note_person, by = "note_id") |>    # left: keep all notes even if no person link
+    filter(!is.na(person_id)) |>
     mutate(.p = prio[.data[[col]]]) |>
     group_by(person_id) |>
-    summarise(.mp = max(.p, na.rm = TRUE), .groups = "drop") |>
-    mutate(status = prio_label[as.character(.mp)]) |>
-    select(person_id, status)
+    summarise(status = prio_label[as.character(max(.p, na.rm = TRUE))],
+              .groups = "drop")
 }
 
-pt_vaccine   <- aggregate_llm(vaccine_notes,   "llm_vaccine")   |> rename(llm_vaccine   = status)
-pt_infection <- aggregate_llm(infection_notes, "llm_infection") |> rename(llm_infection = status)
+llm_infection <- agg_llm(infection_notes, "llm_infection")
+llm_vaccine   <- agg_llm(vaccine_notes,   "llm_vaccine")
 
 # ============================================================================
-# 5. ICD-based infection status  (VZV diagnosis in condition_occurrence)
+# 4. ICD-based infection status  (VZV / herpes zoster in condition_occurrence)
 # ============================================================================
 
 icd_infection_pts <- run_sql(con, "
@@ -155,11 +162,12 @@ SELECT DISTINCT co.person_id
 FROM @cdm_schema.condition_occurrence co
 JOIN vzv ON co.condition_concept_id = vzv.concept_id
 WHERE co.person_id IN (@person_ids)",
-  cdm_schema = cdm, vocab_schema = vocab, person_ids = person_ids
+  cdm_schema = cdm, vocab_schema = vocab,
+  person_ids = patients$person_id
 )$person_id
 
 # ============================================================================
-# 6. ICD-based vaccine status  (Shingrix/Zostavax drug or procedure)
+# 5. ICD-based vaccine status  (Shingrix/Zostavax drug or procedure)
 # ============================================================================
 
 icd_vaccine_pts <- run_sql(con, "
@@ -183,40 +191,46 @@ SELECT DISTINCT person_id FROM (
   JOIN vc ON po.procedure_concept_id = vc.concept_id
   WHERE po.person_id IN (@person_ids)
 ) x",
-  cdm_schema = cdm, vocab_schema = vocab, person_ids = person_ids
+  cdm_schema = cdm, vocab_schema = vocab,
+  person_ids = patients$person_id
 )$person_id
 
-# ============================================================================
-# 7. Analysis datasets
-# ============================================================================
+message(length(icd_infection_pts), " / ", n_pts, " patients have a VZV ICD code.")
+message(length(icd_vaccine_pts),   " / ", n_pts, " patients have a vaccine ICD record.")
 
-base <- data.frame(person_id = person_ids)
+# ============================================================================
+# 6. Assemble one dataset per task
+#    Starting from `patients` ensures ALL patients appear in both tables.
+# ============================================================================
 
 LLM_LEVELS <- c("no", "yes", "uncertain")
 LLM_LABELS <- c("No", "Yes", "Uncertain")
 
-infection_df <- base |>
-  left_join(pt_infection, by = "person_id") |>
+infection_df <- patients |>
+  left_join(llm_infection, by = "person_id") |>
   mutate(
-    llm = factor(coalesce(llm_infection, "no"), levels = LLM_LEVELS, labels = LLM_LABELS),
+    llm = factor(coalesce(status, "no"), levels = LLM_LEVELS, labels = LLM_LABELS),
     icd = factor(if_else(person_id %in% icd_infection_pts, "Present", "Absent"),
                  levels = c("Absent", "Present"))
   )
 
-vaccine_df <- base |>
-  left_join(pt_vaccine, by = "person_id") |>
+vaccine_df <- patients |>
+  left_join(llm_vaccine, by = "person_id") |>
   mutate(
-    llm = factor(coalesce(llm_vaccine, "no"), levels = LLM_LEVELS, labels = LLM_LABELS),
+    llm = factor(coalesce(status, "no"), levels = LLM_LEVELS, labels = LLM_LABELS),
     icd = factor(if_else(person_id %in% icd_vaccine_pts, "Present", "Absent"),
                  levels = c("Absent", "Present"))
   )
 
+stopifnot(nrow(infection_df) == n_pts, nrow(vaccine_df) == n_pts)
+message("Both tables have ", n_pts, " patients.")
+
 # ============================================================================
-# 8. Build 2×3 gt table
+# 7. Build 2×3 gt table
 # ============================================================================
 
 make_2x3_gt <- function(df, title, subtitle) {
-  ct       <- table(df$icd, df$llm)   # 2 × 3
+  ct       <- table(df$icd, df$llm)
   row_tots <- rowSums(ct)
   col_tots <- colSums(ct)
   N        <- sum(ct)
@@ -226,9 +240,9 @@ make_2x3_gt <- function(df, title, subtitle) {
   body <- purrr::map_dfr(rownames(ct), function(r) {
     tibble::tibble(
       ICD         = r,
-      No          = fmt(ct[r, "No"],        row_tots[r]),
-      Yes         = fmt(ct[r, "Yes"],        row_tots[r]),
-      Uncertain   = fmt(ct[r, "Uncertain"],  row_tots[r]),
+      No          = fmt(ct[r, "No"],       row_tots[r]),
+      Yes         = fmt(ct[r, "Yes"],       row_tots[r]),
+      Uncertain   = fmt(ct[r, "Uncertain"], row_tots[r]),
       `Row Total` = as.character(row_tots[r])
     )
   })
@@ -254,13 +268,13 @@ make_2x3_gt <- function(df, title, subtitle) {
     ) |>
     tab_stubhead(label = md("**ICD-Based**")) |>
     cols_align(align = "center", columns = c(No, Yes, Uncertain, `Row Total`)) |>
-    tab_style(style = list(cell_fill(color = "#eaf2fb"), cell_text(weight = "bold")),
-              locations = list(cells_body(rows = nrow(body) + 1L),
-                               cells_stub(rows = "Column Total"))) |>
-    tab_style(style = cell_fill(color = "#fef9e7"),
-              locations = cells_body(rows = 1L)) |>
-    tab_style(style = cell_fill(color = "#eafaf1"),
-              locations = cells_body(rows = 2L)) |>
+    tab_style(
+      style     = list(cell_fill(color = "#eaf2fb"), cell_text(weight = "bold")),
+      locations = list(cells_body(rows = nrow(body) + 1L),
+                       cells_stub(rows = "Column Total"))
+    ) |>
+    tab_style(style = cell_fill(color = "#fef9e7"), locations = cells_body(rows = 1L)) |>
+    tab_style(style = cell_fill(color = "#eafaf1"), locations = cells_body(rows = 2L)) |>
     tab_footnote(
       footnote  = "n (row%). Row % = n / row total × 100.",
       locations = cells_column_spanners()
@@ -286,20 +300,20 @@ make_2x3_gt <- function(df, title, subtitle) {
 table_infection <- make_2x3_gt(
   infection_df,
   title    = "Table A. Shingles Infection: ICD-Code vs LLM",
-  subtitle = sprintf("All patients with NLP-analyzed notes (N = %d)", nrow(infection_df))
+  subtitle = sprintf("All patients with NLP-analyzed notes (N = %d)", n_pts)
 )
 
 table_vaccine <- make_2x3_gt(
   vaccine_df,
   title    = "Table B. Shingles Vaccine: ICD-Code vs LLM",
-  subtitle = sprintf("All patients with NLP-analyzed notes (N = %d)", nrow(vaccine_df))
+  subtitle = sprintf("All patients with NLP-analyzed notes (N = %d)", n_pts)
 )
 
 print(table_infection)
 print(table_vaccine)
 
 # ============================================================================
-# 9. Save
+# 8. Save
 # ============================================================================
 
 dt <- format(Sys.Date(), "%b%d")
