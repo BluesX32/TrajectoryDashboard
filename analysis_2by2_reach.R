@@ -2,12 +2,15 @@
 # 2×3 contingency tables: ICD-code-based vs LLM-based classification
 # for shingles INFECTION and shingles VACCINE.
 #
-# Unit of analysis: one NOTE (not one patient).
-# N ≈ 1000 = total notes processed by the LLM.
+# Unit of analysis: one NOTE (N ≈ 1000 notes processed by the LLM).
 #
-# OMOP linkage:
-#   JSONL note_id  →  NOTE.note_source_value  →  NOTE.person_id
-#   NOTE.person_id →  condition_occurrence / drug_exposure / procedure_occurrence
+# OMOP linkage chain:
+#   JSONL note_id
+#     → NOTE.note_id  →  NOTE.person_id, NOTE.visit_occurrence_id
+#     → CONDITION_OCCURRENCE (via visit_occurrence_id) → ICD infection flag
+#     → DRUG_EXPOSURE / PROCEDURE_OCCURRENCE (via visit_occurrence_id) → ICD vaccine flag
+#
+# ICD flag = did THIS visit (the one the note belongs to) have a matching code?
 #
 # Table layout (one for infection, one for vaccine):
 #
@@ -24,8 +27,6 @@
 #   Vaccine:   Yes       = shingles_vaccine_received=="yes"
 #              Uncertain = vaccine_event_type %in% {ordered_or_recommended, due_or_needed}
 #              No        = vaccine_event_type=="absent"
-#
-# ICD per-note: patient (person_id) has ≥1 matching record anywhere in EHR.
 # ============================================================================
 
 devtools::load_all("~/Myositis/TrajectoryDashboard")
@@ -53,7 +54,7 @@ run_sql <- function(con, sql_template, ...) {
 }
 
 # ============================================================================
-# 1. Load LLM output — one row per note
+# 1. Load LLM output — one row per note, classify directly
 # ============================================================================
 
 read_jsonl <- function(path) {
@@ -63,20 +64,11 @@ read_jsonl <- function(path) {
   }))
 }
 
-llm_dir       <- file.path("output", "LLM")
-vaccine_raw   <- read_jsonl(file.path(llm_dir, "vaccine_final.jsonl"))
-infection_raw <- read_jsonl(file.path(llm_dir, "infection_final.jsonl"))
+llm_dir <- file.path("output", "LLM")
 
-message(nrow(vaccine_raw),   " vaccine note records.")
-message(nrow(infection_raw), " infection note records.")
-
-# ============================================================================
-# 2. Per-note LLM classification
-# ============================================================================
-
-vaccine_notes <- vaccine_raw |>
+vaccine_notes <- read_jsonl(file.path(llm_dir, "vaccine_final.jsonl")) |>
   mutate(
-    note_id     = as.character(note_id),
+    note_id     = as.integer(note_id),
     llm_vaccine = case_when(
       shingles_vaccine_received == "yes"                                    ~ "yes",
       vaccine_event_type %in% c("ordered_or_recommended", "due_or_needed") ~ "uncertain",
@@ -85,9 +77,9 @@ vaccine_notes <- vaccine_raw |>
   ) |>
   select(note_id, llm_vaccine)
 
-infection_notes <- infection_raw |>
+infection_notes <- read_jsonl(file.path(llm_dir, "infection_final.jsonl")) |>
   mutate(
-    note_id       = as.character(note_id),
+    note_id       = as.integer(note_id),
     llm_infection = case_when(
       has_shingles_infection == "yes" & confidence == "high"   ~ "yes",
       has_shingles_infection == "yes" & confidence == "medium" ~ "uncertain",
@@ -96,36 +88,31 @@ infection_notes <- infection_raw |>
   ) |>
   select(note_id, llm_infection)
 
-# ============================================================================
-# 3. OMOP linkage: note_source_value → person_id
-#    JSONL note_id = source EHR note identifier = NOTE.note_source_value
-# ============================================================================
-
 all_note_ids <- unique(c(vaccine_notes$note_id, infection_notes$note_id))
-message(length(all_note_ids), " unique notes to link.")
+message(length(all_note_ids), " unique notes in LLM output.")
 
-note_person <- run_sql(con,
-  "SELECT note_source_value AS note_id,
-          person_id
+# ============================================================================
+# 2. NOTE.note_id → person_id + visit_occurrence_id
+# ============================================================================
+
+note_visits <- run_sql(con,
+  "SELECT note_id, person_id, visit_occurrence_id
    FROM @cdm_schema.note
-   WHERE note_source_value IN (@note_ids)",
+   WHERE note_id IN (@note_ids)",
   cdm_schema = cdm,
   note_ids   = all_note_ids
 )
-note_person$note_id <- as.character(note_person$note_id)
 
-message(nrow(note_person), " notes linked to a person_id.")
-message(n_distinct(note_person$person_id), " unique patients.")
+message(nrow(note_visits), " notes linked to person_id and visit_occurrence_id.")
+message(n_distinct(note_visits$person_id), " unique patients.")
+
+visit_ids <- unique(note_visits$visit_occurrence_id[!is.na(note_visits$visit_occurrence_id)])
 
 # ============================================================================
-# 4. ICD-based status — one flag per patient
-#    (a note inherits its patient's ICD status)
+# 3. ICD infection flag — VZV diagnosis in CONDITION_OCCURRENCE for this visit
 # ============================================================================
 
-person_ids <- unique(note_person$person_id)
-
-# Infection: any VZV / herpes zoster condition_occurrence
-icd_infection_pts <- run_sql(con, "
+icd_infection_visits <- run_sql(con, "
 WITH vzv AS (
   SELECT DISTINCT concept_id FROM @vocab_schema.concept
   WHERE concept_id IN (
@@ -146,15 +133,22 @@ WITH vzv AS (
     35205737, 35205738, 35205740, 35205741
   ) AND c.invalid_reason IS NULL
 )
-SELECT DISTINCT co.person_id
+SELECT DISTINCT co.visit_occurrence_id
 FROM @cdm_schema.condition_occurrence co
 JOIN vzv ON co.condition_concept_id = vzv.concept_id
-WHERE co.person_id IN (@person_ids)",
-  cdm_schema = cdm, vocab_schema = vocab, person_ids = person_ids
-)$person_id
+WHERE co.visit_occurrence_id IN (@visit_ids)",
+  cdm_schema = cdm, vocab_schema = vocab,
+  visit_ids  = visit_ids
+)$visit_occurrence_id
 
-# Vaccine: Shingrix/Zostavax in drug_exposure or procedure_occurrence
-icd_vaccine_pts <- run_sql(con, "
+message(length(icd_infection_visits), " visits with a VZV ICD code.")
+
+# ============================================================================
+# 4. ICD vaccine flag — Shingrix/Zostavax in DRUG_EXPOSURE or
+#    PROCEDURE_OCCURRENCE for this visit
+# ============================================================================
+
+icd_vaccine_visits <- run_sql(con, "
 WITH vc AS (
   SELECT DISTINCT concept_id FROM @vocab_schema.concept
   WHERE concept_id IN (44808679, 21601361, 706103) AND invalid_reason IS NULL
@@ -166,44 +160,51 @@ WITH vc AS (
     AND c.invalid_reason IS NULL
     AND ca.descendant_concept_id NOT IN (40213260, 706104, 40213255, 40213256)
 )
-SELECT DISTINCT person_id FROM (
-  SELECT de.person_id FROM @cdm_schema.drug_exposure de
+SELECT DISTINCT visit_occurrence_id FROM (
+  SELECT de.visit_occurrence_id
+  FROM @cdm_schema.drug_exposure de
   JOIN vc ON de.drug_concept_id = vc.concept_id
-  WHERE de.person_id IN (@person_ids)
+  WHERE de.visit_occurrence_id IN (@visit_ids)
   UNION
-  SELECT po.person_id FROM @cdm_schema.procedure_occurrence po
+  SELECT po.visit_occurrence_id
+  FROM @cdm_schema.procedure_occurrence po
   JOIN vc ON po.procedure_concept_id = vc.concept_id
-  WHERE po.person_id IN (@person_ids)
+  WHERE po.visit_occurrence_id IN (@visit_ids)
 ) x",
-  cdm_schema = cdm, vocab_schema = vocab, person_ids = person_ids
-)$person_id
+  cdm_schema = cdm, vocab_schema = vocab,
+  visit_ids  = visit_ids
+)$visit_occurrence_id
 
-message(length(icd_infection_pts), " / ", length(person_ids), " patients have a VZV ICD code.")
-message(length(icd_vaccine_pts),   " / ", length(person_ids), " patients have a vaccine record.")
+message(length(icd_vaccine_visits), " visits with a vaccine record.")
 
 # ============================================================================
-# 5. Assemble note-level analysis datasets
-#    Join: note_id → person_id → ICD flag
-#    Every note that linked to a person_id is included.
+# 5. Assemble note-level datasets
+#    note_id → visit_occurrence_id → ICD flag
 # ============================================================================
 
 LLM_LEVELS <- c("no", "yes", "uncertain")
 LLM_LABELS <- c("No", "Yes", "Uncertain")
 
 infection_df <- infection_notes |>
-  inner_join(note_person, by = "note_id") |>
+  inner_join(note_visits, by = "note_id") |>
   mutate(
     llm = factor(llm_infection, levels = LLM_LEVELS, labels = LLM_LABELS),
-    icd = factor(if_else(person_id %in% icd_infection_pts, "Present", "Absent"),
-                 levels = c("Absent", "Present"))
+    icd = factor(
+      if_else(!is.na(visit_occurrence_id) & visit_occurrence_id %in% icd_infection_visits,
+              "Present", "Absent"),
+      levels = c("Absent", "Present")
+    )
   )
 
 vaccine_df <- vaccine_notes |>
-  inner_join(note_person, by = "note_id") |>
+  inner_join(note_visits, by = "note_id") |>
   mutate(
     llm = factor(llm_vaccine, levels = LLM_LEVELS, labels = LLM_LABELS),
-    icd = factor(if_else(person_id %in% icd_vaccine_pts, "Present", "Absent"),
-                 levels = c("Absent", "Present"))
+    icd = factor(
+      if_else(!is.na(visit_occurrence_id) & visit_occurrence_id %in% icd_vaccine_visits,
+              "Present", "Absent"),
+      levels = c("Absent", "Present")
+    )
   )
 
 message(nrow(infection_df), " notes in infection table.")
@@ -260,7 +261,10 @@ make_2x3_gt <- function(df, title, subtitle) {
     tab_style(style = cell_fill(color = "#fef9e7"), locations = cells_body(rows = 1L)) |>
     tab_style(style = cell_fill(color = "#eafaf1"), locations = cells_body(rows = 2L)) |>
     tab_footnote(
-      footnote  = "n (row%). Row % = n / row total × 100. Unit of analysis: note.",
+      footnote = paste0(
+        "n (row%). ICD flag is visit-level: the note's visit_occurrence_id is matched ",
+        "to CONDITION_OCCURRENCE (infection) or DRUG_EXPOSURE / PROCEDURE_OCCURRENCE (vaccine)."
+      ),
       locations = cells_column_spanners()
     ) |>
     tab_options(
@@ -284,13 +288,15 @@ make_2x3_gt <- function(df, title, subtitle) {
 table_infection <- make_2x3_gt(
   infection_df,
   title    = "Table A. Shingles Infection: ICD-Code vs LLM (Note Level)",
-  subtitle = sprintf("Notes with NLP results linked to EHR (N = %d notes)", nrow(infection_df))
+  subtitle = sprintf("Notes linked to EHR visits (N = %d notes, %d patients)",
+                     nrow(infection_df), n_distinct(infection_df$person_id))
 )
 
 table_vaccine <- make_2x3_gt(
   vaccine_df,
   title    = "Table B. Shingles Vaccine: ICD-Code vs LLM (Note Level)",
-  subtitle = sprintf("Notes with NLP results linked to EHR (N = %d notes)", nrow(vaccine_df))
+  subtitle = sprintf("Notes linked to EHR visits (N = %d notes, %d patients)",
+                     nrow(vaccine_df), n_distinct(vaccine_df$person_id))
 )
 
 print(table_infection)
