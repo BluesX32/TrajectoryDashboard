@@ -21,9 +21,8 @@
 #   Column Total          │   n          n          n           │   N
 #
 # LLM per-note rules:
-#   Infection: Yes       = has_shingles_infection=="yes" & confidence=="high"
-#              Uncertain = has_shingles_infection=="yes" & confidence=="medium"
-#              No        = otherwise
+#   Infection: Yes = has_shingles_infection=="yes"
+#              No  = has_shingles_infection=="no"
 #   Vaccine:   Yes       = shingles_vaccine_received=="yes"
 #              Uncertain = vaccine_event_type %in% {ordered_or_recommended, due_or_needed}
 #              No        = vaccine_event_type=="absent"
@@ -81,9 +80,9 @@ infection_notes <- read_jsonl(file.path(llm_dir, "infection_final.jsonl")) |>
   mutate(
     note_id       = as.integer(note_id),
     llm_infection = case_when(
-      has_shingles_infection == "yes" & confidence == "high"   ~ "yes",
-      has_shingles_infection == "yes" & confidence == "medium" ~ "uncertain",
-      TRUE                                                      ~ "no"
+      has_shingles_infection == "yes" ~ "yes",
+      has_shingles_infection == "no"  ~ "no",
+      TRUE                            ~ "uncertain"
     )
   ) |>
   select(note_id, llm_infection)
