@@ -284,18 +284,33 @@ message(sprintf("%d / %d base cohort patients had treated shingles (VZV Dx + ant
 message("Identifying shingles vaccine patients (Shingrix/Zostavax)...")
 
 shingles_vaccine_sql <- "
-WITH vaccine_concepts AS (
+WITH shingrix_included AS (
   SELECT DISTINCT concept_id
   FROM @vocab_schema.concept
   WHERE concept_id IN (44808679, 21601361, 706103)
-    AND invalid_reason IS NULL
   UNION
   SELECT DISTINCT ca.descendant_concept_id
   FROM @vocab_schema.concept_ancestor ca
   JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
   WHERE ca.ancestor_concept_id IN (44808679, 21601361, 706103)
     AND c.invalid_reason IS NULL
-    AND ca.descendant_concept_id NOT IN (40213260, 706104, 40213255, 40213256)
+),
+shingrix_excluded AS (
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (40213260, 706104, 40213255, 40213256)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (40213260, 706104)
+    AND c.invalid_reason IS NULL
+),
+vaccine_concepts AS (
+  SELECT i.concept_id
+  FROM shingrix_included i
+  LEFT JOIN shingrix_excluded e ON i.concept_id = e.concept_id
+  WHERE e.concept_id IS NULL
 )
 SELECT DISTINCT person_id
 FROM (
@@ -347,18 +362,33 @@ race_df <- run_sql(con, race_sql,
 message("Fetching vaccine dose counts for base cohort...")
 
 vacc_count_sql <- "
-WITH vaccine_concepts AS (
+WITH shingrix_included AS (
   SELECT DISTINCT concept_id
   FROM @vocab_schema.concept
   WHERE concept_id IN (44808679, 21601361, 706103)
-    AND invalid_reason IS NULL
   UNION
   SELECT DISTINCT ca.descendant_concept_id
   FROM @vocab_schema.concept_ancestor ca
   JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
   WHERE ca.ancestor_concept_id IN (44808679, 21601361, 706103)
     AND c.invalid_reason IS NULL
-    AND ca.descendant_concept_id NOT IN (40213260, 706104, 40213255, 40213256)
+),
+shingrix_excluded AS (
+  SELECT DISTINCT concept_id
+  FROM @vocab_schema.concept
+  WHERE concept_id IN (40213260, 706104, 40213255, 40213256)
+  UNION
+  SELECT DISTINCT ca.descendant_concept_id
+  FROM @vocab_schema.concept_ancestor ca
+  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+  WHERE ca.ancestor_concept_id IN (40213260, 706104)
+    AND c.invalid_reason IS NULL
+),
+vaccine_concepts AS (
+  SELECT i.concept_id
+  FROM shingrix_included i
+  LEFT JOIN shingrix_excluded e ON i.concept_id = e.concept_id
+  WHERE e.concept_id IS NULL
 )
 SELECT person_id, COUNT(DISTINCT vacc_date) AS vaccine_dose_count
 FROM (
