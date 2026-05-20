@@ -187,7 +187,7 @@ FROM
 SELECT 0 as index_id, e.person_id, e.event_id
 FROM @temp_database_schema.laolk54squalified_events E
 JOIN @cdm_database_schema.PERSON P ON P.PERSON_ID = E.PERSON_ID
-WHERE YEAR(E.start_date) - P.year_of_birth > 18
+WHERE YEAR(E.start_date) - P.year_of_birth >= 18
 GROUP BY e.person_id, e.event_id
 -- End Demographic Criteria
  ) CQ on E.person_id = CQ.person_id and E.event_id = CQ.event_id
