@@ -997,10 +997,12 @@ table3_pjp <- t3_data |>
   ) |>
   tab_spanner(
     label   = md("**PJP Infection**"),
+    id      = "spanner_pjp",
     columns = c(`PJP events`, `RR for PJP\n(vs. no ppx)`)
   ) |>
   tab_spanner(
     label   = md("**Adverse Drug Events**"),
+    id      = "spanner_ade",
     columns = c(`ADE events`, `RR for ADE\n(vs. TMP-SMX)`)
   ) |>
   tab_style(
@@ -1035,7 +1037,7 @@ table3_pjp <- t3_data |>
       "after the patient's first prophylaxis prescription for that regimen. ",
       "For the no-prophylaxis group, any PJP diagnosis during observation."
     ),
-    locations = cells_column_spanners(spanners = "PJP Infection")
+    locations = cells_column_spanners(spanners = "spanner_pjp")
   ) |>
   tab_footnote(
     footnote = paste0(
@@ -1044,7 +1046,7 @@ table3_pjp <- t3_data |>
       "hypoglycaemia, hemolytic anemia, or peripheral neuropathy within ",
       ADE_WINDOW, " days of first prophylaxis prescription."
     ),
-    locations = cells_column_spanners(spanners = "Adverse Drug Events")
+    locations = cells_column_spanners(spanners = "spanner_ade")
   ) |>
   tab_footnote(
     footnote = paste0(
