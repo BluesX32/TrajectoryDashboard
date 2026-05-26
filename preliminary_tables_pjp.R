@@ -226,10 +226,29 @@ message(sprintf("%d / %d base cohort patients had PJP.", nrow(pjp_cohort), lengt
 pjp_ids <- pjp_cohort$person_id
 
 # ============================================================================
-# STEP 3: Disease category flags (PJP cohort)
+# STEP 2b: Race information for base cohort
 # ============================================================================
 
-message("Fetching disease flags for PJP patients...")
+message("Fetching race information for base cohort...")
+
+race_sql <- "
+SELECT p.person_id,
+  COALESCE(c.concept_name, 'Unknown') AS race
+FROM @cdm_schema.person p
+LEFT JOIN @vocab_schema.concept c ON p.race_concept_id = c.concept_id
+WHERE p.person_id IN (@person_ids)
+"
+
+race_df <- run_sql(con, race_sql,
+                   cdm_schema   = cdm,
+                   vocab_schema = vocab,
+                   person_ids   = cohort_ids)
+
+# ============================================================================
+# STEP 3: Disease category flags (full base cohort — supports 3-column Table 1)
+# ============================================================================
+
+message("Fetching disease flags for base cohort...")
 
 disease_flags_sql <- "
 SELECT
@@ -291,12 +310,12 @@ WHERE co.person_id IN (@person_ids)
 
 disease_flags <- run_sql(con, disease_flags_sql,
                          cdm_schema  = cdm,
-                         person_ids  = pjp_ids)
+                         person_ids  = cohort_ids)
 
 dm_flags      <- run_sql(con, dm_flag_sql,
                          cdm_schema   = cdm,
                          vocab_schema = vocab,
-                         person_ids   = pjp_ids)
+                         person_ids   = cohort_ids)
 
 # ============================================================================
 # STEP 4: 30-day in-hospital mortality
@@ -390,15 +409,21 @@ dmard_count_df <- dmard_exposures_pjp |>
   count(person_id, name = "n_dmards")
 
 # ============================================================================
-# STEP 6: Prophylaxis exposure in PJP_PPX_WINDOW before / at PJP index date
+# STEP 6: Prophylaxis exposure — fetched for the full base cohort
+# Derives two flag sets:
+#   ppx_flags_pjp — window-restricted (≤ PJP_PPX_WINDOW before PJP index date);
+#                   used in PJP-specific analysis (Table 2) and STEP 7 analysis_pjp
+#   ppx_flags_all — any ever exposure (no window); used in 3-column Table 1 and
+#                   reused as ppx_base_raw for Table 3 (avoids second DB round-trip)
+#
 # Drug concept ancestors:
-#   TMP-SMX   : 21602929 (cotrimoxazole), 1705674 (trimethoprim → includes combo)
-#   Dapsone   : 1711759
-#   Atovaquone: 1730370
+#   TMP-SMX    : 21602929 (cotrimoxazole), 1705674 (trimethoprim → includes combo)
+#   Dapsone    : 1711759
+#   Atovaquone : 1730370
 #   Pentamidine: 1751310
 # ============================================================================
 
-message("Fetching PJP prophylaxis exposure for PJP cohort...")
+message("Fetching PJP prophylaxis exposure for full base cohort...")
 
 ppx_sql <- "
 SELECT de.person_id,
@@ -416,10 +441,10 @@ WHERE de.person_id IN (@person_ids)
   )
 "
 
-ppx_pjp_raw <- run_sql(con, ppx_sql,
-                        cdm_schema   = cdm,
-                        vocab_schema = vocab,
-                        person_ids   = pjp_ids) |>
+ppx_all_raw <- run_sql(con, ppx_sql,
+                       cdm_schema   = cdm,
+                       vocab_schema = vocab,
+                       person_ids   = cohort_ids) |>
   mutate(ppx_start = as.Date(ppx_start),
          ppx_group = case_when(
            ppx_ancestor %in% c(21602929L, 1705674L) ~ "TMP-SMX",
@@ -428,7 +453,10 @@ ppx_pjp_raw <- run_sql(con, ppx_sql,
            ppx_ancestor == 1751310L                  ~ "Pentamidine"
          ))
 
-# Flag each drug if prescribed in PJP_PPX_WINDOW before index date
+# ── PJP-specific flags (window-restricted) ───────────────────────────────────
+ppx_pjp_raw <- ppx_all_raw |>
+  filter(person_id %in% pjp_ids)
+
 ppx_flags_pjp <- ppx_pjp_raw |>
   inner_join(pjp_cohort, by = "person_id") |>
   filter(ppx_start >= index_date - PJP_PPX_WINDOW,
@@ -441,18 +469,74 @@ ppx_flags_pjp <- ppx_pjp_raw |>
               names_prefix = "ppx_") |>
   rename_with(tolower)
 
-# Ensure all four columns exist even if zero patients used a drug
 for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")) {
   if (!col %in% names(ppx_flags_pjp)) ppx_flags_pjp[[col]] <- 0L
 }
 names(ppx_flags_pjp) <- gsub("-", "_", names(ppx_flags_pjp), fixed = TRUE)
 
+# ── Full-cohort flags (any ever exposure — for 3-column Table 1) ─────────────
+ppx_flags_all <- ppx_all_raw |>
+  distinct(person_id, ppx_group) |>
+  mutate(flag = 1L) |>
+  pivot_wider(names_from  = ppx_group,
+              values_from = flag,
+              values_fill = 0L,
+              names_prefix = "ppx_") |>
+  rename_with(tolower)
+
+for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")) {
+  if (!col %in% names(ppx_flags_all)) ppx_flags_all[[col]] <- 0L
+}
+names(ppx_flags_all) <- gsub("-", "_", names(ppx_flags_all), fixed = TRUE)
+
 # ============================================================================
-# STEP 7: Assemble Table 1 dataset
+# STEP 7: Assemble analysis datasets
+#
+# analysis_pjp_full — full base cohort with pjp_group factor
+#   Used for 3-column Table 1 (Total | Without PJP | With PJP).
+#   Includes race (Asian / Black / White / Other) and any-ever prophylaxis
+#   flags so all three columns are populated.
+#
+# analysis_pjp — PJP cohort only
+#   Retains age_at_pjp, died_30d, DMARD count at PJP, and window-restricted
+#   prophylaxis flags for downstream PJP-specific summaries.
 # ============================================================================
 
-message("Assembling Table 1 dataset...")
+message("Assembling analysis datasets...")
 
+# ── Full base cohort (3-column Table 1) ──────────────────────────────────────
+analysis_pjp_full <- base_cohort |>
+  mutate(
+    pjp_group = factor(
+      if_else(person_id %in% pjp_ids, "With PJP", "Without PJP"),
+      levels = c("Without PJP", "With PJP")
+    ),
+    age = as.integer(format(obs_start, "%Y")) - year_of_birth,
+    sex = if_else(gender_concept_id == 8532, "Female", "Male")
+  ) |>
+  left_join(race_df, by = "person_id") |>
+  mutate(
+    race = case_when(
+      coalesce(race, "Unknown") == "Asian"                     ~ "Asian",
+      coalesce(race, "Unknown") == "Black or African American" ~ "Black",
+      coalesce(race, "Unknown") == "White"                     ~ "White",
+      TRUE                                                      ~ "Other"
+    )
+  ) |>
+  left_join(disease_flags, by = "person_id") |>
+  left_join(dm_flags,      by = "person_id") |>
+  left_join(ppx_flags_all, by = "person_id") |>
+  mutate(
+    across(starts_with("dx_"), \(x) coalesce(as.integer(x), 0L)),
+    across(starts_with("dx_"), as.logical),
+    ppx_tmp_smx     = as.logical(coalesce(ppx_tmp_smx,     0L)),
+    ppx_dapsone     = as.logical(coalesce(ppx_dapsone,     0L)),
+    ppx_atovaquone  = as.logical(coalesce(ppx_atovaquone,  0L)),
+    ppx_pentamidine = as.logical(coalesce(ppx_pentamidine, 0L)),
+    ppx_any         = ppx_tmp_smx | ppx_dapsone | ppx_atovaquone | ppx_pentamidine
+  )
+
+# ── PJP cohort only (PJP-specific outcomes) ──────────────────────────────────
 analysis_pjp <- pjp_cohort |>
   inner_join(base_cohort |> select(person_id, year_of_birth, gender_concept_id),
              by = "person_id") |>
@@ -468,33 +552,35 @@ analysis_pjp <- pjp_cohort |>
   mutate(
     across(starts_with("dx_"),  \(x) coalesce(as.integer(x), 0L)),
     across(starts_with("dx_"),  as.logical),
-    n_dmards    = coalesce(n_dmards, 0L),
-    ppx_tmp_smx    = as.logical(coalesce(ppx_tmp_smx,    0L)),
-    ppx_dapsone    = as.logical(coalesce(ppx_dapsone,    0L)),
-    ppx_atovaquone = as.logical(coalesce(ppx_atovaquone, 0L)),
+    n_dmards        = coalesce(n_dmards, 0L),
+    ppx_tmp_smx     = as.logical(coalesce(ppx_tmp_smx,     0L)),
+    ppx_dapsone     = as.logical(coalesce(ppx_dapsone,     0L)),
+    ppx_atovaquone  = as.logical(coalesce(ppx_atovaquone,  0L)),
     ppx_pentamidine = as.logical(coalesce(ppx_pentamidine, 0L)),
-    ppx_any        = ppx_tmp_smx | ppx_dapsone | ppx_atovaquone | ppx_pentamidine
+    ppx_any         = ppx_tmp_smx | ppx_dapsone | ppx_atovaquone | ppx_pentamidine
   )
 
 # ============================================================================
-# TABLE 1: PJP patient demographics
-# One row per patient, no grouping column.
+# TABLE 1: Base cohort characteristics by PJP status
+# Three columns: Total | Without PJP | With PJP
+#   Rows: age, sex, race (Asian / Black / White / Other),
+#         rheumatologic Dx, PJP prophylaxis (any ever exposure)
+# pjp_group is an ordered factor so stat_1 = Without PJP, stat_2 = With PJP.
 # ============================================================================
 
-message("Building Table 1 (PJP demographics)...")
+message("Building Table 1 (base cohort, 3 columns: Total | Without PJP | With PJP)...")
 
-tbl1_pjp_data <- analysis_pjp |>
+tbl1_pjp_data <- analysis_pjp_full |>
   select(
-    age_at_pjp,
-    sex,
+    pjp_group,
+    age, sex, race,
     dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
-    died_30d,
-    n_dmards,
     ppx_any, ppx_tmp_smx, ppx_dapsone, ppx_atovaquone, ppx_pentamidine
   ) |>
   set_variable_labels(
-    age_at_pjp      = "Age at PJP diagnosis, years",
+    age             = "Age, years",
     sex             = "Sex",
+    race            = "Race",
     dx_sle          = "Systemic Lupus Erythematosus (SLE)",
     dx_dm_myositis  = "Dermatomyositis / Myositis",
     dx_ssc          = "Systemic Sclerosis (SSc)",
@@ -502,9 +588,7 @@ tbl1_pjp_data <- analysis_pjp |>
     dx_ra           = "Rheumatoid Arthritis (RA)",
     dx_spa          = "Spondyloarthropathy (SpA)",
     dx_vasculitis   = "ANCA-Associated Vasculitis",
-    died_30d        = "30-day in-hospital mortality",
-    n_dmards        = "DMARD classes prescribed within 90d of PJP",
-    ppx_any         = "Any PJP prophylaxis in 90d before PJP",
+    ppx_any         = "Any PJP prophylaxis",
     ppx_tmp_smx     = "TMP-SMX",
     ppx_dapsone     = "Dapsone",
     ppx_atovaquone  = "Atovaquone",
@@ -513,42 +597,46 @@ tbl1_pjp_data <- analysis_pjp |>
 
 table1_pjp <- tbl1_pjp_data |>
   tbl_summary(
+    by        = pjp_group,
     statistic = list(
-      age_at_pjp        ~ "{median} ({p25}, {p75})",
-      n_dmards          ~ "{median} ({p25}, {p75})",
+      age               ~ "{median} ({p25}, {p75})",
       all_categorical() ~ "{n} ({p}%)"
     ),
-    digits = list(
-      age_at_pjp        ~ c(0, 0, 0),
-      n_dmards          ~ c(0, 0, 0),
+    digits    = list(
+      age               ~ c(0, 0, 0),
       all_categorical() ~ c(0, 1)
     ),
-    missing = "no",
-    type    = list(
-      age_at_pjp        ~ "continuous",
+    missing   = "no",
+    type      = list(
+      age               ~ "continuous",
       sex               ~ "categorical",
-      n_dmards          ~ "continuous",
+      race              ~ "categorical",
       where(is.logical) ~ "dichotomous"
     ),
-    value = list(where(is.logical) ~ TRUE)
+    value     = list(where(is.logical) ~ TRUE)
   ) |>
+  add_overall(last = FALSE) |>
   bold_labels() |>
   modify_header(
     label  ~ "**Characteristic**",
-    stat_0 ~ "**PJP Cohort**  \n(N = {N})"
+    stat_0 ~ "**Total**  \n(N = {N})",
+    stat_1 ~ "**Without PJP**  \n(n = {n})",
+    stat_2 ~ "**With PJP**  \n(n = {n})"
+  ) |>
+  modify_spanning_header(
+    c(stat_1, stat_2) ~ "**PJP Status**"
+  ) |>
+  modify_footnote(
+    all_stat_cols() ~ "Continuous: median (IQR); categorical: n (%)"
   ) |>
   modify_table_body(
     \(x) x |>
       mutate(groupname_col = case_when(
-        variable %in% c("age_at_pjp", "sex")            ~ "Demographics",
-        grepl("^dx_", variable)                          ~ "Rheumatologic Diagnosis",
-        variable == "died_30d"                           ~ "Outcomes",
-        variable == "n_dmards"                           ~ "Immunosuppression at PJP",
-        grepl("^ppx_", variable)                         ~ "PJP Prophylaxis (90d window)"
+        variable %in% c("age", "sex", "race") ~ "Demographics",
+        grepl("^dx_", variable)               ~ "Rheumatologic Diagnosis",
+        grepl("^ppx_", variable)              ~ "PJP Prophylaxis (any prior exposure)",
+        TRUE                                  ~ NA_character_
       ))
-  ) |>
-  modify_footnote(
-    all_stat_cols() ~ "Continuous: median (IQR); categorical: n (%)"
   ) |>
   as_gt() |>
   tab_style(
@@ -559,20 +647,6 @@ table1_pjp <- tbl1_pjp_data |>
     style     = cell_fill(color = "#f8f9fa"),
     locations = cells_row_groups()
   ) |>
-  tab_footnote(
-    footnote  = paste0(
-      "30-day in-hospital mortality: death within ", MORTALITY_DAYS,
-      " days of PJP index date AND an inpatient visit (SNOMED 9201) spanning the index date."
-    ),
-    locations = cells_body(columns = label, rows = variable == "died_30d")
-  ) |>
-  tab_footnote(
-    footnote  = paste0(
-      "DMARD count: number of distinct DMARD classes (from the 22-ancestor DMARD list, ",
-      "IVIG excluded) prescribed within ", PJP_DMARD_WINDOW, " days before PJP index date."
-    ),
-    locations = cells_body(columns = label, rows = variable == "n_dmards")
-  ) |>
   tab_options(
     table.font.names                    = "Arial",
     table.font.size                     = 12,
@@ -581,6 +655,7 @@ table1_pjp <- tbl1_pjp_data |>
     row_group.font.weight               = "bold",
     heading.title.font.size             = 14,
     heading.title.font.weight           = "bold",
+    stub.border.width                   = px(0),
     table.border.top.width              = px(2),
     table.border.top.color              = "#2c3e50",
     table.border.bottom.width           = px(2),
@@ -589,10 +664,12 @@ table1_pjp <- tbl1_pjp_data |>
     column_labels.border.bottom.color   = "#6c757d"
   ) |>
   tab_header(
-    title    = "Table 1. Characteristics of Rheumatic Disease Patients with PJP",
+    title    = "Table 1. Baseline Characteristics of the Study Cohort by PJP Status",
     subtitle = md(sprintf(
-      "Among %d patients in the rheumatic disease + DMARD base cohort (N = %d)",
-      nrow(pjp_cohort), length(cohort_ids)
+      "Rheumatic disease patients with DMARD exposure (N = %d); %d with PJP (%.1f%%)",
+      nrow(analysis_pjp_full),
+      sum(analysis_pjp_full$pjp_group == "With PJP"),
+      100 * sum(analysis_pjp_full$pjp_group == "With PJP") / nrow(analysis_pjp_full)
     ))
   )
 
@@ -777,35 +854,11 @@ print(table2_pjp)
 #   (b) first prescription date per regimen per patient (for ADE window)
 # ============================================================================
 
-message("Fetching prophylaxis exposure for full base cohort (Table 3)...")
+message("Setting up Table 3 prophylaxis data (reusing full-cohort fetch from STEP 6)...")
 
-ppx_base_sql <- "
-SELECT de.person_id,
-  ca.ancestor_concept_id AS ppx_ancestor,
-  CAST(de.drug_exposure_start_date AS DATE) AS ppx_start
-FROM @cdm_schema.drug_exposure de
-JOIN @vocab_schema.concept_ancestor ca
-  ON de.drug_concept_id = ca.descendant_concept_id
-WHERE de.person_id IN (@person_ids)
-  AND ca.ancestor_concept_id IN (
-    21602929, 1705674,
-    1711759,
-    1730370,
-    1751310
-  )
-"
-
-ppx_base_raw <- run_sql(con, ppx_base_sql,
-                         cdm_schema   = cdm,
-                         vocab_schema = vocab,
-                         person_ids   = cohort_ids) |>
-  mutate(ppx_start = as.Date(ppx_start),
-         ppx_group = case_when(
-           ppx_ancestor %in% c(21602929L, 1705674L) ~ "TMP-SMX",
-           ppx_ancestor == 1711759L                  ~ "Dapsone",
-           ppx_ancestor == 1730370L                  ~ "Atovaquone",
-           ppx_ancestor == 1751310L                  ~ "Pentamidine"
-         ))
+# ppx_all_raw already contains the full base-cohort prophylaxis data with
+# ppx_start and ppx_group columns — no second DB round-trip needed.
+ppx_base_raw <- ppx_all_raw
 
 # Per patient, per regimen: first prescription date
 first_ppx_base <- ppx_base_raw |>

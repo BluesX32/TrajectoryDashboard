@@ -570,9 +570,10 @@ analysis_df <- base_cohort |>
   left_join(vacc_count_df, by = "person_id") |>
   mutate(
     race = case_when(
-      coalesce(race, "Unknown") == "White"                  ~ "White",
+      coalesce(race, "Unknown") == "Asian"                     ~ "Asian",
       coalesce(race, "Unknown") == "Black or African American" ~ "Black",
-      TRUE                                                  ~ "Other"
+      coalesce(race, "Unknown") == "White"                     ~ "White",
+      TRUE                                                      ~ "Other"
     ),
     vaccine_doses = factor(
       case_when(
