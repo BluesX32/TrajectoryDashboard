@@ -1138,24 +1138,24 @@ print(table3_pjp)
 # ============================================================================
 
 dt <- format(Sys.Date(), "%b%d")
-if (!dir.exists("output")) dir.create("output")
+if (!dir.exists("output/PJP")) dir.create("output/PJP")
 
-gtsave(table1_pjp, file.path("output", paste0("table1_pjp_demographics_",  dt, ".html")))
-gtsave(table2_pjp, file.path("output", paste0("table2_pjp_medications_",   dt, ".html")))
-gtsave(table3_pjp, file.path("output", paste0("table3_pjp_ppx_outcomes_",  dt, ".html")))
-gtsave(table1_pjp, file.path("output", paste0("table1_pjp_demographics_",  dt, ".docx")))
-gtsave(table2_pjp, file.path("output", paste0("table2_pjp_medications_",   dt, ".docx")))
-gtsave(table3_pjp, file.path("output", paste0("table3_pjp_ppx_outcomes_",  dt, ".docx")))
-saveRDS(table1_pjp,       file.path("output", paste0("table1_pjp_",         dt, ".rds")))
-saveRDS(table2_pjp,       file.path("output", paste0("table2_pjp_",         dt, ".rds")))
-saveRDS(table3_pjp,       file.path("output", paste0("table3_pjp_",         dt, ".rds")))
-saveRDS(tbl1_pjp_data,    file.path("output", paste0("data_table1_pjp_",    dt, ".rds")))
-saveRDS(t2_display,       file.path("output", paste0("data_table2_pjp_",    dt, ".rds")))
-saveRDS(t3_data,          file.path("output", paste0("data_table3_pjp_",    dt, ".rds")))
+gtsave(table1_pjp, file.path("output/PJP", paste0("table1_pjp_demographics_",  dt, ".html")))
+gtsave(table2_pjp, file.path("output/PJP", paste0("table2_pjp_medications_",   dt, ".html")))
+gtsave(table3_pjp, file.path("output/PJP", paste0("table3_pjp_ppx_outcomes_",  dt, ".html")))
+gtsave(table1_pjp, file.path("output/PJP", paste0("table1_pjp_demographics_",  dt, ".docx")))
+gtsave(table2_pjp, file.path("output/PJP", paste0("table2_pjp_medications_",   dt, ".docx")))
+gtsave(table3_pjp, file.path("output/PJP", paste0("table3_pjp_ppx_outcomes_",  dt, ".docx")))
+saveRDS(table1_pjp,       file.path("output/PJP", paste0("table1_pjp_",         dt, ".rds")))
+saveRDS(table2_pjp,       file.path("output/PJP", paste0("table2_pjp_",         dt, ".rds")))
+saveRDS(table3_pjp,       file.path("output/PJP", paste0("table3_pjp_",         dt, ".rds")))
+saveRDS(tbl1_pjp_data,    file.path("output/PJP", paste0("data_table1_pjp_",    dt, ".rds")))
+saveRDS(t2_display,       file.path("output/PJP", paste0("data_table2_pjp_",    dt, ".rds")))
+saveRDS(t3_data,          file.path("output/PJP", paste0("data_table3_pjp_",    dt, ".rds")))
 saveRDS(list(base       = cohort_ids,
              pjp        = pjp_ids,
              no_ppx     = no_ppx_ids,
              ppx_users  = ppx_user_ids),
-        file.path("output", paste0("patient_lists_pjp_",                    dt, ".rds")))
+        file.path("output/PJP", paste0("patient_lists_pjp_",                    dt, ".rds")))
 
-message("Done. Output saved to output/")
+message("Done. Output saved to output/PJP/")

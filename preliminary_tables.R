@@ -1542,29 +1542,29 @@ message(nrow(post_vacc_summary), " post-vaccine patients in cohort summary.")
 # Optional: Save tables as HTML
 # ============================================================================
 dt <- format(Sys.Date(), "%b%d")
-if (!dir.exists("output")) dir.create("output")
-gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt, ".html")))
-gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".html")))
-gtsave(table3, file.path("output", paste0("table3_dmard_pre_shingles_",       dt, ".html")))
-gtsave(table4, file.path("output", paste0("table4_dmard_perivacc_",           dt, ".html")))
-gtsave(table1, file.path("output", paste0("table1_baseline_characteristics_", dt, ".docx")))
-gtsave(table2, file.path("output", paste0("table2_shingles_episodes_",        dt, ".docx")))
-gtsave(table3, file.path("output", paste0("table3_dmard_pre_shingles_",       dt, ".docx")))
-gtsave(table4, file.path("output", paste0("table4_dmard_perivacc_",           dt, ".docx")))
-saveRDS(table1,            file.path("output", paste0("table1_baseline_characteristics_", dt, ".rds")))
-saveRDS(table2,            file.path("output", paste0("table2_shingles_episodes_",        dt, ".rds")))
-saveRDS(table3,            file.path("output", paste0("table3_dmard_pre_shingles_",       dt, ".rds")))
-saveRDS(table4,            file.path("output", paste0("table4_dmard_perivacc_",           dt, ".rds")))
-saveRDS(tbl1_data,         file.path("output", paste0("data_table1_",                     dt, ".rds")))
-saveRDS(table2_data,       file.path("output", paste0("data_table2_",                     dt, ".rds")))
-saveRDS(t3_counts,         file.path("output", paste0("data_table3_",                     dt, ".rds")))
-saveRDS(t4_counts,         file.path("output", paste0("data_table4_",                     dt, ".rds")))
-saveRDS(post_vacc_summary, file.path("output", paste0("data_post_vacc_summary_",          dt, ".rds")))
+if (!dir.exists("output/Shingles")) dir.create("output/Shingles")
+gtsave(table1, file.path("output/Shingles", paste0("table1_baseline_characteristics_", dt, ".html")))
+gtsave(table2, file.path("output/Shingles", paste0("table2_shingles_episodes_",        dt, ".html")))
+gtsave(table3, file.path("output/Shingles", paste0("table3_dmard_pre_shingles_",       dt, ".html")))
+gtsave(table4, file.path("output/Shingles", paste0("table4_dmard_perivacc_",           dt, ".html")))
+gtsave(table1, file.path("output/Shingles", paste0("table1_baseline_characteristics_", dt, ".docx")))
+gtsave(table2, file.path("output/Shingles", paste0("table2_shingles_episodes_",        dt, ".docx")))
+gtsave(table3, file.path("output/Shingles", paste0("table3_dmard_pre_shingles_",       dt, ".docx")))
+gtsave(table4, file.path("output/Shingles", paste0("table4_dmard_perivacc_",           dt, ".docx")))
+saveRDS(table1,            file.path("output/Shingles", paste0("table1_baseline_characteristics_", dt, ".rds")))
+saveRDS(table2,            file.path("output/Shingles", paste0("table2_shingles_episodes_",        dt, ".rds")))
+saveRDS(table3,            file.path("output/Shingles", paste0("table3_dmard_pre_shingles_",       dt, ".rds")))
+saveRDS(table4,            file.path("output/Shingles", paste0("table4_dmard_perivacc_",           dt, ".rds")))
+saveRDS(tbl1_data,         file.path("output/Shingles", paste0("data_table1_",                     dt, ".rds")))
+saveRDS(table2_data,       file.path("output/Shingles", paste0("data_table2_",                     dt, ".rds")))
+saveRDS(t3_counts,         file.path("output/Shingles", paste0("data_table3_",                     dt, ".rds")))
+saveRDS(t4_counts,         file.path("output/Shingles", paste0("data_table4_",                     dt, ".rds")))
+saveRDS(post_vacc_summary, file.path("output/Shingles", paste0("data_post_vacc_summary_",          dt, ".rds")))
 saveRDS(list(base_cohort   = cohort_ids,
              shingles      = shingles_ids,
              shingrix      = shingles_vaccine_ids,
              post_vaccine  = pv_ids),
-        file.path("output", paste0("patient_lists_",                              dt, ".rds")))
+        file.path("output/Shingles", paste0("patient_lists_",                              dt, ".rds")))
 
 # ============================================================================
 # Launch dashboard with post-vaccine cohort panel
