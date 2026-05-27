@@ -429,7 +429,7 @@ inst/sql/                     SqlRender-parameterized OMOP SQL templates:
                                 fetch_phn_events.sql / fetch_vzv_organ_events.sql
                                 extract_labs/medications/conditions/visits/notes.sql
 inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
-preliminary_tables.R          Shingles / VZV analysis (base cohort = rheum + DMARD, no IVIG).
+preliminary_tables.R          Shingles / VZV analysis — PREVALENCE cohort (any RD dx + DMARD).
                               SHINGLES_GAP_DAYS (default 90): consecutive VZV condition
                                 occurrences within this window are collapsed into one episode.
                               Table 1 (base cohort characteristics by shingles status;
@@ -438,7 +438,14 @@ preliminary_tables.R          Shingles / VZV analysis (base cohort = rheum + DMA
                               Table 2 (shingles episode stats; pre/post vaccine columns with
                                        episode-proportion weighting for overlap patients)
                               Step 6 post-vaccine cohort summary — passed to dashboard launch
-preliminary_tables_pjp.R      PJP (Pneumocystis jirovecii pneumonia) analysis.
+preliminary_tables_shingles_incident.R
+                              Shingles / VZV analysis — INCIDENT cohort.
+                              Base cohort requires TWO RD diagnoses, 30–365 days apart;
+                                second diagnosis = cohort index_date.
+                              Events restricted to >= index_date. Age at index_date.
+                              Table 1 (same structure as preliminary_tables.R)
+                              Table 2 (same structure; episodes filtered to >= index_date)
+preliminary_tables_pjp.R      PJP analysis — PREVALENCE cohort.
                               Same base cohort as preliminary_tables.R.
                               Table 1 — full base cohort characteristics by PJP status;
                                          3 columns: Total | Without PJP | With PJP;
@@ -449,6 +456,13 @@ preliminary_tables_pjp.R      PJP (Pneumocystis jirovecii pneumonia) analysis.
                               Table 3 — prophylaxis regimen outcomes: PJP incidence rate and
                                          ADE rate per 100 person-years (exact Poisson 95% CI)
                                          for TMP-SMX, Dapsone, Atovaquone, Pentamidine
+preliminary_tables_pjp_incident.R
+                              PJP analysis — INCIDENT cohort.
+                              Same two-encounter RD definition as shingles incident script.
+                              first_rd_date returned from base cohort query (no separate STEP 1b).
+                              PJP events restricted to >= rd_index_date.
+                              Age at rd_index_date. Table 1 / 2 / 3 — same structure as
+                              preliminary_tables_pjp.R.
 inst/extdata/                 synthetic_patient_data.rds (demo patients)
 inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)
 ```

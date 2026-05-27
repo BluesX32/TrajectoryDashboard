@@ -142,7 +142,7 @@ launch_trajectory_dashboard(
 #             vaccination and shingles, lymphocyte at shingles, prednisone.
 # source("preliminary_tables.R")
 
-# Run preliminary_tables_pjp.R for PJP analysis:
+# Run preliminary_tables_pjp.R for PJP analysis (PREVALENCE cohort):
 #   Table 1 — full base cohort characteristics by PJP status
 #             (3 cols: Total | Without PJP | With PJP)
 #             Race categorised as: Asian / Black / White / Other
@@ -152,3 +152,23 @@ launch_trajectory_dashboard(
 #   Table 3 — prophylaxis regimen outcomes: PJP and ADE incidence rates
 #             per 100 person-years (exact Poisson 95% CI, Garwood method)
 # source("preliminary_tables_pjp.R")
+
+# ── INCIDENT COHORT VERSIONS ─────────────────────────────────────────────────
+# Cohort entry requires TWO RD diagnoses, with the first occurring 30–365 days
+# before the second.  The second diagnosis date is the INDEX DATE.
+# All events (shingles/PJP, vaccine, prophylaxis) are restricted to >= index_date.
+# Age is measured at index_date.  first_rd_date is embedded in the base cohort
+# query (no separate STEP 1b needed for PJP).
+#
+# Run preliminary_tables_shingles_incident.R for shingles incident analysis:
+#   Table 1 — base cohort characteristics (Total / No Shingles / Shingles)
+#   Table 2 — shingles episode stats (Overall / Pre-vaccine / Post-vaccine)
+#             episodes restricted to >= index_date
+# source("preliminary_tables_shingles_incident.R")
+#
+# Run preliminary_tables_pjp_incident.R for PJP incident analysis:
+#   Table 1 — base cohort by PJP status (Total | Without PJP | With PJP)
+#   Table 2 — medications 90d before PJP (PJP patients only)
+#   Table 3 — prophylaxis regimen outcomes (PJP + ADE incidence rates)
+#             PJP events restricted to >= index_date
+# source("preliminary_tables_pjp_incident.R")
