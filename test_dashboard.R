@@ -115,10 +115,11 @@ launch_trajectory_dashboard(
 # launch_trajectory_dashboard()
 
 # ----------------------------------------------------------------------------
-# Preliminary descriptive tables (separate script)
+# Preliminary descriptive tables (separate scripts)
 # ----------------------------------------------------------------------------
-# Run preliminary_tables.R for:
-#   Table 1 — base cohort characteristics (Total / Shingles / No Shingles)
+# Run preliminary_tables.R for shingles / VZV analysis:
+#   Table 1 — base cohort characteristics (3 cols: Total / No Shingles / Shingles)
+#             Race categorised as: Asian / Black / White / Other
 #   Table 2 — shingles episode stats (incidence, PHN, VZV organ involvement)
 #             Pre/post vaccine columns with episode-proportion weighting
 #   Step 6  — post-vaccine cohort summary table; also launches the dashboard
@@ -126,3 +127,13 @@ launch_trajectory_dashboard(
 #             Columns per patient: age, sex, diagnoses, DMARDs ±30d around
 #             vaccination and shingles, lymphocyte at shingles, prednisone.
 # source("preliminary_tables.R")
+
+# Run preliminary_tables_pjp.R for PJP analysis:
+#   Table 1 — full base cohort characteristics by PJP status
+#             (3 cols: Total | Without PJP | With PJP)
+#             Race categorised as: Asian / Black / White / Other
+#             Rheumatic Dx flags and any-ever prophylaxis by regimen
+#   Table 2 — PJP patients only; immunosuppressants + prophylaxis in 90d
+#             window before PJP index date; n (%) per drug class
+#   Table 3 — prophylaxis regimen outcomes (RR, adverse drug events)
+# source("preliminary_tables_pjp.R")

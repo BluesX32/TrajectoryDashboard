@@ -387,17 +387,20 @@ inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort defini
 preliminary_tables.R          Shingles / VZV analysis (base cohort = rheum + DMARD, no IVIG).
                               SHINGLES_GAP_DAYS (default 90): consecutive VZV condition
                                 occurrences within this window are collapsed into one episode.
-                              Table 1 (base cohort characteristics by shingles status)
+                              Table 1 (base cohort characteristics by shingles status;
+                                       3 columns: Total | No Shingles | Shingles;
+                                       race: Asian / Black / White / Other)
                               Table 2 (shingles episode stats; pre/post vaccine columns with
                                        episode-proportion weighting for overlap patients)
                               Step 6 post-vaccine cohort summary — passed to dashboard launch
 preliminary_tables_pjp.R      PJP (Pneumocystis jirovecii pneumonia) analysis.
                               Same base cohort as preliminary_tables.R.
-                              Table 1 — demographics: age at PJP dx, sex, rheumatic Dx,
-                                         30-day in-hospital mortality, DMARD count (90d window),
-                                         prophylaxis exposure by regimen (90d window)
-                              Table 2 — all immunosuppressants + prophylaxis drugs in 90d
-                                         window before PJP index date; n (%) per drug
+                              Table 1 — full base cohort characteristics by PJP status;
+                                         3 columns: Total | Without PJP | With PJP;
+                                         demographics: age, sex, race (Asian / Black / White / Other);
+                                         rheumatic Dx flags, any-ever prophylaxis exposure by regimen
+                              Table 2 — PJP patients only; all immunosuppressants + prophylaxis
+                                         drugs in 90d window before PJP index date; n (%) per drug
                               Table 3 — prophylaxis regimen outcomes: PJP risk and adverse
                                          drug events (RR vs. no-prophylaxis / TMP-SMX reference)
                                          for TMP-SMX, Dapsone, Atovaquone, Pentamidine

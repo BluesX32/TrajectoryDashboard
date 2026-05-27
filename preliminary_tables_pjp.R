@@ -836,12 +836,12 @@ table2_pjp <- t2_display |>
   tab_header(
     title    = "Table 2. Medication Use in the 90 Days Before PJP Diagnosis",
     subtitle = md(sprintf(
-      "Among %d patients with PJP; window = [PJP index − 90 days, PJP index]. Each patient counted once per drug.",
+      "Among %d patients with PJP; window = [PJP index \u2212 90 days, PJP index]. Each patient counted once per drug.",
       n_pjp
     ))
   ) |>
   tab_footnote(
-    footnote  = "Cotrimoxazole (TMP-SMX) and Trimethoprim queried separately — overlap patients counted in both rows.",
+    footnote  = "Cotrimoxazole (TMP-SMX) and Trimethoprim queried separately \u2014 overlap patients counted in both rows.",
     locations = cells_row_groups(groups = "PJP Prophylaxis")
   )
 
