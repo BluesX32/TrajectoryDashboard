@@ -93,6 +93,7 @@
 #' data <- fetch_patient_data(con, person_id = 12345L)
 #' }
 create_omop_connection <- function(
+    connectionDetails = NULL,
     dbms              = NULL,
     server            = NULL,
     database          = NULL,
@@ -109,6 +110,37 @@ create_omop_connection <- function(
     use_env           = TRUE
 ) {
   .check_db_packages()
+
+  # ── Fast path: a pre-built connectionDetails object was supplied ────────────
+  # This is the standard OHDSI pattern:
+  #   connectionDetails <- DatabaseConnector::createConnectionDetails(...)
+  #   con <- create_omop_connection(connectionDetails, cdm_schema = "dbo")
+  if (!is.null(connectionDetails)) {
+    if (is.null(cdm_schema) || !nzchar(cdm_schema %||% "")) cdm_schema <- "dbo"
+    if (is.null(vocabulary_schema)) vocabulary_schema <- cdm_schema
+    if (is.null(results_schema))    results_schema    <- NULL
+
+    old_opt <- getOption("rstudio.connectionObserver.errorsSuppressed", FALSE)
+    options(rstudio.connectionObserver.errorsSuppressed = TRUE)
+    conn <- tryCatch(
+      DatabaseConnector::connect(connectionDetails),
+      finally = options(rstudio.connectionObserver.errorsSuppressed = old_opt)
+    )
+
+    message(sprintf(
+      "✓ omop_connector ready  |  cdm_schema: %s", cdm_schema
+    ))
+
+    con <- create_omop_connector(
+      connectionDetails = connectionDetails,
+      cdm_schema        = cdm_schema,
+      vocab_schema      = vocabulary_schema,
+      results_schema    = results_schema
+    )
+    con$conn <- conn
+    con$dbms <- DatabaseConnector::dbms(conn)
+    return(con)
+  }
 
   if (use_env) {
     # ----------------------------------------------------------------

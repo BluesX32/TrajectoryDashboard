@@ -225,63 +225,30 @@ All SQL queries use **SqlRender** for cross-DBMS translation. Tested connection 
 
 ### OHDSI-standard approach (recommended) — `launch_dashboard.R`
 
-`launch_dashboard.R` follows the OHDSI / HADES convention used by
-CohortDiagnostics, PatientLevelPrediction, and other network-study packages.
-Credentials are stored in `~/.Renviron`, which R loads automatically at startup
-— no project-level env file or custom file-reader is needed.
-
-**One-time setup (run interactively once ever):**
+Same fill-in-the-blanks pattern used by CohortDiagnostics,
+PatientLevelPrediction, and other OHDSI network studies.
+Open `launch_dashboard.R`, fill in your values, and run it.
 
 ```r
-usethis::edit_r_environ()   # opens ~/.Renviron in your editor
+connectionDetails <- DatabaseConnector::createConnectionDetails(
+  dbms       = "sql server",
+  server     = "yourserver.edu/OMOP",
+  user       = "your_username",
+  password   = "your_password",
+  port       = 1433,
+  pathToDriver = "C:/jdbc"
+)
+
+cdmDatabaseSchema   <- "dbo"
+vocabDatabaseSchema <- "dbo"
 ```
 
-Add the block for your platform, then restart R (`.rs.restartR()` in RStudio).
-
-**SQL Server — Windows AD / Kerberos (e.g. JHU ESM server):**
-
-```
-DB_DBMS=sql server
-DB_SERVER=server.esm.johnshopkins.edu
-DB_DATABASE=Myositis_OMOP
-DB_CDM_SCHEMA=dbo
-DB_WINDOWS_AUTH=true
-DB_JDBC_PATH=C:/jdbc/sql
-```
-
-**Databricks — SAFER Desktop (proxy on):**
-
-```
-DB_DBMS=spark
-DB_SERVER=adb-1234567890123456.7.azuredatabricks.net
-DB_HTTP_PATH=/sql/1.0/warehouses/abcdef1234567890
-DB_TOKEN=dapi_xxxxxxxxxxxxxxxxxxxx
-DB_CDM_SCHEMA=deid.omop
-DB_RESULTS_SCHEMA=reach_users.mxiong5
-DB_JDBC_PATH=C:/jdbc/databricks-jdbc-2.6.36.jar
-DB_USE_PROXY=true
-```
-
-**Databricks — Discovery HPC (no proxy):**
-
-```
-DB_DBMS=spark
-DB_SERVER=adb-1234567890123456.7.azuredatabricks.net
-DB_HTTP_PATH=/sql/1.0/warehouses/abcdef1234567890
-DB_TOKEN=dapi_xxxxxxxxxxxxxxxxxxxx
-DB_CDM_SCHEMA=deid.omop
-DB_RESULTS_SCHEMA=reach_users.mxiong5
-DB_JDBC_PATH=~/jdbc/databricks-jdbc-2.6.36.jar
-```
-
-**Launch:**
+JDBC drivers are not bundled — download once with:
 
 ```r
-source("launch_dashboard.R")
+DatabaseConnector::downloadJdbcDrivers("sql server", pathToDriver = "C:/jdbc")
+# or: "postgresql" | "spark" for other platforms
 ```
-
-Internally this calls `DatabaseConnector::createConnectionDetails()` directly —
-the single OHDSI-blessed function — then wraps it in `create_omop_connector()`.
 
 ---
 

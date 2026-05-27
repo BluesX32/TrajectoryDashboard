@@ -4,17 +4,14 @@
 #
 # ── Which script should I use? ───────────────────────────────────────────────
 #
-#   launch_dashboard.R  (OHDSI-standard)
-#     Uses DatabaseConnector::createConnectionDetails() directly.
-#     Credentials live in ~/.Renviron (R's native startup config, loaded
-#     automatically — no explicit file reading).  Follow the OHDSI / HADES
-#     convention used by CohortDiagnostics, PatientLevelPrediction, etc.
-#     Recommended for new setups and OHDSI network studies.
+#   launch_dashboard.R  (OHDSI-standard, recommended)
+#     Fill in createConnectionDetails() directly — same pattern as
+#     CohortDiagnostics, PatientLevelPrediction, and other OHDSI studies.
+#     Simple fill-in-the-blanks; no env files needed.
 #
-#   test_dashboard.R  (this file — legacy env-file approach)
-#     Reads credentials from a project-level .env or R.env file via
-#     create_connection_from_env() / create_safer_connection().
-#     Kept for backwards compatibility with existing site deployments.
+#   test_dashboard.R  (this file — env-file approach)
+#     Reads credentials from a project-level .env or R.env file.
+#     Kept for existing site deployments that already have those files.
 #
 # ============================================================================
 # Workflow overview
