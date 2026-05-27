@@ -29,11 +29,13 @@
 #   overlaps the PJP index date (visit_start <= index_date <= visit_end).
 #
 # Prophylaxis definition for Table 1
-#   PJP patients:     drug exposure start date at least 28 days before PJP index date
+#   All patients:     ppx_start >= first rheumatic disease diagnosis + 8 weeks
+#                     (ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET).
+#   PJP patients:     additionally ppx_start <= index_date - 28 days
 #                     (ppx_start <= index_date - PPX_TABLE1_ONSET).
-#   Non-PJP patients: any ever exposure during observation period (no PJP date to
-#                     reference). Prophylaxis window for Table 2 (PJP patients only)
-#                     remains 90 days before index date (PJP_PPX_WINDOW).
+#   Non-PJP patients: criterion (a) only — no PJP date to reference.
+#   Prophylaxis window for Table 2 (PJP patients only) remains 90 days before
+#   index date (PJP_PPX_WINDOW) and is not subject to these constraints.
 #
 # ADE window for Table 3
 #   Any condition occurrence for a pre-specified serious adverse event within
@@ -57,6 +59,7 @@ library(labelled)
 PJP_DMARD_WINDOW  <- 90L   # days before PJP index to count DMARD use
 PJP_PPX_WINDOW    <- 90L   # days before PJP index to classify prophylaxis (Table 2)
 PPX_TABLE1_ONSET  <- 28L   # min days before PJP index for prophylaxis to count in Table 1
+PPX_RHEUM_ONSET   <- 56L   # prophylaxis must start >= this many days after rheum dx (8 weeks)
 ADE_WINDOW        <- 90L   # days after first prophylaxis Rx to look for ADEs
 MORTALITY_DAYS    <- 30L   # in-hospital death within this many days of PJP index
 
@@ -191,6 +194,110 @@ base_cohort <- run_sql(con, base_cohort_sql,
 
 message(nrow(base_cohort), " patients in base cohort.")
 cohort_ids <- base_cohort$person_id
+
+# ============================================================================
+# STEP 1b: First rheumatic disease diagnosis date per patient
+# Replicates all three OR branches of the base cohort eligibility criteria:
+#   (1) direct concept_id list  (SLE, myositis, SSc, GCA, SpA/Lupus)
+#   (2) concept_ancestor set A  (broader rheumatic disease ancestors)
+#   (3) concept_ancestor set B  (RA / spondyloarthropathy ancestors)
+# Used to enforce PPX_RHEUM_ONSET: prophylaxis must start >= 8 weeks after
+# the first rheumatic disease diagnosis.
+# ============================================================================
+
+message("Fetching first rheumatic disease diagnosis date per patient...")
+
+first_rheum_dx_sql <- "
+WITH rheum_direct AS (
+  SELECT co.person_id,
+    CAST(co.condition_start_date AS DATE) AS dx_date
+  FROM @cdm_schema.condition_occurrence co
+  WHERE co.person_id IN (@person_ids)
+    AND co.condition_concept_id IN (
+      -- SLE (codeset 0)
+      37016279, 4319305, 4300204, 4324123, 4066824, 432919, 606388, 46273369,
+      4055640, 35208699, 45562709, 45567545, 257628, 606386, 255891, 46270384,
+      35208826, 35208701, 45606214, 3321233, 45601434, 606430, 4145240, 4343923,
+      35208700, 44819941, 4344158, 4149913, 45582126, 35208827, 45591820,
+      -- Myositis / inflammatory myopathy (codeset 3)
+      45548265, 45586838, 45606052, 45543436, 45572339, 45553046, 45591705,
+      45562599, 45543443, 45562600, 45567422, 45567423, 45586845, 725373,
+      45606064, 45538639, 45606063, 45543442, 45601289, 45572346, 45577117,
+      45567425, 45577119, 45548271, 45548270, 45567426, 80809, 4117687,
+      4115161, 4116440, 4116150, 4116151, 4117686, 4114439, 4116441, 45591700,
+      45572337, 45596437, 45538633, 45548263, 45543435, 45582014, 45553045,
+      725370, 45596438, 45548261, 45606051, 45572338, 45548262, 45596436,
+      45606050, 45596439, 45562591, 45582015, 45567419, 45533697, 45567418,
+      45543434, 45553044, 35208750, 37160562, 45567420, 45577104, 45572340,
+      45533702, 45553051, 45533701, 45562593, 45572341, 725372, 45577109,
+      45557762, 45606055, 45557763, 45601284, 45606053, 45606054, 45533703,
+      45577105, 45577107, 45538635, 45591701, 45596442, 45606056, 35208753,
+      45586836, 45557754, 45591686, 45572332, 45538631, 45567415, 45591694,
+      45548258, 45548257, 45567413, 45596428, 45596427, 45572327, 4083556,
+      37207809, 4035611,
+      -- SSc (codeset 4)
+      36716891, 37017494, 1077506, 766408, 766409, 766411, 766410, 766402,
+      37110375, 37205058, 40319772, 45548197, 46274123, 4064048, 437082,
+      45548419, 45533841, 45586969, 45601454, 45548418, 45533840, 45553184,
+      45543577, 45582150, 45567561,
+      -- GCA (codeset 5)
+      4126439, 37397763, 4337524, 4128222, 134442, 4331739, 441928, 4105026,
+      44811612, 40352976, 4027230,
+      -- Lupus/spondyloarthropathy (codeset 6)
+      314963, 35208820, 4343935, 35208821
+    )
+),
+rheum_ancestor_a AS (
+  SELECT co.person_id,
+    CAST(co.condition_start_date AS DATE) AS dx_date
+  FROM @cdm_schema.condition_occurrence co
+  JOIN @vocab_schema.concept_ancestor ca
+    ON co.condition_concept_id = ca.descendant_concept_id
+  JOIN @vocab_schema.concept cv
+    ON co.condition_concept_id = cv.concept_id
+  WHERE co.person_id IN (@person_ids)
+    AND ca.ancestor_concept_id IN (
+      4270868, 4005037, 80182, 4081250, 4344161, 42535714
+    )
+    AND cv.invalid_reason IS NULL
+),
+rheum_ancestor_b AS (
+  SELECT co.person_id,
+    CAST(co.condition_start_date AS DATE) AS dx_date
+  FROM @cdm_schema.condition_occurrence co
+  JOIN @vocab_schema.concept_ancestor ca
+    ON co.condition_concept_id = ca.descendant_concept_id
+  JOIN @vocab_schema.concept cv
+    ON co.condition_concept_id = cv.concept_id
+  WHERE co.person_id IN (@person_ids)
+    AND ca.ancestor_concept_id IN (
+      4305666, 313223, 4344493, 606328, 320749
+    )
+    AND cv.invalid_reason IS NULL
+),
+all_rheum AS (
+  SELECT person_id, dx_date FROM rheum_direct
+  UNION ALL
+  SELECT person_id, dx_date FROM rheum_ancestor_a
+  UNION ALL
+  SELECT person_id, dx_date FROM rheum_ancestor_b
+)
+SELECT person_id,
+  MIN(dx_date) AS first_rheum_dx
+FROM all_rheum
+GROUP BY person_id
+"
+
+first_rheum_dx_df <- run_sql(con, first_rheum_dx_sql,
+                              cdm_schema   = cdm,
+                              vocab_schema = vocab,
+                              person_ids   = cohort_ids) |>
+  mutate(first_rheum_dx = as.Date(first_rheum_dx))
+
+message(sprintf(
+  "First rheumatic disease diagnosis date obtained for %d / %d patients.",
+  nrow(first_rheum_dx_df), length(cohort_ids)
+))
 
 # ============================================================================
 # STEP 2: PJP cohort
@@ -482,17 +589,24 @@ for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")
 }
 names(ppx_flags_pjp) <- gsub("-", "_", names(ppx_flags_pjp), fixed = TRUE)
 
-# ── Full-cohort flags (Table 1) ───────────────────────────────────────────────
-# PJP patients:     prophylaxis start must be >= PPX_TABLE1_ONSET days before PJP
-# Non-PJP patients: any ever exposure (no PJP index date to reference)
+# ── Full-cohort flags (Table 1) ─────────────────────────────────────────────
+# Two criteria applied to all patients:
+#   (a) ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET  (>= 8 weeks after rheum dx)
+# Additional criterion for PJP patients only:
+#   (b) ppx_start <= index_date - PPX_TABLE1_ONSET     (>= 28 days before PJP)
+# Non-PJP patients: criterion (a) only — no PJP date to reference for (b).
 ppx_for_pjp <- ppx_all_raw |>
   filter(person_id %in% pjp_ids) |>
-  inner_join(pjp_cohort |> select(person_id, index_date), by = "person_id") |>
-  filter(ppx_start <= index_date - PPX_TABLE1_ONSET) |>
+  inner_join(pjp_cohort        |> select(person_id, index_date),    by = "person_id") |>
+  inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx), by = "person_id") |>
+  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET,
+         ppx_start <= index_date     - PPX_TABLE1_ONSET) |>
   distinct(person_id, ppx_group)
 
 ppx_for_nopjp <- ppx_all_raw |>
   filter(!person_id %in% pjp_ids) |>
+  inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx), by = "person_id") |>
+  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET) |>
   distinct(person_id, ppx_group)
 
 ppx_flags_all <- bind_rows(ppx_for_pjp, ppx_for_nopjp) |>
@@ -693,9 +807,11 @@ table1_pjp <- tbl1_pjp_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
-      "PJP Prophylaxis (With PJP group): prescription start date at least ",
-      PPX_TABLE1_ONSET, " days before PJP index date. ",
-      "PJP Prophylaxis (Without PJP group): any ever exposure during observation period."
+      "PJP prophylaxis criteria — all patients: prescription start at least ",
+      PPX_RHEUM_ONSET, " days (", PPX_RHEUM_ONSET %/% 7L, " weeks) after first ",
+      "rheumatic disease diagnosis. With PJP group: additionally, prescription start ",
+      "at least ", PPX_TABLE1_ONSET, " days before PJP index date. ",
+      "Without PJP group: 8-week post-diagnosis criterion only (no PJP reference date)."
     ),
     locations = cells_row_groups(groups = "PJP Prophylaxis")
   )
