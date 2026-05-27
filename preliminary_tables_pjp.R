@@ -1034,38 +1034,81 @@ message(sprintf(
 
 # ============================================================================
 # STEP 9: Adverse drug events within ADE_WINDOW days of first prophylaxis Rx
-# ADE concept set (SNOMED, with descendants):
-#   320073  — Leukopenia / neutropenia
-#   432870  — Thrombocytopenia
-#   197320  — Acute kidney injury
-#   4029488 — Drug-induced liver disease / hepatotoxicity
-#   4192640 — Pancreatitis
-#   141932  — Stevens-Johnson syndrome / toxic epidermal necrolysis
+#
+# ICD-10CM source codes (mapped to standard SNOMED via concept_relationship):
+#   K71.2  — Toxic liver disease with acute hepatitis
+#   K71.6  — Toxic liver disease with hepatitis, not elsewhere classified
+#   G62.0  — Drug-induced polyneuropathy
+#   K85.30 — Drug-induced acute pancreatitis, no necrosis or infection
+#   K85.31 — Drug-induced acute pancreatitis, uninfected necrosis
+#   K85.32 — Drug-induced acute pancreatitis, infected necrosis
+#
+# SNOMED ancestors (concept_id) + all descendants:
+#   141932  — Stevens-Johnson syndrome
+#   4168698 — Toxic epidermal necrolysis
+#   4082382 — Drug eruption / drug-induced rash
 #   4050985 — Methemoglobinemia
-#   374183  — Hypoglycaemia
-#   4031536 — Hemolytic anemia
-#   4115115 — Peripheral neuropathy
+#   4340961 — Pancreatitis (ancestor; captures drug-induced subtypes)
+#   4031536 — Hemolytic anemia (descendants include drug-induced types)
+#   4230222 — Hyperkalemia
 # ============================================================================
 
 message("Fetching adverse drug event conditions for prophylaxis users...")
 
 ade_sql <- "
-WITH ade_concepts AS (
+-- ICD-10CM codes mapped to their standard SNOMED concepts
+WITH icd10_mapped AS (
+  SELECT DISTINCT c2.concept_id
+  FROM @vocab_schema.concept c1
+  JOIN @vocab_schema.concept_relationship cr
+    ON c1.concept_id    = cr.concept_id_1
+   AND cr.relationship_id = 'Maps to'
+  JOIN @vocab_schema.concept c2
+    ON cr.concept_id_2  = c2.concept_id
+  WHERE c1.vocabulary_id = 'ICD10CM'
+    AND c1.concept_code IN (
+      'K71.2',   -- Toxic liver disease with acute hepatitis
+      'K71.6',   -- Toxic liver disease with hepatitis NEC
+      'G62.0',   -- Drug-induced polyneuropathy
+      'K85.30',  -- Drug-induced acute pancreatitis, no necrosis/infection
+      'K85.31',  -- Drug-induced acute pancreatitis, uninfected necrosis
+      'K85.32'   -- Drug-induced acute pancreatitis, infected necrosis
+    )
+    AND c2.standard_concept = 'S'
+    AND c2.invalid_reason   IS NULL
+),
+-- SNOMED ancestors + all descendants for remaining ADE types
+snomed_ancestors AS (
   SELECT DISTINCT concept_id
   FROM @vocab_schema.concept
   WHERE concept_id IN (
-    320073, 432870, 197320, 4029488, 4192640,
-    141932, 4050985, 374183, 4031536, 4115115
+    141932,   -- Stevens-Johnson syndrome
+    4168698,  -- Toxic epidermal necrolysis
+    4082382,  -- Drug eruption / drug-induced rash
+    4050985,  -- Methemoglobinemia
+    4340961,  -- Pancreatitis (captures drug-induced subtypes via descendants)
+    4031536,  -- Hemolytic anemia (captures drug-induced types via descendants)
+    4230222   -- Hyperkalemia
   )
   UNION
   SELECT DISTINCT ca.descendant_concept_id
   FROM @vocab_schema.concept_ancestor ca
   JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
   WHERE ca.ancestor_concept_id IN (
-    320073, 432870, 197320, 4029488, 4192640,
-    141932, 4050985, 374183, 4031536, 4115115
+    141932,   -- Stevens-Johnson syndrome
+    4168698,  -- Toxic epidermal necrolysis
+    4082382,  -- Drug eruption / drug-induced rash
+    4050985,  -- Methemoglobinemia
+    4340961,  -- Pancreatitis
+    4031536,  -- Hemolytic anemia
+    4230222   -- Hyperkalemia
   )
     AND c.invalid_reason IS NULL
+),
+ade_concepts AS (
+  SELECT concept_id FROM icd10_mapped
+  UNION
+  SELECT concept_id FROM snomed_ancestors
 )
 SELECT co.person_id,
   CAST(co.condition_start_date AS DATE) AS condition_date
@@ -1269,10 +1312,14 @@ table3_pjp <- t3_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
-      "Adverse drug events (ADE): any of leukopenia, thrombocytopenia, acute kidney injury, ",
-      "hepatotoxicity, pancreatitis, Stevens-Johnson syndrome, methemoglobinemia, ",
-      "hypoglycaemia, hemolytic anemia, or peripheral neuropathy within ",
-      ADE_WINDOW, " days of first qualifying prophylaxis prescription."
+      "Adverse drug events (ADE) within ", ADE_WINDOW, " days of first qualifying ",
+      "prophylaxis prescription: Stevens-Johnson syndrome (SNOMED), ",
+      "toxic epidermal necrolysis (SNOMED), drug-induced rash (SNOMED), ",
+      "drug-induced hepatitis (ICD-10 K71.2/K71.6), methemoglobinemia (SNOMED), ",
+      "drug-induced pancreatitis (ICD-10 K85.30–K85.32), ",
+      "drug-induced polyneuropathy (ICD-10 G62.0), ",
+      "drug-induced hemolytic anemia (SNOMED), or hyperkalemia (SNOMED). ",
+      "ICD-10CM codes mapped to standard SNOMED concepts via concept_relationship."
     ),
     locations = cells_column_spanners(spanners = "spanner_ade")
   ) |>
