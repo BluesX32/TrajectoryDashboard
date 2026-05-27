@@ -890,8 +890,6 @@ add_vacc_status <- function(df, date_col) {
 }
 
 episodes_cl <- add_vacc_status(shingles_episodes, "condition_start_date")
-phn_cl      <- add_vacc_status(phn_pts,           "complication_date")
-organ_cl    <- add_vacc_status(organ_pts,          "complication_date")
 
 # ============================================================================
 # Compute statistics for each column
@@ -929,34 +927,46 @@ ep_weights <- episodes_cl |>
 w_pts_pre  <- sum(ep_weights$w_pre)
 w_pts_post <- sum(ep_weights$w_post)
 
-# Weighted PHN counts — each patient contributes their window-specific weight
-w_phn_pre <- phn_cl |>
-  filter(vacc_status == "pre_vaccine") |>
+# Weighted PHN counts — anchored to SHINGLES EPISODE vaccination status,
+# NOT the PHN complication_date.
+#
+# Bug this fixes: if a patient's PHN date falls on the opposite side of the
+# vaccine boundary from all their shingles episodes (e.g., shingles episodes
+# are all pre-vaccine but PHN date is technically post-vaccine), the old code
+# classified that patient as "post_vaccine PHN" then looked up their
+# ep_weights$w_post = 0 → they contributed 0 to w_phn_post and were excluded
+# from w_phn_pre → disappeared entirely (Overall count > pre + post).
+#
+# Correct logic: PHN is a complication OF a shingles episode.  A patient's
+# PHN belongs to whichever vaccination window their shingles episodes occurred
+# in.  Applying the episode-proportion weights (w_pre / w_post) directly
+# guarantees w_phn_pre + w_phn_post == n_distinct(phn_pts), no patients lost.
+#
+# coalesce defaults: w_pre -> 1 (unmatched patient assumed fully pre-vaccine),
+#                    w_post -> 0 (unmatched patient assumed not post-vaccine).
+w_phn_pre <- phn_pts |>
   distinct(person_id) |>
   left_join(ep_weights |> select(person_id, w_pre), by = "person_id") |>
   summarise(n = sum(coalesce(w_pre, 1), na.rm = TRUE)) |>
   pull(n)
 
-w_phn_post <- phn_cl |>
-  filter(vacc_status == "post_vaccine") |>
+w_phn_post <- phn_pts |>
   distinct(person_id) |>
   left_join(ep_weights |> select(person_id, w_post), by = "person_id") |>
-  summarise(n = sum(coalesce(w_post, 1), na.rm = TRUE)) |>
+  summarise(n = sum(coalesce(w_post, 0), na.rm = TRUE)) |>
   pull(n)
 
-# Weighted organ counts
-w_org_pre <- organ_cl |>
-  filter(vacc_status == "pre_vaccine") |>
+# Weighted organ counts — same anchor (shingles episode weights, not organ date)
+w_org_pre <- organ_pts |>
   distinct(person_id) |>
   left_join(ep_weights |> select(person_id, w_pre), by = "person_id") |>
   summarise(n = sum(coalesce(w_pre, 1), na.rm = TRUE)) |>
   pull(n)
 
-w_org_post <- organ_cl |>
-  filter(vacc_status == "post_vaccine") |>
+w_org_post <- organ_pts |>
   distinct(person_id) |>
   left_join(ep_weights |> select(person_id, w_post), by = "person_id") |>
-  summarise(n = sum(coalesce(w_post, 1), na.rm = TRUE)) |>
+  summarise(n = sum(coalesce(w_post, 0), na.rm = TRUE)) |>
   pull(n)
 
 # Raw unique patient counts (unweighted) \u2014 for display in the "Unique patients" row
@@ -1041,7 +1051,7 @@ table2 <- table2_data |>
     locations = cells_body(columns = Characteristic, rows = grepl("organ", Characteristic))
   ) |>
   tab_footnote(
-    footnote = md("Patients with shingles episodes in both windows are counted in both columns (hence pre\u2009+\u2009post can exceed Overall). For PHN and organ involvement percentages the denominator uses episode-proportion weighting (w\u2009=\u2009k_window\u2009/\u2009k_total per patient) so rates are not inflated by overlap patients."),
+    footnote = md("Patients with shingles episodes in both windows are counted in both columns (hence pre\u2009+\u2009post can exceed Overall). PHN and organ involvement are assigned to a vaccination window using the same episode-proportion weights (w\u2009=\u2009k_window\u2009/\u2009k_total per patient), ensuring every complication patient is fully accounted for across columns."),
     locations = cells_body(columns = Characteristic, rows = grepl("Unique", Characteristic))
   ) |>
   tab_footnote(
