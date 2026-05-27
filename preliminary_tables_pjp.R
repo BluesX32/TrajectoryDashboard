@@ -28,9 +28,12 @@
 #   Death date within 30 days of PJP index date AND an inpatient visit that
 #   overlaps the PJP index date (visit_start <= index_date <= visit_end).
 #
-# Prophylaxis window for Table 1
-#   Drug exposure start date within 90 days before (inclusive) the PJP index date.
-#   Matches the lookback window in cohort_PJP_prophylaxis.sql.
+# Prophylaxis definition for Table 1
+#   PJP patients:     drug exposure start date at least 28 days before PJP index date
+#                     (ppx_start <= index_date - PPX_TABLE1_ONSET).
+#   Non-PJP patients: any ever exposure during observation period (no PJP date to
+#                     reference). Prophylaxis window for Table 2 (PJP patients only)
+#                     remains 90 days before index date (PJP_PPX_WINDOW).
 #
 # ADE window for Table 3
 #   Any condition occurrence for a pre-specified serious adverse event within
@@ -51,10 +54,11 @@ library(gt)
 library(labelled)
 
 # ── Time windows ─────────────────────────────────────────────────────────────
-PJP_DMARD_WINDOW <- 90L   # days before PJP index to count DMARD use
-PJP_PPX_WINDOW   <- 90L   # days before PJP index to classify prophylaxis
-ADE_WINDOW       <- 90L   # days after first prophylaxis Rx to look for ADEs
-MORTALITY_DAYS   <- 30L   # in-hospital death within this many days of PJP index
+PJP_DMARD_WINDOW  <- 90L   # days before PJP index to count DMARD use
+PJP_PPX_WINDOW    <- 90L   # days before PJP index to classify prophylaxis (Table 2)
+PPX_TABLE1_ONSET  <- 28L   # min days before PJP index for prophylaxis to count in Table 1
+ADE_WINDOW        <- 90L   # days after first prophylaxis Rx to look for ADEs
+MORTALITY_DAYS    <- 30L   # in-hospital death within this many days of PJP index
 
 # ----------------------------------------------------------------------------
 # Connection
@@ -415,7 +419,9 @@ dmard_count_df <- dmard_exposures_pjp |>
 # Derives two flag sets:
 #   ppx_flags_pjp — window-restricted (≤ PJP_PPX_WINDOW before PJP index date);
 #                   used in PJP-specific analysis (Table 2) and STEP 7 analysis_pjp
-#   ppx_flags_all — any ever exposure (no window); used in 3-column Table 1 and
+#   ppx_flags_all — Table 1 definition:
+#                     PJP patients:     ppx_start <= index_date - PPX_TABLE1_ONSET
+#                     non-PJP patients: any ever exposure (no PJP date to reference)
 #                   reused as ppx_base_raw for Table 3 (avoids second DB round-trip)
 #
 # Drug concept ancestors:
@@ -476,9 +482,20 @@ for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")
 }
 names(ppx_flags_pjp) <- gsub("-", "_", names(ppx_flags_pjp), fixed = TRUE)
 
-# ── Full-cohort flags (any ever exposure — for 3-column Table 1) ─────────────
-ppx_flags_all <- ppx_all_raw |>
-  distinct(person_id, ppx_group) |>
+# ── Full-cohort flags (Table 1) ───────────────────────────────────────────────
+# PJP patients:     prophylaxis start must be >= PPX_TABLE1_ONSET days before PJP
+# Non-PJP patients: any ever exposure (no PJP index date to reference)
+ppx_for_pjp <- ppx_all_raw |>
+  filter(person_id %in% pjp_ids) |>
+  inner_join(pjp_cohort |> select(person_id, index_date), by = "person_id") |>
+  filter(ppx_start <= index_date - PPX_TABLE1_ONSET) |>
+  distinct(person_id, ppx_group)
+
+ppx_for_nopjp <- ppx_all_raw |>
+  filter(!person_id %in% pjp_ids) |>
+  distinct(person_id, ppx_group)
+
+ppx_flags_all <- bind_rows(ppx_for_pjp, ppx_for_nopjp) |>
   mutate(flag = 1L) |>
   tidyr::pivot_wider(names_from   = ppx_group,
                      values_from  = flag,
@@ -636,7 +653,7 @@ table1_pjp <- tbl1_pjp_data |>
       mutate(groupname_col = case_when(
         variable %in% c("age", "sex", "race") ~ "Demographics",
         grepl("^dx_", variable)               ~ "Rheumatologic Diagnosis",
-        grepl("^ppx_", variable)              ~ "PJP Prophylaxis (any prior exposure)",
+        grepl("^ppx_", variable)              ~ "PJP Prophylaxis",
         TRUE                                  ~ NA_character_
       ))
   ) |>
@@ -673,6 +690,14 @@ table1_pjp <- tbl1_pjp_data |>
       sum(analysis_pjp_full$pjp_group == "With PJP"),
       100 * sum(analysis_pjp_full$pjp_group == "With PJP") / nrow(analysis_pjp_full)
     ))
+  ) |>
+  tab_footnote(
+    footnote = paste0(
+      "PJP Prophylaxis (With PJP group): prescription start date at least ",
+      PPX_TABLE1_ONSET, " days before PJP index date. ",
+      "PJP Prophylaxis (Without PJP group): any ever exposure during observation period."
+    ),
+    locations = cells_row_groups(groups = "PJP Prophylaxis")
   )
 
 print(table1_pjp)
