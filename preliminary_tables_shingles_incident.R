@@ -1022,23 +1022,509 @@ table2 <- table2_data |>
 print(table2)
 
 # ============================================================================
+# TABLE 3: DMARD use in the 90 days before each POST-VACCINE shingles episode
+# Episode-level: a patient with multiple post-vaccine episodes is counted once
+# per episode.  DMARDs are not mutually exclusive.
+# ============================================================================
+
+message("Building Table 3 (DMARD use 90d pre-shingles episode)...")
+
+dmard_exposure_sql <- "
+SELECT de.person_id,
+  ca.ancestor_concept_id,
+  CAST(de.drug_exposure_start_date AS DATE) AS drug_date
+FROM @cdm_schema.drug_exposure de
+JOIN @vocab_schema.concept_ancestor ca
+  ON de.drug_concept_id = ca.descendant_concept_id
+WHERE de.person_id IN (@person_ids)
+  AND ca.ancestor_concept_id IN (
+    19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
+    1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
+    746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
+    1186087,  1777087
+  )
+"
+
+dmard_exposures <- run_sql(con, dmard_exposure_sql,
+                            cdm_schema   = cdm,
+                            vocab_schema = vocab,
+                            person_ids   = shingles_ids) |>
+  mutate(drug_date = as.Date(drug_date))
+
+dmard_labels <- tibble::tribble(
+  ~ancestor_concept_id, ~drug_name,           ~drug_class,
+  19014878L, "Methotrexate",        "csDMARD",
+  19068900L, "Hydroxychloroquine",  "csDMARD",
+  19003999L, "Mycophenolate",       "csDMARD",
+  1361580L,  "Azathioprine",        "csDMARD",
+  1305058L,  "Cyclosporine",        "csDMARD",
+  1101898L,  "Cyclophosphamide",    "csDMARD",
+  1594587L,  "Tacrolimus",          "csDMARD",
+  1310317L,  "Leflunomide",         "csDMARD",
+  1314273L,  "Sulfasalazine",       "csDMARD",
+  1593700L,  "Sirolimus",           "csDMARD",
+  42904205L, "Rituximab",           "Biologic",
+  40171288L, "Belimumab",           "Biologic",
+  701470L,   "Abatacept",           "Biologic",
+  40236987L, "Tocilizumab",         "Biologic",
+  746895L,   "Etanercept",          "Biologic",
+  1119119L,  "Infliximab",          "Biologic",
+  937368L,   "Adalimumab",          "Biologic",
+  1151789L,  "Anakinra",            "Biologic",
+  1511348L,  "Ustekinumab",         "Biologic",
+  1186087L,  "Secukinumab",         "Biologic",
+  1777087L,  "Ixekizumab",          "Biologic",
+  40161532L, "Tofacitinib",         "JAK Inhibitor",
+  45892883L, "Baricitinib",         "JAK Inhibitor"
+)
+
+episodes_t3 <- ep_post |>
+  select(person_id, episode_date = condition_start_date)
+
+n_episodes_t3 <- nrow(episodes_t3)
+
+t3_hits <- episodes_t3 |>
+  left_join(dmard_exposures, by = "person_id", relationship = "many-to-many") |>
+  filter(!is.na(drug_date),
+         drug_date >= episode_date - 90L,
+         drug_date <= episode_date) |>
+  distinct(person_id, episode_date, ancestor_concept_id)
+
+t3_counts <- dmard_labels |>
+  left_join(
+    t3_hits |>
+      group_by(ancestor_concept_id) |>
+      summarise(n_ep = n(), .groups = "drop"),
+    by = "ancestor_concept_id"
+  ) |>
+  mutate(
+    n_ep = coalesce(n_ep, 0L),
+    pct  = 100 * n_ep / max(n_episodes_t3, 1L),
+    cell = sprintf("%d (%.1f%%)", n_ep, pct)
+  ) |>
+  arrange(drug_class, desc(n_ep))
+
+n_no_dmard_t3 <- n_episodes_t3 -
+  n_distinct(paste(t3_hits$person_id, t3_hits$episode_date))
+
+t3_display <- bind_rows(
+  tibble(
+    drug_class = "No DMARD Use",
+    drug_name  = "No DMARD use in window",
+    cell       = sprintf("%d (%.1f%%)", n_no_dmard_t3,
+                         100 * n_no_dmard_t3 / max(n_episodes_t3, 1L))
+  ),
+  t3_counts |> select(drug_class, drug_name, cell)
+)
+
+table3 <- t3_display |>
+  gt(groupname_col = "drug_class") |>
+  row_group_order(groups = c("No DMARD Use", "Biologic", "JAK Inhibitor", "csDMARD")) |>
+  cols_label(
+    drug_name = md("**DMARD**"),
+    cell      = md(sprintf("**Episodes with DMARD use**<br><small>N episodes = %d</small>",
+                           n_episodes_t3))
+  ) |>
+  cols_align(align = "left",   columns = drug_name) |>
+  cols_align(align = "center", columns = cell) |>
+  tab_style(
+    style     = cell_text(weight = "bold", color = "#2c3e50"),
+    locations = cells_row_groups()
+  ) |>
+  tab_style(
+    style     = cell_fill(color = "#f8f9fa"),
+    locations = cells_row_groups()
+  ) |>
+  tab_options(
+    table.font.names                    = "Arial",
+    table.font.size                     = 12,
+    column_labels.font.size             = 12,
+    column_labels.font.weight           = "bold",
+    row_group.font.weight               = "bold",
+    heading.title.font.size             = 14,
+    heading.title.font.weight           = "bold",
+    table.border.top.width              = px(2),
+    table.border.top.color              = "#2c3e50",
+    table.border.bottom.width           = px(2),
+    table.border.bottom.color           = "#2c3e50",
+    column_labels.border.bottom.width   = px(1),
+    column_labels.border.bottom.color   = "#6c757d",
+    table.width                         = pct(60)
+  ) |>
+  tab_header(
+    title    = "Table 3. DMARD Use in the 90 Days Before Post-Vaccine Shingles Episodes (Incident RD Cohort)",
+    subtitle = md(sprintf(
+      "Episode-level; %d patients with post-vaccine shingles, %d post-vaccine episodes. DMARDs are not mutually exclusive.",
+      n_distinct(ep_post$person_id), n_episodes_t3
+    ))
+  ) |>
+  tab_footnote(
+    footnote = paste0("Only shingles episodes classified as post-vaccine (>= ", VACC_ONSET_DAYS,
+                      " days after first Shingrix dose) are included. Window: [episode date - 90 days, episode date]."),
+    locations = cells_column_labels(columns = cell)
+  )
+
+print(table3)
+
+# ============================================================================
+# TABLE 4: DMARD use around the vaccine date
+# Among patients who developed shingles post-vaccine.
+# Window: [vaccine date - 90 d, vaccine date + 30 d].
+# Episode-level: each distinct vaccine dose date is one episode.
+# ============================================================================
+
+message("Building Table 4 (DMARD use around vaccine date)...")
+
+post_vacc_shingles_ids <- unique(ep_post$person_id)
+
+vacc_episodes_t4 <- vacc_bulk |>
+  filter(person_id %in% post_vacc_shingles_ids) |>
+  distinct(person_id, vacc_date)
+
+n_vax_episodes <- nrow(vacc_episodes_t4)
+
+t4_hits <- vacc_episodes_t4 |>
+  left_join(dmard_exposures, by = "person_id", relationship = "many-to-many") |>
+  filter(!is.na(drug_date),
+         drug_date >= vacc_date - 90L,
+         drug_date <= vacc_date + 30L) |>
+  distinct(person_id, vacc_date, ancestor_concept_id)
+
+t4_counts <- dmard_labels |>
+  left_join(
+    t4_hits |>
+      group_by(ancestor_concept_id) |>
+      summarise(n_ep = n(), .groups = "drop"),
+    by = "ancestor_concept_id"
+  ) |>
+  mutate(
+    n_ep = coalesce(n_ep, 0L),
+    pct  = 100 * n_ep / max(n_vax_episodes, 1L),
+    cell = sprintf("%d (%.1f%%)", n_ep, pct)
+  ) |>
+  arrange(drug_class, desc(n_ep))
+
+n_no_dmard_t4 <- n_vax_episodes -
+  n_distinct(paste(t4_hits$person_id, t4_hits$vacc_date))
+
+t4_display <- bind_rows(
+  tibble(
+    drug_class = "No DMARD Use",
+    drug_name  = "No DMARD use in window",
+    cell       = sprintf("%d (%.1f%%)", n_no_dmard_t4,
+                         100 * n_no_dmard_t4 / max(n_vax_episodes, 1L))
+  ),
+  t4_counts |> select(drug_class, drug_name, cell)
+)
+
+table4 <- t4_display |>
+  gt(groupname_col = "drug_class") |>
+  row_group_order(groups = c("No DMARD Use", "Biologic", "JAK Inhibitor", "csDMARD")) |>
+  cols_label(
+    drug_name = md("**DMARD**"),
+    cell      = md(sprintf("**Vaccine episodes with DMARD use**<br><small>N vaccine episodes = %d</small>",
+                           n_vax_episodes))
+  ) |>
+  cols_align(align = "left",   columns = drug_name) |>
+  cols_align(align = "center", columns = cell) |>
+  tab_style(
+    style     = cell_text(weight = "bold", color = "#2c3e50"),
+    locations = cells_row_groups()
+  ) |>
+  tab_style(
+    style     = cell_fill(color = "#f8f9fa"),
+    locations = cells_row_groups()
+  ) |>
+  tab_options(
+    table.font.names                    = "Arial",
+    table.font.size                     = 12,
+    column_labels.font.size             = 12,
+    column_labels.font.weight           = "bold",
+    row_group.font.weight               = "bold",
+    heading.title.font.size             = 14,
+    heading.title.font.weight           = "bold",
+    table.border.top.width              = px(2),
+    table.border.top.color              = "#2c3e50",
+    table.border.bottom.width           = px(2),
+    table.border.bottom.color           = "#2c3e50",
+    column_labels.border.bottom.width   = px(1),
+    column_labels.border.bottom.color   = "#6c757d",
+    table.width                         = pct(60)
+  ) |>
+  tab_header(
+    title    = "Table 4. DMARD Use Around the Vaccine Date (Post-Vaccine Shingles Patients, Incident RD Cohort)",
+    subtitle = md(sprintf(
+      "Among %d patients who developed shingles post-vaccine (%d vaccine dose episodes). Window: [vaccine - 90 d, vaccine + 30 d]. DMARDs are not mutually exclusive.",
+      length(post_vacc_shingles_ids), n_vax_episodes
+    ))
+  ) |>
+  tab_footnote(
+    footnote = "Only patients with at least one post-vaccine shingles episode are included. Window: [vaccine date - 90 days, vaccine date + 30 days]. Each distinct vaccine date is one episode.",
+    locations = cells_column_labels(columns = cell)
+  )
+
+print(table4)
+
+# ============================================================================
+# STEP 7: Post-vaccine shingles cohort summary
+# One row per post-vaccine shingles patient. Passed to the dashboard so the
+# "Post-Vaccine Shingles Cohort" panel can display:
+#   Age / Sex / Rheumatologic diagnoses
+#   DMARDs within +/-30 d of vaccination and shingles episode
+#   Lymphocyte count closest to shingles (within +/-90 d)
+#   Prednisone exposure at shingles +/-30 d
+#
+# Note: age uses index_date (second RD encounter), not obs_start.
+# ============================================================================
+
+message("Building post-vaccine cohort summary...")
+
+post_vacc_pts <- episodes_cl |>
+  filter(vacc_status == "post_vaccine") |>
+  group_by(person_id) |>
+  slice_min(condition_start_date, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id, shingles_date = condition_start_date)
+
+# First Shingrix dose date per patient
+post_vacc_pts <- post_vacc_pts |>
+  left_join(vacc_per_pt, by = "person_id") |>
+  mutate(
+    vacc_dates_list = lapply(vacc_dates_list, \(x) if (is.null(x)) as.Date(NA) else x),
+    vacc_date = as.Date(sapply(vacc_dates_list, function(vv) {
+      valid <- vv[!is.na(vv)]
+      if (length(valid) == 0L) return(NA_real_)
+      as.numeric(min(valid))
+    }), origin = "1970-01-01")
+  ) |>
+  select(-vacc_dates_list)
+
+pv_ids <- post_vacc_pts$person_id
+message(length(pv_ids), " post-vaccine shingles patients identified.")
+
+pv_drug_sql <- "
+SELECT de.person_id,
+  CAST(de.drug_exposure_start_date AS DATE) AS drug_start,
+  ca.ancestor_concept_id,
+  de.quantity,
+  de.days_supply
+FROM @cdm_schema.drug_exposure de
+JOIN @vocab_schema.concept_ancestor ca
+  ON de.drug_concept_id = ca.descendant_concept_id
+ AND ca.ancestor_concept_id IN (
+    1551099,
+    19014878, 19003999, 1361580,  1305058,  1101898,  1594587,
+    1310317,  1314273,
+    42904205, 40171288, 701470,   40236987, 746895,   1119119,  937368,
+    1151789,  1511348,  1186087,  1777087,
+    40161532, 45892883
+  )
+WHERE de.person_id IN (@person_ids)
+"
+
+pv_drug_raw <- run_sql(con, pv_drug_sql,
+                       cdm_schema   = cdm,
+                       vocab_schema = vocab,
+                       person_ids   = pv_ids) |>
+  mutate(drug_start = as.Date(drug_start))
+
+ancestor_labels <- c(
+  "1551099"  = "Prednisone",
+  "19014878" = "Methotrexate",
+  "19003999" = "Mycophenolate",
+  "1361580"  = "Azathioprine",
+  "1305058"  = "Cyclosporine",
+  "1101898"  = "Cyclophosphamide",
+  "1594587"  = "Tacrolimus",
+  "1310317"  = "Leflunomide",
+  "1314273"  = "Sulfasalazine",
+  "42904205" = "Rituximab",
+  "40171288" = "Belimumab",
+  "701470"   = "Abatacept",
+  "40236987" = "Tocilizumab",
+  "746895"   = "Etanercept",
+  "1119119"  = "Infliximab",
+  "937368"   = "Adalimumab",
+  "1151789"  = "Anakinra",
+  "1511348"  = "Ustekinumab",
+  "1186087"  = "Secukinumab",
+  "1777087"  = "Ixekizumab",
+  "40161532" = "Tofacitinib",
+  "45892883" = "Baricitinib"
+)
+
+pv_drug_named <- pv_drug_raw |>
+  mutate(drug_name = dplyr::recode(as.character(ancestor_concept_id),
+                                   !!!ancestor_labels,
+                                   .default = as.character(ancestor_concept_id)))
+
+get_dmards_periwindow <- function(drug_df, dates_df, date_col, window_days = 30L) {
+  drug_df |>
+    filter(ancestor_concept_id != 1551099) |>
+    left_join(dates_df |> select(person_id, ref_date = dplyr::all_of(date_col)),
+              by = "person_id") |>
+    filter(!is.na(ref_date),
+           drug_start >= ref_date - window_days,
+           drug_start <= ref_date + window_days) |>
+    group_by(person_id) |>
+    summarise(dmards = paste(sort(unique(drug_name)), collapse = ", "), .groups = "drop")
+}
+
+dmards_perivacc    <- get_dmards_periwindow(pv_drug_named, post_vacc_pts, "vacc_date")
+dmards_perishingles <- get_dmards_periwindow(pv_drug_named, post_vacc_pts, "shingles_date")
+
+pred_at_shingles <- pv_drug_named |>
+  filter(ancestor_concept_id == 1551099) |>
+  left_join(post_vacc_pts |> select(person_id, shingles_date), by = "person_id") |>
+  filter(!is.na(shingles_date),
+         drug_start >= shingles_date - 30L,
+         drug_start <= shingles_date + 30L) |>
+  group_by(person_id) |>
+  slice_min(abs(as.integer(drug_start - shingles_date)), n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id,
+         pred_quantity    = quantity,
+         pred_days_supply = days_supply)
+
+lymph_sql <- "
+SELECT m.person_id,
+  CAST(m.measurement_date AS DATE) AS meas_date,
+  m.value_as_number,
+  m.unit_source_value
+FROM @cdm_schema.measurement m
+WHERE m.person_id IN (@person_ids)
+  AND m.value_as_number IS NOT NULL
+  AND m.measurement_concept_id IN (
+    SELECT DISTINCT ca.descendant_concept_id
+    FROM @vocab_schema.concept_ancestor ca
+    JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
+    WHERE ca.ancestor_concept_id IN (4206426, 3004327)
+      AND c.invalid_reason IS NULL
+    UNION
+    SELECT concept_id FROM @vocab_schema.concept
+    WHERE concept_id IN (4206426, 3004327, 3006505, 37045722)
+  )
+"
+
+lymph_raw <- run_sql(con, lymph_sql,
+                     cdm_schema   = cdm,
+                     vocab_schema = vocab,
+                     person_ids   = pv_ids) |>
+  mutate(meas_date = as.Date(meas_date))
+
+lymph_at_shingles <- post_vacc_pts |>
+  select(person_id, shingles_date) |>
+  left_join(lymph_raw, by = "person_id") |>
+  filter(!is.na(meas_date),
+         abs(as.integer(meas_date - shingles_date)) <= 90L) |>
+  mutate(days_offset = abs(as.integer(meas_date - shingles_date))) |>
+  group_by(person_id) |>
+  slice_min(days_offset, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  select(person_id,
+         lymphocyte             = value_as_number,
+         lymph_unit             = unit_source_value,
+         lymph_days_vs_shingles = days_offset)
+
+dx_label_map <- c(
+  dx_sle         = "SLE",
+  dx_dm_myositis = "DM/Myositis",
+  dx_ssc         = "SSc",
+  dx_gca         = "GCA",
+  dx_ra          = "RA",
+  dx_spa         = "SpA",
+  dx_vasculitis  = "ANCA Vasculitis"
+)
+
+dx_summary <- analysis_df |>
+  filter(person_id %in% pv_ids) |>
+  select(person_id, dplyr::all_of(names(dx_label_map))) |>
+  tidyr::pivot_longer(-person_id, names_to = "dx", values_to = "present") |>
+  filter(present) |>
+  mutate(dx_label = dplyr::recode(dx, !!!dx_label_map)) |>
+  group_by(person_id) |>
+  summarise(diagnoses = paste(sort(dx_label), collapse = ", "), .groups = "drop")
+
+# Age at index_date (second RD encounter), not obs_start
+post_vacc_summary <- post_vacc_pts |>
+  left_join(
+    base_cohort |> select(person_id, year_of_birth, gender_concept_id, index_date),
+    by = "person_id"
+  ) |>
+  mutate(
+    age = as.integer(format(index_date, "%Y")) - year_of_birth,
+    sex = if_else(gender_concept_id == 8532L, "Female", "Male")
+  ) |>
+  left_join(dx_summary,             by = "person_id") |>
+  left_join(dmards_perivacc    |> rename(dmards_perivacc     = dmards), by = "person_id") |>
+  left_join(dmards_perishingles |> rename(dmards_perishingles = dmards), by = "person_id") |>
+  left_join(lymph_at_shingles,     by = "person_id") |>
+  left_join(pred_at_shingles,      by = "person_id") |>
+  mutate(
+    diagnoses              = coalesce(diagnoses,              "(none)"),
+    dmards_perivacc        = coalesce(dmards_perivacc,        "(none)"),
+    dmards_perishingles    = coalesce(dmards_perishingles,    "(none)"),
+    prednisone_at_shingles = if_else(!is.na(pred_quantity), "Yes", "No")
+  ) |>
+  select(
+    `Patient ID`             = person_id,
+    Age                      = age,
+    Sex                      = sex,
+    Diagnoses                = diagnoses,
+    `RD Index Date`          = index_date,
+    `Vacc Date`              = vacc_date,
+    `Shingles Date`          = shingles_date,
+    `DMARDs +/-30d Vacc`     = dmards_perivacc,
+    `DMARDs +/-30d Shingles` = dmards_perishingles,
+    Lymphocytes              = lymphocyte,
+    `Lymph Unit`             = lymph_unit,
+    `Lymph Days vs Shingles` = lymph_days_vs_shingles,
+    `Prednisone at Shingles` = prednisone_at_shingles,
+    `Pred Quantity`          = pred_quantity,
+    `Pred Days Supply`       = pred_days_supply
+  )
+
+message(nrow(post_vacc_summary), " post-vaccine patients in cohort summary.")
+
+# ============================================================================
 # Save outputs
 # ============================================================================
 
 dt <- format(Sys.Date(), "%b%d")
 if (!dir.exists("output/shingles_incident")) dir.create("output/shingles_incident", recursive = TRUE)
 
-gtsave(table1, file.path("output/shingles_incident", paste0("table1_shingles_incident_", dt, ".html")))
-gtsave(table2, file.path("output/shingles_incident", paste0("table2_shingles_incident_", dt, ".html")))
-gtsave(table1, file.path("output/shingles_incident", paste0("table1_shingles_incident_", dt, ".docx")))
-gtsave(table2, file.path("output/shingles_incident", paste0("table2_shingles_incident_", dt, ".docx")))
+gtsave(table1, file.path("output/shingles_incident", paste0("table1_baseline_characteristics_", dt, ".html")))
+gtsave(table2, file.path("output/shingles_incident", paste0("table2_shingles_episodes_",        dt, ".html")))
+gtsave(table3, file.path("output/shingles_incident", paste0("table3_dmard_pre_shingles_",       dt, ".html")))
+gtsave(table4, file.path("output/shingles_incident", paste0("table4_dmard_perivacc_",           dt, ".html")))
+gtsave(table1, file.path("output/shingles_incident", paste0("table1_baseline_characteristics_", dt, ".docx")))
+gtsave(table2, file.path("output/shingles_incident", paste0("table2_shingles_episodes_",        dt, ".docx")))
+gtsave(table3, file.path("output/shingles_incident", paste0("table3_dmard_pre_shingles_",       dt, ".docx")))
+gtsave(table4, file.path("output/shingles_incident", paste0("table4_dmard_perivacc_",           dt, ".docx")))
 saveRDS(table1,            file.path("output/shingles_incident", paste0("table1_", dt, ".rds")))
 saveRDS(table2,            file.path("output/shingles_incident", paste0("table2_", dt, ".rds")))
-saveRDS(tbl1_data,         file.path("output/shingles_incident", paste0("data_table1_", dt, ".rds")))
-saveRDS(table2_data,       file.path("output/shingles_incident", paste0("data_table2_", dt, ".rds")))
-saveRDS(list(base     = cohort_ids,
-             shingles = shingles_ids,
-             vaccine  = shingles_vaccine_ids),
+saveRDS(table3,            file.path("output/shingles_incident", paste0("table3_", dt, ".rds")))
+saveRDS(table4,            file.path("output/shingles_incident", paste0("table4_", dt, ".rds")))
+saveRDS(tbl1_data,         file.path("output/shingles_incident", paste0("data_table1_",          dt, ".rds")))
+saveRDS(table2_data,       file.path("output/shingles_incident", paste0("data_table2_",          dt, ".rds")))
+saveRDS(t3_counts,         file.path("output/shingles_incident", paste0("data_table3_",          dt, ".rds")))
+saveRDS(t4_counts,         file.path("output/shingles_incident", paste0("data_table4_",          dt, ".rds")))
+saveRDS(post_vacc_summary, file.path("output/shingles_incident", paste0("data_post_vacc_summary_", dt, ".rds")))
+saveRDS(list(base_cohort  = cohort_ids,
+             shingles     = shingles_ids,
+             shingrix     = shingles_vaccine_ids,
+             post_vaccine = pv_ids),
         file.path("output/shingles_incident", paste0("patient_lists_", dt, ".rds")))
+
+# ============================================================================
+# Launch dashboard with post-vaccine cohort panel
+# ============================================================================
+
+launch_trajectory_dashboard(
+  con,
+  person_ids           = as.character(shingles_ids),
+  shingrix_patient_ids = as.character(unique(vacc_bulk$person_id)),
+  post_vacc_summary    = post_vacc_summary
+)
 
 message("Done. Output saved to output/shingles_incident/")
