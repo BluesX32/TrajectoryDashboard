@@ -18,6 +18,8 @@
 #
 # Table 2: Shingles episode characteristics (patients who ever had shingles)
 #   Columns: Overall | Pre-vaccine | Post-vaccine
+#   Post-vaccine: episode >= 14 days after first Shingrix dose (VACC_ONSET_DAYS)
+#   Pre-vaccine:  episode < 14 days after first dose, or no vaccine recorded
 #   Rows: total incidence, unique patients (episode-weighted), avg episodes/person,
 #         post-herpetic neuralgia, VZV organ involvement
 #
@@ -44,6 +46,7 @@ library(labelled)
 # merged into one episode (earliest date retained).
 # The same value is used as the default in the Trajectory Dashboard UI.
 SHINGLES_GAP_DAYS <- 90L
+VACC_ONSET_DAYS   <- 14L   # days after first vaccine dose before an event counts as post-vaccine
 
 # ----------------------------------------------------------------------------
 # Connection — choose SAFE or SAFER, comment out the other
@@ -705,10 +708,10 @@ print(table1)
 #   Overall | Pre-vaccine | Post-vaccine
 #
 # Classification rule (applied per event date):
-#   Post-vaccine = event occurred > 14 days after the most recent prior
-#                  Shingrix dose (vaccine had time to confer protection).
-#   Pre-vaccine  = no prior Shingrix, OR most recent prior dose was ≤14 days
-#                  before the event (vaccine not yet effective).
+#   Post-vaccine = event occurred >= VACC_ONSET_DAYS (14 days) after the
+#                  FIRST (earliest) Shingrix dose.
+#   Pre-vaccine  = no Shingrix record, OR event occurred < 14 days after
+#                  the first Shingrix dose (vaccine not yet established).
 #
 # Bias note: a patient with episodes in both windows contributes to both
 # columns.  To avoid inflated denominators, % for pre- and post-vaccine rows
@@ -855,9 +858,10 @@ message(n_distinct(vacc_bulk$person_id), " / ", length(shingles_ids),
 
 # ============================================================================
 # Classify each event by vaccination status
-# Rule: find the most recent Shingrix dose ON OR BEFORE the event date.
-#   > 14 days since that dose  →  post_vaccine
-#   ≤ 14 days, or no prior dose  →  pre_vaccine
+# Rule: find the FIRST (earliest) Shingrix dose date for the patient.
+#   event >= first_dose + VACC_ONSET_DAYS  ->  post_vaccine
+#   event <  first_dose + VACC_ONSET_DAYS,
+#     or no Shingrix record               ->  pre_vaccine
 # ============================================================================
 
 # Per-patient list of vaccination dates (NULL for unvaccinated)
@@ -867,9 +871,10 @@ vacc_per_pt <- vacc_bulk |>
 
 classify_vacc_status <- function(event_date, vacc_vec) {
   if (is.null(vacc_vec) || all(is.na(vacc_vec))) return("pre_vaccine")
-  prior <- vacc_vec[!is.na(vacc_vec) & vacc_vec <= event_date]
-  if (length(prior) == 0L) return("pre_vaccine")
-  if (as.integer(event_date - max(prior)) > 14L) "post_vaccine" else "pre_vaccine"
+  valid_dates <- vacc_vec[!is.na(vacc_vec)]
+  if (length(valid_dates) == 0L) return("pre_vaccine")
+  first_dose <- min(valid_dates)
+  if (as.integer(event_date - first_dose) >= VACC_ONSET_DAYS) "post_vaccine" else "pre_vaccine"
 }
 
 add_vacc_status <- function(df, date_col) {
@@ -1040,7 +1045,7 @@ table2 <- table2_data |>
     locations = cells_body(columns = Characteristic, rows = grepl("Unique", Characteristic))
   ) |>
   tab_footnote(
-    footnote = md("Pre-vaccine: no prior Shingrix, OR most recent dose \u226414 days before episode (vaccine not yet effective). Post-vaccine: episode >14 days after most recent prior Shingrix dose."),
+    footnote = md(paste0("Post-vaccine: episode occurred \u2265", VACC_ONSET_DAYS, " days after the first (earliest) Shingrix dose. Pre-vaccine: no Shingrix recorded, or episode occurred <", VACC_ONSET_DAYS, " days after the first Shingrix dose.")),
     locations = cells_column_spanners()
   ) |>
   tab_style(
@@ -1207,7 +1212,7 @@ table3 <- t3_display |>
     ))
   ) |>
   tab_footnote(
-    footnote = "Only shingles episodes classified as post-vaccine (>14 days after most recent Shingrix dose) are included. Window: [episode date − 90 days, episode date].",
+    footnote = paste0("Only shingles episodes classified as post-vaccine (>= ", VACC_ONSET_DAYS, " days after first Shingrix dose) are included. Window: [episode date - 90 days, episode date]."),
     locations = cells_column_labels(columns = cell)
   )
 
@@ -1333,16 +1338,18 @@ post_vacc_pts <- episodes_cl |>
   ungroup() |>
   select(person_id, shingles_date = condition_start_date)
 
-# The Shingrix dose that triggered the "post-vaccine" classification for each patient
+# First Shingrix dose date — the anchor for the post-vaccine classification
+# (post-vaccine is defined as >= VACC_ONSET_DAYS after first dose, so the
+# first dose date is always the relevant reference for this cohort)
 post_vacc_pts <- post_vacc_pts |>
   left_join(vacc_per_pt, by = "person_id") |>
   mutate(
     vacc_dates_list = lapply(vacc_dates_list, \(x) if (is.null(x)) as.Date(NA) else x),
-    vacc_date = as.Date(mapply(function(sd, vv) {
-      prior <- vv[!is.na(vv) & vv <= sd]
-      if (length(prior) == 0L) return(NA_real_)
-      as.numeric(max(prior))
-    }, shingles_date, vacc_dates_list), origin = "1970-01-01")
+    vacc_date = as.Date(sapply(vacc_dates_list, function(vv) {
+      valid <- vv[!is.na(vv)]
+      if (length(valid) == 0L) return(NA_real_)
+      as.numeric(min(valid))
+    }), origin = "1970-01-01")
   ) |>
   select(-vacc_dates_list)
 
