@@ -992,31 +992,39 @@ print(table2_pjp)
 
 # ============================================================================
 # STEP 8: Prophylaxis exposure for entire base cohort (Table 3 setup)
-# Fetch all PJP prophylaxis drug exposures for the base cohort to determine:
-#   (a) who was ever on each regimen (for PJP incidence rate denominator)
-#   (b) first prescription date per regimen per patient (for ADE window)
+# Aligned with Table 1 definition: only prescriptions that started at least
+# PPX_RHEUM_ONSET days (8 weeks) after the patient's first rheumatic disease
+# diagnosis are counted.
+# Determines:
+#   (a) who qualifies for each regimen group (incidence rate denominator)
+#   (b) first qualifying prescription date per regimen per patient (ADE anchor)
 # ============================================================================
 
 message("Setting up Table 3 prophylaxis data (reusing full-cohort fetch from STEP 6)...")
 
-# ppx_all_raw already contains the full base-cohort prophylaxis data with
-# ppx_start and ppx_group columns — no second DB round-trip needed.
-ppx_base_raw <- ppx_all_raw
+# ppx_all_raw already contains the full base-cohort prophylaxis data.
+# Filter to qualifying prescriptions only: >= PPX_RHEUM_ONSET days after
+# first rheumatic disease diagnosis (aligned with Table 1 definition).
+ppx_base_raw <- ppx_all_raw |>
+  inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx),
+             by = "person_id") |>
+  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET)
 
-# Per patient, per regimen: first prescription date
+# Per patient, per regimen: first qualifying prescription date (ADE anchor)
 first_ppx_base <- ppx_base_raw |>
   group_by(person_id, ppx_group) |>
   summarise(first_rx = min(ppx_start), .groups = "drop")
 
-# Ever on each regimen (any prescription in observation period)
+# Patients with at least one qualifying prescription for each regimen
 ever_on_ppx <- first_ppx_base |>
   distinct(person_id, ppx_group)
 
-# Patients on NO prophylaxis at all
+# Patients on NO qualifying prophylaxis at all
 no_ppx_ids <- setdiff(cohort_ids, ever_on_ppx$person_id)
 
 message(sprintf(
-  "Prophylaxis ever-users — TMP-SMX: %d | Dapsone: %d | Atovaquone: %d | Pentamidine: %d | None: %d",
+  "Qualifying prophylaxis users (>= %d days after rheum dx) — TMP-SMX: %d | Dapsone: %d | Atovaquone: %d | Pentamidine: %d | None: %d",
+  PPX_RHEUM_ONSET,
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "TMP-SMX"]),
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "Dapsone"]),
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "Atovaquone"]),
@@ -1244,8 +1252,17 @@ table3_pjp <- t3_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
+      "Regimen group membership: only prescriptions starting at least ",
+      PPX_RHEUM_ONSET, " days (", PPX_RHEUM_ONSET %/% 7L, " weeks) after the ",
+      "patient’s first rheumatic disease diagnosis are counted (consistent with Table 1). ",
+      "Patients with no qualifying prescription are in the No prophylaxis group."
+    ),
+    locations = cells_column_labels(columns = regimen)
+  ) |>
+  tab_footnote(
+    footnote = paste0(
       "PJP events: any PJP (SNOMED 438350 + descendants) diagnosis at any point ",
-      "after the patient’s first prophylaxis prescription for that regimen. ",
+      "after the patient’s first qualifying prophylaxis prescription. ",
       "For the no-prophylaxis group, any PJP diagnosis during observation."
     ),
     locations = cells_column_spanners(spanners = "spanner_pjp")
@@ -1255,7 +1272,7 @@ table3_pjp <- t3_data |>
       "Adverse drug events (ADE): any of leukopenia, thrombocytopenia, acute kidney injury, ",
       "hepatotoxicity, pancreatitis, Stevens-Johnson syndrome, methemoglobinemia, ",
       "hypoglycaemia, hemolytic anemia, or peripheral neuropathy within ",
-      ADE_WINDOW, " days of first prophylaxis prescription."
+      ADE_WINDOW, " days of first qualifying prophylaxis prescription."
     ),
     locations = cells_column_spanners(spanners = "spanner_ade")
   ) |>
@@ -1264,7 +1281,7 @@ table3_pjp <- t3_data |>
       "Incidence rate (IR) per 100 person-years with exact Poisson 95% CI ",
       "(Garwood chi-squared method). ",
       "PJP IR denominator: total observation period length (obs_start to obs_end). ",
-      "ADE IR denominator: time from first prophylaxis prescription to ",
+      "ADE IR denominator: time from first qualifying prophylaxis prescription to ",
       "min(obs_end, first Rx + ", ADE_WINDOW, " days). ",
       "Interpretation is limited by confounding by indication: prophylaxis is ",
       "preferentially prescribed to higher-risk patients."
