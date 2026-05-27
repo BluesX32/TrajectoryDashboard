@@ -94,12 +94,26 @@ launch_trajectory_dashboard <- function(connector            = NULL,
                                         shingrix_patient_ids = NULL,
                                         post_vacc_summary    = NULL,
                                         port                 = NULL,
-                                        launch_browser       = TRUE,
-                                        ...) {
+                                        launch_browser       = TRUE) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
   .require_pkg("DT")
+
+  # If a plain DatabaseConnector connection was passed with explicit schemas,
+  # wrap it into an omop_connector now so all downstream functions
+  # (fetch_patient_data, disconnect lifecycle, etc.) work correctly.
+  if (!is.null(connector) &&
+      !inherits(connector, "trajectory_connector") &&
+      inherits(connector, c("DatabaseConnectorConnection",
+                             "DatabaseConnectorJdbcConnection",
+                             "JDBCConnection", "DBIConnection"))) {
+    connector <- .wrap_raw_db_connection(
+      connector,
+      cdm_schema   = cdm_schema,
+      vocab_schema = vocab_schema %||% cdm_schema
+    )
+  }
 
   # Fall back to synthetic data
   if (is.null(connector)) {
@@ -141,8 +155,6 @@ launch_trajectory_dashboard <- function(connector            = NULL,
                           shingrix_patient_ids = as.character(shingrix_patient_ids),
                           post_vacc_summary    = post_vacc_summary)
   server <- trajectory_server(connector         = connector,
-                              cdm_schema        = cdm_schema,
-                              vocab_schema      = vocab_schema,
                               post_vacc_summary = post_vacc_summary)
 
   shiny::shinyApp(
@@ -151,7 +163,6 @@ launch_trajectory_dashboard <- function(connector            = NULL,
     options = list(
       port           = port,
       launch.browser = launch_browser
-    ),
-    ...
+    )
   )
 }

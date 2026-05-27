@@ -7,10 +7,7 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector,
-                               cdm_schema        = NULL,
-                               vocab_schema      = NULL,
-                               post_vacc_summary = NULL) {
+trajectory_server <- function(connector, post_vacc_summary = NULL) {
   function(input, output, session) {
 
     # Post-vaccine cohort table (rendered once at startup; static)
@@ -117,11 +114,9 @@ trajectory_server <- function(connector,
         data <- tryCatch(
           fetch_patient_data(
             connector,
-            person_id    = as.integer(input$person_id),
-            start_date   = "1900-01-01",
-            end_date     = format(Sys.Date(), "%Y-%m-%d"),
-            cdm_schema   = cdm_schema,
-            vocab_schema = vocab_schema
+            person_id  = as.integer(input$person_id),
+            start_date = "1900-01-01",
+            end_date   = format(Sys.Date(), "%Y-%m-%d")
           ),
           error = function(e) {
             shiny::showNotification(paste("Error loading data:", e$message),
