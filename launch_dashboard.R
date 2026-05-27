@@ -20,6 +20,34 @@ cdm_database_schema   <- "dbo"
 vocab_database_schema <- "dbo"
 
 # ==============================================================================
+# STEP 1b — (Optional) Customize the dashboard for your disease
+# ==============================================================================
+# Leave this block unchanged for the myositis default.
+# To use a different disease population, replace with a custom config:
+#
+#   config <- myositis_config()           # default — no change needed
+#   config <- ra_config()                 # RA preset
+#   config <- sle_config()                # SLE preset
+#
+# Or build a fully custom config:
+#
+#   config <- dashboard_config(
+#     primary_lab  = "crp",
+#     lab_concepts = list(
+#       crp         = c(3020460L),
+#       esr         = c(3009542L),
+#       rf          = c(3033408L)
+#     ),
+#     event_row_label = "RA Flares"
+#   )
+#
+# The config controls: lab picker choices, trajectory-driving biomarker,
+# event-row label and episode-gap slider, ILD panel visibility, workup
+# decision points, and the optional cohort research table.
+
+config <- myositis_config()   # ← change this line to switch disease
+
+# ==============================================================================
 # STEP 2 — Connect
 # ==============================================================================
 
@@ -46,7 +74,8 @@ launch_trajectory_dashboard(
   connector    = connection,
   cdm_schema   = cdm_database_schema,
   vocab_schema = vocab_database_schema,
-  person_ids   = as.character(person_ids)
+  person_ids   = as.character(person_ids),
+  config       = config
 )
 
 DatabaseConnector::disconnect(connection)

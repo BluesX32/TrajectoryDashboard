@@ -344,6 +344,70 @@ The dashboard automatically disconnects when:
 
 Stale JDBC connections are automatically detected and reconnected on the next patient load.
 
+## Using with any OMOP CDM population
+
+The dashboard engine is 100% disease-agnostic. A `dashboard_config` object
+controls which lab/drug concepts are queried, how the UI is labelled, and
+which optional panels are shown. Pass it to `launch_trajectory_dashboard()`
+via the `config` argument.
+
+### Built-in presets
+
+```r
+config <- myositis_config()   # default — CK trajectory, myositis antibodies,
+                              # Shingles event row, rheumatic Dx panel
+config <- ra_config()         # CRP trajectory, RF + anti-CCP workup points
+config <- sle_config()        # CRP trajectory, anti-dsDNA + complement workup
+```
+
+### Custom config
+
+```r
+config <- dashboard_config(
+  primary_lab  = "crp",             # lab that drives the trajectory curve
+  lab_concepts = list(
+    crp         = c(3020460L),      # OMOP measurement_concept_ids
+    esr         = c(3009542L),
+    rf          = c(3033408L),
+    anti_ccp    = c(3010148L)
+  ),
+  drug_concepts = MYOSITIS_DRUG_CONCEPTS,  # reuse full DMARD list
+  workup_concepts = list(
+    "Rheumatoid Factor" = c(3033408L),
+    "Anti-CCP"          = c(3010148L)
+  ),
+  event_row_label = "RA Flares",    # label for the timeline events row
+  research_table_title = "RA Cohort"
+)
+
+launch_trajectory_dashboard(connection,
+  cdm_schema = "dbo",
+  person_ids = as.character(person_ids),
+  config     = config)
+```
+
+### What config controls
+
+| Field | Effect |
+|---|---|
+| `primary_lab` | Default lab driving the trajectory curve |
+| `lab_concepts` | Which measurements are fetched and shown in the lab picker |
+| `drug_concepts` | Which drugs are fetched from `drug_exposure` |
+| `drug_families` | How drug names are grouped into checkbox families |
+| `lab_uln` | Override upper limits of normal (otherwise uses OMOP `range_high`) |
+| `event_sql_path` | SQL file → timeline events row (NULL disables it) |
+| `event_row_label` | Y-axis label and slider label for the events row |
+| `condition_categories` | Condition badge categories in the patient summary bar |
+| `workup_concepts` | Which measurements trigger "workup point" decision markers |
+| `research_table` | Data frame shown in the cohort-level research panel |
+| `research_table_title` | Panel heading |
+
+Backward compatibility is preserved: calling
+`launch_trajectory_dashboard(con, person_ids = ids)` with no `config` argument
+continues to work exactly as before (myositis defaults).
+
+---
+
 ## Key functions
 
 ```r
@@ -354,24 +418,31 @@ create_safer_connection("R.env")               # JHU SAFER Desktop (proxy + RJDB
 create_hpc_connection("R.env")                 # JHU Discovery HPC (direct + RJDBC)
 create_df_connector(patient_data_list)         # In-memory (tests/demos)
 
+# Disease config
+myositis_config()                              # Myositis preset (default)
+ra_config()                                    # RA preset
+sle_config()                                   # SLE preset
+dashboard_config(primary_lab, lab_concepts, …) # Fully custom config
+
 # Cohort selection
 fetch_cohort_ids(connector, json_path)         # ATLAS JSON → integer vector of person_ids
 test_cohort_connection(connector)              # Diagnose connection / SQL issues
 
 # Data extraction
 fetch_patient_data(connector, person_id = 12345L)
-fetch_shingles_events(connector, person_id = 12345L)  # VZV/herpes zoster events
+fetch_disease_events(connector, person_id, event_sql_path)  # Generic events row
+fetch_shingles_events(connector, person_id = 12345L)        # VZV/herpes zoster events
 prefetch_cohort_data(connector, person_ids)    # Batch-fetch all patients (one connection)
 
 # Analytics
 compute_trajectory_phases(labs_df, concept_id = 4013722L)
 compute_treatment_phases(medications_df)
 compute_data_density(patient_data)
-detect_decision_points(patient_data, trajectory, treatment_phases)
+detect_decision_points(patient_data, trajectory, treatment_phases, config = config)
 detect_toxicity_flags(labs_df, medications_df)
 
 # App
-launch_trajectory_dashboard(connector = NULL, person_ids = NULL, preloaded_data = NULL)
+launch_trajectory_dashboard(connector = NULL, person_ids = NULL, config = NULL)
 ```
 
 ## Myositis-specific concept IDs

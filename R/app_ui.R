@@ -11,9 +11,9 @@
 #'   the selector. If NULL, the selector is a free-text input.
 #' @return A `shinydashboard::dashboardPage()` UI object.
 #' @noRd
-trajectory_ui <- function(person_ids        = NULL,
+trajectory_ui <- function(person_ids           = NULL,
                           shingrix_patient_ids = NULL,
-                          post_vacc_summary    = NULL) {
+                          config               = myositis_config()) {
   .require_pkg("shiny")
   .require_pkg("shinydashboard")
   .require_pkg("plotly")
@@ -139,36 +139,8 @@ trajectory_ui <- function(person_ids        = NULL,
                 "!input.enzyme_panel_mode",
                 shiny::selectInput(
                   "focus_lab", NULL,
-                  choices = list(
-                    "Muscle Enzymes" = c(
-                      "CK (Creatine Kinase)" = "ck",
-                      "Aldolase"             = "aldolase",
-                      "AST"                  = "ast",
-                      "ALT"                  = "alt",
-                      "LDH"                  = "ldh"
-                    ),
-                    "Inflammatory" = c(
-                      "ESR"                  = "esr",
-                      "CRP"                  = "crp"
-                    ),
-                    "Myositis Antibodies" = c(
-                      "Anti-Jo-1"            = "anti_jo1",
-                      "Anti-Mi-2"            = "anti_mi2",
-                      "Anti-MDA5"            = "anti_mda5",
-                      "Anti-TIF1-\u03b3"     = "anti_tif1",
-                      "Anti-HMGCR"           = "anti_hmgcr"
-                    ),
-                    "Cardiac & Safety" = c(
-                      "Ferritin"             = "ferritin",
-                      "Troponin-I"           = "troponin_i",
-                      "BNP"                  = "bnp",
-                      "WBC"                  = "wbc",
-                      "Lymphocytes"          = "lymphocytes",
-                      "Hemoglobin"           = "hemoglobin",
-                      "Creatinine"           = "creatinine"
-                    )
-                  ),
-                  selected = "ck",
+                  choices  = .build_lab_picker_choices(config),
+                  selected = config$primary_lab,
                   width    = "100%"
                 )
               )
@@ -180,42 +152,15 @@ trajectory_ui <- function(person_ids        = NULL,
             "Medications", icon = shiny::icon("pills"),
             shiny::tags$div(
               style = "padding: 4px 10px 10px;",
-              shiny::checkboxGroupInput(
-                "med_categories", NULL,
-                choices = c(
-                  "Corticosteroids",
-                  "IVIG",
-                  "Rituximab",
-                  "Azathioprine",
-                  "Methotrexate",
-                  "Mycophenolate",
-                  "Hydroxychloroquine",
-                  "Leflunomide",
-                  "Sulfasalazine",
-                  "Cyclosporine",
-                  "Cyclophosphamide",
-                  "Tacrolimus",
-                  "Sirolimus",
-                  "Tocilizumab",
-                  "Abatacept",
-                  "Belimumab",
-                  "Anifrolumab",
-                  "Voclosporin",
-                  "JAK inhibitors",
-                  "Anti-TNF",
-                  "Nintedanib",
-                  "Pirfenidone"
-                ),
-                selected = c(
-                  "Corticosteroids", "IVIG", "Rituximab",
-                  "Azathioprine", "Methotrexate", "Mycophenolate",
-                  "Hydroxychloroquine", "JAK inhibitors", "Anti-TNF",
-                  "Leflunomide", "Sulfasalazine", "Cyclosporine",
-                  "Cyclophosphamide", "Tacrolimus", "Sirolimus",
-                  "Tocilizumab", "Abatacept", "Belimumab",
-                  "Anifrolumab", "Voclosporin", "Nintedanib", "Pirfenidone"
+              {
+                med_choices <- names(config$drug_families) %||%
+                               names(config$drug_concepts)
+                shiny::checkboxGroupInput(
+                  "med_categories", NULL,
+                  choices  = med_choices,
+                  selected = med_choices
                 )
-              )
+              }
             )
           ),
 
@@ -230,8 +175,12 @@ trajectory_ui <- function(person_ids        = NULL,
                                    value = TRUE),
               shiny::checkboxInput("show_visits", "Show hospitalizations",
                                    value = TRUE),
-              shiny::checkboxInput("show_ild",    "Show ILD panel (FVC/DLCO)",
-                                   value = FALSE),
+              # ILD panel: only show when fvc/dlco are in config lab_concepts
+              if (any(c("fvc", "dlco") %in% names(config$lab_concepts))) {
+                shiny::checkboxInput("show_ild",
+                                     "Show ILD panel (FVC/DLCO)",
+                                     value = FALSE)
+              },
               shiny::checkboxInput("show_gaps",   "Highlight DMARD gaps (\u226530 d)",
                                    value = FALSE),
               shiny::tags$div(
@@ -242,15 +191,19 @@ trajectory_ui <- function(person_ids        = NULL,
                   width = "100%"
                 )
               ),
-              shiny::tags$div(
-                style = "margin-top: 8px;",
-                shiny::sliderInput(
-                  "shingles_gap_days",
-                  "Shingles episode gap (days)",
-                  min = 14, max = 365, value = 90, step = 1,
-                  width = "100%"
+              # Event gap slider: label driven by config
+              if (!is.null(config$event_sql_path) ||
+                  inherits(config, "myositis_dashboard_config")) {
+                shiny::tags$div(
+                  style = "margin-top: 8px;",
+                  shiny::sliderInput(
+                    "shingles_gap_days",
+                    paste(config$event_row_label, "episode gap (days)"),
+                    min = 14, max = 365, value = 90, step = 1,
+                    width = "100%"
+                  )
                 )
-              )
+              }
             )
           ),
 
@@ -672,15 +625,19 @@ trajectory_ui <- function(person_ids        = NULL,
         )
       ),
 
-      # ── Post-Vaccine Shingles Cohort ─────────────────────────────────
-      if (!is.null(post_vacc_summary) && nrow(post_vacc_summary) > 0) {
+      # ── Research / Cohort Panel (config-driven) ───────────────────
+      if (!is.null(config$research_table) &&
+          nrow(config$research_table) > 0) {
         shinydashboard::box(
           title = shiny::tags$span(
-            shiny::icon("syringe", style = "margin-right:6px; color:#5B8DEF;"),
-            "Post-Vaccine Shingles Cohort",
+            shiny::icon("table",
+                        style = "margin-right:6px; color:#5B8DEF;"),
+            config$research_table_title,
             shiny::tags$small(
-              style = "font-size:11px; color:#999; margin-left:10px; font-weight:400;",
-              sprintf("n\u00a0=\u00a0%d patients", nrow(post_vacc_summary))
+              style = paste0("font-size:11px; color:#999; ",
+                             "margin-left:10px; font-weight:400;"),
+              sprintf("n = %d rows",
+                      nrow(config$research_table))
             )
           ),
           status      = "primary",
@@ -688,14 +645,7 @@ trajectory_ui <- function(person_ids        = NULL,
           collapsible = TRUE,
           collapsed   = TRUE,
           width       = 12,
-          shiny::tags$p(
-            style = "font-size:11px; color:#9099B3; margin-bottom:8px;",
-            shiny::icon("info-circle", style = "margin-right:4px;"),
-            "Patients with shingles >14 days after most recent Shingrix dose. ",
-            "DMARD windows: \u00b130 days from vaccination or shingles date. ",
-            "Lymphocyte: closest measurement within \u00b190 days of shingles."
-          ),
-          DT::dataTableOutput("post_vacc_cohort_table")
+          DT::dataTableOutput("research_cohort_table")
         )
       },
 

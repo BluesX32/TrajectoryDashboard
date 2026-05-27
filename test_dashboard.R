@@ -8,10 +8,13 @@
 #     Fill in createConnectionDetails() directly — same pattern as
 #     CohortDiagnostics, PatientLevelPrediction, and other OHDSI studies.
 #     Simple fill-in-the-blanks; no env files needed.
+#     Includes STEP 1b for disease config (myositis_config(), ra_config(),
+#     sle_config(), or fully custom dashboard_config()).
 #
 #   test_dashboard.R  (this file — env-file approach)
 #     Reads credentials from a project-level .env or R.env file.
 #     Kept for existing site deployments that already have those files.
+#     Uses myositis defaults (no config= arg needed for backward compat).
 #
 # ============================================================================
 # Workflow overview

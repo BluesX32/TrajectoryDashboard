@@ -24,12 +24,17 @@
 #' @param patient_data Named list from [fetch_patient_data()].
 #' @param trajectory Tibble from [compute_trajectory_phases()]. May be empty.
 #' @param treatment_phases Tibble from [compute_treatment_phases()]. May be empty.
+#' @param config A [dashboard_config()] object. When `NULL`, falls back to
+#'   [myositis_config()] defaults (uses myositis antibody concept IDs for
+#'   workup detection). Provides `config$workup_concepts` for point 5.
 #'
 #' @return A tibble with columns: `date`, `event_type`, `label`,
 #'   `evidence_summary`, `confidence`, `source_domain`.
 #'
 #' @export
-detect_decision_points <- function(patient_data, trajectory, treatment_phases) {
+detect_decision_points <- function(patient_data, trajectory, treatment_phases,
+                                    config = NULL) {
+  if (is.null(config)) config <- myositis_config()
 
   result <- list()
 
@@ -164,19 +169,24 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases) {
   }
 
   # ---------------------------------------------------------------------------
-  # 5. Antibody workup points
+  # 5. Workup points (biomarker / antibody results)
   # ---------------------------------------------------------------------------
   if (nrow(patient_data$labs) > 0) {
-    ab_concept_ids <- unlist(list(
-      MYOSITIS_LAB_CONCEPTS$anti_jo1, MYOSITIS_LAB_CONCEPTS$anti_mi2,
-      MYOSITIS_LAB_CONCEPTS$anti_mda5, MYOSITIS_LAB_CONCEPTS$anti_tif1,
-      MYOSITIS_LAB_CONCEPTS$anti_hmgcr, MYOSITIS_LAB_CONCEPTS$anti_srs,
-      MYOSITIS_LAB_CONCEPTS$anti_nxp2, MYOSITIS_LAB_CONCEPTS$anti_pm_scl
-    ))
+    # Use config$workup_concepts when available; fall back to NULL (skips block)
+    workup_ids <- if (!is.null(config$workup_concepts) &&
+                      length(config$workup_concepts) > 0) {
+      unlist(config$workup_concepts, use.names = FALSE)
+    } else {
+      NULL
+    }
 
-    ab_labs <- patient_data$labs[
-      patient_data$labs$measurement_concept_id %in% ab_concept_ids, ,
-      drop = FALSE]
+    ab_labs <- if (!is.null(workup_ids)) {
+      patient_data$labs[
+        patient_data$labs$measurement_concept_id %in% workup_ids, ,
+        drop = FALSE]
+    } else {
+      patient_data$labs[integer(0), , drop = FALSE]   # empty — no workup concepts
+    }
 
     for (i in seq_len(nrow(ab_labs))) {
       row <- ab_labs[i, ]

@@ -65,10 +65,13 @@
 #' @param person_ids Optional character vector of patient IDs to pre-populate
 #'   the patient selector. If `NULL`, a free-text input is shown. Typically
 #'   the output of [fetch_cohort_ids()] coerced with `as.character()`.
+#' @param config A [dashboard_config()] object controlling which lab/drug
+#'   concepts are queried and how the UI is labelled. Defaults to
+#'   [myositis_config()] (identical to pre-config behaviour). Pass a custom
+#'   config to apply the dashboard to any OMOP CDM population.
 #' @param port Integer. Port for the Shiny server. Default `NULL` (auto).
 #' @param launch_browser Logical. Open the app in a browser automatically.
 #'   Default `TRUE`.
-#' @param ... Additional arguments passed to `shiny::shinyApp()`.
 #'
 #' @return Launches a Shiny app; does not return a value.
 #' @export
@@ -93,6 +96,7 @@ launch_trajectory_dashboard <- function(connector            = NULL,
                                         person_ids           = NULL,
                                         shingrix_patient_ids = NULL,
                                         post_vacc_summary    = NULL,
+                                        config               = NULL,
                                         port                 = NULL,
                                         launch_browser       = TRUE) {
   .require_pkg("shiny")
@@ -113,6 +117,16 @@ launch_trajectory_dashboard <- function(connector            = NULL,
       cdm_schema   = cdm_schema,
       vocab_schema = vocab_schema %||% cdm_schema
     )
+  }
+
+  # ── Config: default to myositis preset (identical to pre-config behaviour) ──
+  if (is.null(config)) config <- myositis_config()
+
+  # Backward compat: if post_vacc_summary is provided directly, store it in
+  # the config's research_table so it flows through the single config channel.
+  if (!is.null(post_vacc_summary) && nrow(post_vacc_summary) > 0) {
+    config$research_table       <- post_vacc_summary
+    config$research_table_title <- "Post-Vaccine Shingles Cohort"
   }
 
   # Fall back to synthetic data
@@ -153,9 +167,9 @@ launch_trajectory_dashboard <- function(connector            = NULL,
 
   ui     <- trajectory_ui(person_ids           = person_ids,
                           shingrix_patient_ids = as.character(shingrix_patient_ids),
-                          post_vacc_summary    = post_vacc_summary)
-  server <- trajectory_server(connector         = connector,
-                              post_vacc_summary = post_vacc_summary)
+                          config               = config)
+  server <- trajectory_server(connector = connector,
+                               config   = config)
 
   shiny::shinyApp(
     ui      = ui,

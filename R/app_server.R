@@ -7,36 +7,37 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector, post_vacc_summary = NULL) {
+trajectory_server <- function(connector, config = myositis_config()) {
   function(input, output, session) {
 
-    # Post-vaccine cohort table (rendered once at startup; static)
-    if (!is.null(post_vacc_summary) && nrow(post_vacc_summary) > 0) {
-      output$post_vacc_cohort_table <- DT::renderDataTable({
+    # ── Config-aware lab/ULN resolvers (used throughout this closure) ────────
+    # These replace the global .resolve() / .uln()
+    # calls so that any dashboard_config (not just myositis) works correctly.
+    .resolve <- function(key) {
+      k <- tolower(gsub("[- ]", "_", as.character(key)))
+      config$lab_concepts[[k]]
+    }
+    .uln <- function(key) .get_uln_from_config(key, config)
+
+    # Research / cohort panel (rendered once at startup; static data frame)
+    if (!is.null(config$research_table) &&
+        is.data.frame(config$research_table) &&
+        nrow(config$research_table) > 0) {
+      output$research_cohort_table <- DT::renderDataTable({
         DT::datatable(
-          post_vacc_summary,
-          rownames  = FALSE,
-          filter    = "top",
+          config$research_table,
+          rownames   = FALSE,
+          filter     = "top",
           extensions = "Buttons",
-          options   = list(
-            dom          = "Bfrtip",
-            buttons      = list("csv", "excel"),
-            pageLength   = 15,
-            scrollX      = TRUE,
-            autoWidth    = FALSE,
-            columnDefs   = list(
-              list(width = "80px",  targets = c(0, 1, 2)),   # ID, Age, Sex
-              list(width = "150px", targets = c(3)),          # Diagnoses
-              list(width = "90px",  targets = c(4, 5)),       # dates
-              list(width = "220px", targets = c(6, 7)),       # DMARD cols
-              list(width = "90px",  targets = c(8, 9, 10)),   # lymph cols
-              list(width = "100px", targets = c(11, 12, 13))  # pred cols
-            )
+          options    = list(
+            dom        = "Bfrtip",
+            buttons    = list("csv", "excel"),
+            pageLength = 15,
+            scrollX    = TRUE,
+            autoWidth  = FALSE
           ),
           class = "compact stripe hover"
-        ) |>
-          DT::formatDate(c("Vacc Date", "Shingles Date"), method = "toLocaleDateString") |>
-          DT::formatRound("Lymphocytes", digits = 0)
+        )
       })
     }
 
@@ -114,9 +115,13 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
         data <- tryCatch(
           fetch_patient_data(
             connector,
-            person_id  = as.integer(input$person_id),
-            start_date = "1900-01-01",
-            end_date   = format(Sys.Date(), "%Y-%m-%d")
+            person_id     = as.integer(input$person_id),
+            start_date    = "1900-01-01",
+            end_date      = format(Sys.Date(), "%Y-%m-%d"),
+            lab_concepts  = unlist(config$lab_concepts,
+                                    use.names = FALSE),
+            drug_concepts = unlist(config$drug_concepts,
+                                    use.names = FALSE)
           ),
           error = function(e) {
             shiny::showNotification(paste("Error loading data:", e$message),
@@ -138,22 +143,52 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       })
     })
 
-    # Shingles events: raw fetch on patient load, collapse applied separately
-    # so changing the gap slider does not re-query the database.
+    # ── Disease-event reactives (config-driven) ───────────────────────────────
+    # Myositis configs: use the specialised multi-type shingles/shingrix/PHN/VZV
+    # fetchers that have existed since v1.  Generic configs with event_sql_path
+    # use the new fetch_disease_events() wrapper; configs with neither get NULL.
+
+    # Shingles events (myositis) / generic events row — raw fetch on patient
+    # load; collapse applied in a separate reactive so the gap slider does not
+    # re-query the database.
     shingles_raw <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
-      tryCatch(
-        fetch_shingles_events(connector, person_id = as.integer(input$person_id)),
-        error = function(e) {
-          message("[shingles] fetch_shingles_events failed: ", e$message)
-          .empty_shingles()
-        }
-      )
+      if (inherits(config, "myositis_dashboard_config")) {
+        tryCatch(
+          fetch_shingles_events(connector,
+                                person_id = as.integer(input$person_id)),
+          error = function(e) {
+            message("[shingles] fetch_shingles_events failed: ", e$message)
+            .empty_shingles()
+          }
+        )
+      } else if (!is.null(config$event_sql_path)) {
+        tryCatch(
+          fetch_disease_events(connector,
+                               person_id     = as.integer(input$person_id),
+                               event_sql_path = config$event_sql_path),
+          error = function(e) {
+            message("[events] fetch_disease_events failed: ", e$message)
+            data.frame(condition_start_date = as.Date(character(0)),
+                       condition_source_value = character(0),
+                       condition_name = character(0),
+                       stringsAsFactors = FALSE)
+          }
+        )
+      } else {
+        NULL   # no event row for this config
+      }
     })
 
     shingles_data <- shiny::reactive({
       raw <- shingles_raw()
       if (is.null(raw) || nrow(raw) == 0L) return(raw)
+      # For generic events the date column is event_date; normalise to
+      # condition_start_date so all downstream code uses the same column name.
+      if ("event_date" %in% names(raw) &&
+          !"condition_start_date" %in% names(raw)) {
+        raw$condition_start_date <- raw$event_date
+      }
       gap <- as.integer(shingles_gap_d())
       raw |>
         dplyr::arrange(condition_start_date) |>
@@ -169,45 +204,107 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
         dplyr::select(-.gap, -.epid)
     })
 
-    # Shingrix vaccine events
+    # Shingrix vaccine events (myositis only)
     shingrix_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
+      if (!inherits(config, "myositis_dashboard_config")) {
+        return(data.frame(person_id = integer(0),
+                          event_date = as.Date(character(0)),
+                          event_type = character(0),
+                          source_value = character(0),
+                          stringsAsFactors = FALSE))
+      }
       tryCatch(
-        fetch_shingrix_events(connector, person_id = as.integer(input$person_id)),
-        error = function(e) { data.frame(person_id=integer(0), event_date=as.Date(character(0)),
-                                          event_type=character(0), source_value=character(0),
-                                          stringsAsFactors=FALSE) }
+        fetch_shingrix_events(connector,
+                              person_id = as.integer(input$person_id)),
+        error = function(e) {
+          data.frame(person_id = integer(0),
+                     event_date = as.Date(character(0)),
+                     event_type = character(0),
+                     source_value = character(0),
+                     stringsAsFactors = FALSE)
+        }
       )
     })
 
-    # PHN and VZV organ involvement events
+    # PHN and VZV organ involvement events (myositis only)
     phn_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
+      if (!inherits(config, "myositis_dashboard_config")) {
+        return(data.frame(person_id = integer(0),
+                          condition_start_date = as.Date(character(0)),
+                          condition_name = character(0),
+                          stringsAsFactors = FALSE))
+      }
       tryCatch(
-        fetch_phn_events(connector, person_id = as.integer(input$person_id)),
-        error = function(e) { data.frame(person_id=integer(0), condition_start_date=as.Date(character(0)),
-                                          condition_name=character(0), stringsAsFactors=FALSE) }
+        fetch_phn_events(connector,
+                         person_id = as.integer(input$person_id)),
+        error = function(e) {
+          data.frame(person_id = integer(0),
+                     condition_start_date = as.Date(character(0)),
+                     condition_name = character(0),
+                     stringsAsFactors = FALSE)
+        }
       )
     })
 
     vzv_organ_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
+      if (!inherits(config, "myositis_dashboard_config")) {
+        return(data.frame(person_id = integer(0),
+                          condition_start_date = as.Date(character(0)),
+                          condition_name = character(0),
+                          stringsAsFactors = FALSE))
+      }
       tryCatch(
-        fetch_vzv_organ_events(connector, person_id = as.integer(input$person_id)),
-        error = function(e) { data.frame(person_id=integer(0), condition_start_date=as.Date(character(0)),
-                                          condition_name=character(0), stringsAsFactors=FALSE) }
+        fetch_vzv_organ_events(connector,
+                               person_id = as.integer(input$person_id)),
+        error = function(e) {
+          data.frame(person_id = integer(0),
+                     condition_start_date = as.Date(character(0)),
+                     condition_name = character(0),
+                     stringsAsFactors = FALSE)
+        }
       )
     })
 
-    # Patient's rheumatic diagnoses (disease category labels)
+    # Condition-category diagnoses (myositis: rheumatic dx; generic: concept IDs)
     rheum_dx_data <- shiny::eventReactive(input$load_patient, {
       shiny::req(nzchar(as.character(input$person_id)))
-      tryCatch(
-        fetch_rheumatic_diagnoses(connector, person_id = as.integer(input$person_id)),
-        error = function(e) { data.frame(disease_category=character(0), condition_name=character(0),
-                                          condition_start_date=as.Date(character(0)),
-                                          stringsAsFactors=FALSE) }
-      )
+      empty <- data.frame(disease_category = character(0),
+                          condition_name = character(0),
+                          condition_start_date = as.Date(character(0)),
+                          stringsAsFactors = FALSE)
+      if (inherits(config, "myositis_dashboard_config")) {
+        tryCatch(
+          fetch_rheumatic_diagnoses(connector,
+                                    person_id = as.integer(input$person_id)),
+          error = function(e) empty
+        )
+      } else if (!is.null(config$condition_categories) &&
+                 length(config$condition_categories) > 0) {
+        # Generic: query condition_occurrence for supplied concept IDs
+        pd <- tryCatch(patient_data(), error = function(e) NULL)
+        if (is.null(pd) || is.null(pd$conditions) ||
+            nrow(pd$conditions) == 0L) return(empty)
+        all_conds <- pd$conditions
+        rows <- lapply(names(config$condition_categories), function(cat) {
+          ids  <- config$condition_categories[[cat]]
+          hits <- all_conds[!is.na(all_conds$condition_concept_id) &
+                              all_conds$condition_concept_id %in% ids, ,
+                            drop = FALSE]
+          if (nrow(hits) == 0L) return(NULL)
+          data.frame(disease_category       = cat,
+                     condition_name         = hits$condition_name,
+                     condition_start_date   = hits$condition_start_date,
+                     stringsAsFactors       = FALSE)
+        })
+        rows <- Filter(Negate(is.null), rows)
+        if (length(rows) == 0L) return(empty)
+        do.call(rbind, rows)
+      } else {
+        empty   # no condition categories configured
+      }
     })
 
     # Signal that a patient has been loaded (for conditionalPanel)
@@ -272,8 +369,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
     # -------------------------------------------------------------------------
     trajectory <- shiny::reactive({
       shiny::req(labs_filtered(), input$focus_lab)
-      concept_id <- .resolve_lab_concept(input$focus_lab)
-      uln        <- .get_default_uln(input$focus_lab)
+      concept_id <- .resolve(input$focus_lab)
+      uln        <- .uln(input$focus_lab)
       compute_trajectory_phases(
         labs_filtered(),
         concept_id       = concept_id,
@@ -295,7 +392,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
 
     decision_points <- shiny::reactive({
       shiny::req(patient_data(), trajectory(), treatment_phases())
-      detect_decision_points(patient_data(), trajectory(), treatment_phases())
+      detect_decision_points(patient_data(), trajectory(), treatment_phases(),
+                             config = config)
     }) |> shiny::bindCache(patient_data(), input$focus_lab, trajectory_window_d())
 
     toxicity_flags <- shiny::reactive({
@@ -420,7 +518,7 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       # --- Last-values status row ------------------------------------------
       # Show most recent value + trend (↑/↓/↔) + color for key labs.
       .last_val_tile <- function(lab_key, lab_label, uln_val) {
-        ids  <- .resolve_lab_concept(lab_key)
+        ids  <- .resolve(lab_key)
         if (is.null(ids)) return(NULL)
         sub  <- pd$labs[!is.na(pd$labs$measurement_concept_id) &
                           pd$labs$measurement_concept_id %in% ids &
@@ -497,8 +595,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       labs_v <- tryCatch(labs_filtered(), error = function(e) NULL)
       meds_v <- tryCatch(meds_filtered(), error = function(e) NULL)
       focus  <- input$focus_lab %||% "ck"
-      uln_v  <- .get_default_uln(focus)
-      cid_v  <- .resolve_lab_concept(focus)
+      uln_v  <- .uln(focus)
+      cid_v  <- .resolve(focus)
 
       result <- list(pct_normal = NA_real_, last_dose = NA_real_)
       if (is.null(labs_v) || nrow(labs_v) < 6L) return(result)
@@ -624,8 +722,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
                            alt="ALT", ldh="LDH")
         efig <- plotly::plot_ly(source = "macro_plot", showlegend = FALSE)
         for (ek in enzyme_keys) {
-          e_ids <- .resolve_lab_concept(ek)
-          e_uln <- .get_default_uln(ek)
+          e_ids <- .resolve(ek)
+          e_uln <- .uln(ek)
           edf   <- labs_filtered()
           if (!is.null(e_ids) && "measurement_concept_id" %in% names(edf)) {
             edf <- edf[edf$measurement_concept_id %in% e_ids, ]
@@ -695,8 +793,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
                               responsive = TRUE))
       }
 
-      concept_id <- .resolve_lab_concept(input$focus_lab %||% "ck")
-      uln        <- .get_default_uln(input$focus_lab %||% "ck")
+      concept_id <- .resolve(input$focus_lab %||% "ck")
+      uln        <- .uln(input$focus_lab %||% "ck")
 
       lab_focus <- labs_filtered()
       if (!is.null(concept_id) && "measurement_concept_id" %in% names(lab_focus)) {
@@ -1116,20 +1214,15 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
         }
       }
 
-      # Row: Shingles incidence (VZV / herpes zoster events from SQL query)
+      # Row: disease events (VZV / herpes zoster for myositis; generic SQL events
+      # for other configs; NULL / empty when not configured)
       shingles <- shingles_data()
       if (is.null(shingles)) shingles <- data.frame()
 
-      # All relevant immunosuppressants for peri-shingles hover.
+      # All relevant immunosuppressants for peri-event hover.
       # drug_family is now always present (added in patient_data reactive).
-      relevant_med_families <- c(
-        "Corticosteroids", "IVIG",
-        "Azathioprine", "Methotrexate", "Mycophenolate", "Hydroxychloroquine",
-        "Leflunomide", "Sulfasalazine", "Cyclosporine", "Cyclophosphamide",
-        "Tacrolimus", "Sirolimus", "Rituximab", "Tocilizumab", "Abatacept",
-        "Belimumab", "Anifrolumab", "Voclosporin",
-        "JAK inhibitors", "Anti-TNF", "Nintedanib", "Pirfenidone"
-      )
+      relevant_med_families <- names(config$drug_families) %||%
+                               names(config$drug_concepts)
       all_dmards <- pd$medications[
         !is.na(pd$medications$drug_family) &
           pd$medications$drug_family %in% relevant_med_families, ,
@@ -1195,7 +1288,7 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
             color   = "#FF6F00",
             line    = list(width = 2, color = "#E65100")
           ),
-          name          = "Shingles",
+          name          = config$event_row_label %||% "Events",
           showlegend    = TRUE,
           legendgroup   = "shingles",
           hovertemplate = vapply(shingle_info, `[[`, character(1), "hover"),
@@ -1277,7 +1370,14 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
         visits_hosp <- visits_hosp[!is.na(visits_hosp$visit_start_date), ]
       }
       if (!is.null(visits_hosp) && nrow(visits_hosp) > 0) {
-        rheum_cats   <- c("SLE","DM/Myositis","SSc","GCA","RA","SpA","Vasculitis")
+        # Category names from config (myositis: rheumatic Dx; generic: condition_categories)
+        rheum_cats   <- if (inherits(config, "myositis_dashboard_config")) {
+          c("SLE", "DM/Myositis", "SSc", "GCA", "RA", "SpA", "Vasculitis")
+        } else if (!is.null(config$condition_categories)) {
+          names(config$condition_categories)
+        } else {
+          character(0)
+        }
         rheum_dx_df  <- tryCatch(rheum_dx_data(), error = function(e) NULL)
         all_conds    <- pd$conditions
 
@@ -1458,7 +1558,7 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       if (nrow(trajectory()) > 0) {
         phases_traj <- trajectory()
         lab_focus2  <- labs_filtered()
-        cid2 <- .resolve_lab_concept(input$focus_lab %||% "ck")
+        cid2 <- .resolve(input$focus_lab %||% "ck")
         if (!is.null(cid2) && "measurement_concept_id" %in% names(lab_focus2)) {
           lab_focus2 <- lab_focus2[lab_focus2$measurement_concept_id %in% cid2, ]
         }
@@ -1466,7 +1566,7 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
                                  !is.na(lab_focus2$measurement_date), ]
 
         if (nrow(lab_focus2) > 0 && nrow(phases_traj) > 0) {
-          uln2   <- .get_default_uln(input$focus_lab %||% "ck")
+          uln2   <- .uln(input$focus_lab %||% "ck")
           cap    <- if (!is.na(uln2) && uln2 > 0) 5 * uln2 else max(lab_focus2$value_as_number)
           lo2    <- if (!is.na(uln2) && uln2 > 0) 0 else min(lab_focus2$value_as_number)
           rng    <- cap - lo2
@@ -1586,8 +1686,10 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
         )
         unname(abbrevs[x] %||% x)
       }
+      # Event row label comes from config (e.g. "Shingles", "Flares", ...)
+      event_row_label <- config$event_row_label %||% "Events"
       all_y_labels <- list(
-        list(y = SHINGLE_Y, label = .abbrev_row("Shingles")),
+        list(y = SHINGLE_Y, label = .abbrev_row(event_row_label)),
         list(y = HOSP_Y,    label = "Hosp."),
         list(y = COND_Y,    label = .abbrev_row("Diagnoses")),
         list(y = LAB_Y,     label = toupper(input$focus_lab %||% "Lab"))
@@ -2110,8 +2212,8 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
       shiny::req(labs_filtered())
       ld <- labs_filtered()
 
-      fvc_ids  <- .resolve_lab_concept("fvc")
-      dlco_ids <- .resolve_lab_concept("dlco")
+      fvc_ids  <- .resolve("fvc")
+      dlco_ids <- .resolve("dlco")
 
       fvc_df  <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date) &
                     "measurement_concept_id" %in% names(ld) &
@@ -2172,10 +2274,13 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
     .antibody_labs <- shiny::reactive({
       shiny::req(patient_data())
       ld  <- patient_data()$labs
-      abx_ids <- unlist(c(
-        MYOSITIS_LAB_CONCEPTS[c("anti_jo1","anti_mi2","anti_mda5","anti_tif1",
-                                "anti_hmgcr","anti_srs","anti_nxp2","anti_pm_scl")]
-      ))
+      # Use workup_concepts from config (or fall back to all lab concepts for
+      # generic configs that don't define explicit workup sets)
+      abx_ids <- if (!is.null(config$workup_concepts)) {
+        unlist(config$workup_concepts, use.names = FALSE)
+      } else {
+        unlist(config$lab_concepts, use.names = FALSE)
+      }
       dr <- date_range_d()
       ld <- ld[!is.na(ld$value_as_number) & !is.na(ld$measurement_date), ]
       if ("measurement_concept_id" %in% names(ld)) {
@@ -2266,7 +2371,7 @@ trajectory_server <- function(connector, post_vacc_summary = NULL) {
 
       # ── Collect CBC series ────────────────────────────────────────────
       .safety_series <- function(key) {
-        ids <- .resolve_lab_concept(key)
+        ids <- .resolve(key)
         if (is.null(ids)) return(NULL)
         sub <- ld[!is.na(ld$measurement_concept_id) &
                     ld$measurement_concept_id %in% ids &

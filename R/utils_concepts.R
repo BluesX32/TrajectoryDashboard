@@ -211,6 +211,62 @@ MYOSITIS_DRUG_CONCEPTS <- list(
   if (is.null(uln)) NA_real_ else uln
 }
 
+#' Build the lab picker choices list for the UI
+#'
+#' Returns either a grouped list (myositis preset) or a flat named vector
+#' derived from `config$lab_concepts` keys for generic configs.
+#'
+#' @param config A `dashboard_config` object.
+#' @return A named list or named character vector suitable for
+#'   `shiny::selectInput(choices = ...)`.
+#' @noRd
+.build_lab_picker_choices <- function(config) {
+  if (inherits(config, "myositis_dashboard_config")) {
+    # Full grouped picker with human-readable labels (existing behaviour)
+    list(
+      "Muscle Enzymes" = c(
+        "CK (Creatine Kinase)" = "ck",
+        "Aldolase"             = "aldolase",
+        "AST"                  = "ast",
+        "ALT"                  = "alt",
+        "LDH"                  = "ldh"
+      ),
+      "Inflammatory" = c(
+        "ESR"                  = "esr",
+        "CRP"                  = "crp"
+      ),
+      "Myositis Antibodies" = c(
+        "Anti-Jo-1"            = "anti_jo1",
+        "Anti-Mi-2"            = "anti_mi2",
+        "Anti-MDA5"            = "anti_mda5",
+        "Anti-TIF1-γ"     = "anti_tif1",
+        "Anti-HMGCR"           = "anti_hmgcr",
+        "Anti-SRP"             = "anti_srs",
+        "Anti-NXP2"            = "anti_nxp2",
+        "Anti-PM/Scl"          = "anti_pm_scl"
+      ),
+      "Pulmonary" = c(
+        "FVC"                  = "fvc",
+        "DLCO"                 = "dlco"
+      ),
+      "Cardiac & Safety" = c(
+        "Ferritin"             = "ferritin",
+        "Troponin-I"           = "troponin_i",
+        "BNP"                  = "bnp",
+        "WBC"                  = "wbc",
+        "Lymphocytes"          = "lymphocytes",
+        "Hemoglobin"           = "hemoglobin",
+        "Creatinine"           = "creatinine"
+      )
+    )
+  } else {
+    # Flat list: auto-derive display labels from concept keys
+    keys <- names(config$lab_concepts)
+    labels <- gsub("_", " ", toupper(keys))
+    stats::setNames(keys, labels)
+  }
+}
+
 #' Map a drug_concept_name to a standardised drug family name
 #'
 #' @param drug_names Character vector of drug concept names.
