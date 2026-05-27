@@ -236,11 +236,22 @@ with_connector.omop_connector <- function(connector, fn, ...) {
   fn(active, ...)
 }
 
-# Recognise "connection is closed" errors from JDBC / DatabaseConnector
+# Recognise stale / dropped connection errors from JDBC / DatabaseConnector.
+# Patterns covered:
+#   - Generic JDBC: "connection is closed", "no operations allowed"
+#   - Simba/Spark ODBC: SQLSTATE 08S01 "Communication link failure"
+#     (Simba[Hardy] raises this when the Spark cluster idles out or the
+#      warehouse is stopped between queries)
+#   - Network-level drops: socket closed, broken pipe, network error
 .is_closed_connection_error <- function(e) {
   msg <- conditionMessage(e)
-  grepl("connection is closed|connection.*closed|closed.*connection|no operations allowed",
-        msg, ignore.case = TRUE, perl = TRUE)
+  grepl(paste0(
+    "connection is closed|connection.*closed|closed.*connection|",
+    "no operations allowed|",
+    "08S01|communication link failure|",
+    "\\[Simba\\]|\\[Hardy\\]|",
+    "socket.*closed|broken.*pipe|network.*error|network.*reset"
+  ), msg, ignore.case = TRUE, perl = TRUE)
 }
 
 #' @export

@@ -132,12 +132,17 @@ trajectory_server <- function(connector, config = myositis_config()) {
         shiny::incProgress(0.9, detail = "Done")
         # Enrich medications with drug_family once here so every downstream
         # module (gaps, hover, summary bar, toxicity) sees the same values.
+        # Always ensure drug_family exists (even when drug_name is absent or
+        # medications has 0 rows) so dplyr never warns "uninitialised column".
         if (!is.null(data) && !is.null(data$medications) &&
-            nrow(data$medications) > 0 &&
-            "drug_name" %in% names(data$medications) &&
             !"drug_family" %in% names(data$medications)) {
-          data$medications$drug_family <-
-            .standardize_drug_family(data$medications$drug_name)
+          if ("drug_name" %in% names(data$medications)) {
+            data$medications$drug_family <-
+              .standardize_drug_family(data$medications$drug_name)
+          } else {
+            data$medications$drug_family <-
+              rep(NA_character_, nrow(data$medications))
+          }
         }
         data
       })
@@ -1117,7 +1122,8 @@ trajectory_server <- function(connector, config = myositis_config()) {
 
       # Filter treatment phases to selected families
       sel_families <- input$med_categories
-      if (!is.null(sel_families) && length(sel_families) > 0 && nrow(tx) > 0) {
+      if (!is.null(sel_families) && length(sel_families) > 0 && nrow(tx) > 0 &&
+          "drug_family" %in% names(tx)) {
         tx <- tx[tx$drug_family %in% sel_families, ]
       }
 
