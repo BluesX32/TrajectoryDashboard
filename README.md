@@ -1,50 +1,324 @@
 # TrajectoryDashboard
 
-An R package for interactive, longitudinal patient trajectory visualization from **OMOP CDM** data.
-Built for myositis and other rheumatologic diseases, but designed to work at any OMOP-compliant data site.
+An interactive Shiny dashboard for longitudinal patient trajectory visualization
+from **OMOP CDM** data. Works with any OMOP-compliant database — built for
+myositis, adaptable to any rheumatic or chronic disease cohort.
 
-## Core idea
+---
 
-Turn messy longitudinal EHR data into a clinically interpretable patient-state view that supports better understanding, monitoring, and future decision support.
+## Table of contents
 
-The dashboard is:
-- **Trajectory-centered** — not just a timeline, but phase-abstracted disease course
-- **Sparse-aware** — hatches gaps where data are absent rather than implying continuity
-- **Decision-oriented** — highlights escalation points, taper opportunities, and key clinical events
-- **Clinically deep** — normal range bands, normalization milestones, cumulative steroid burden, toxicity flags, safety monitoring, and time-in-target metrics
+1. [Installation](#installation)
+2. [Getting started](#getting-started)
+3. [Customizing for your disease](#customizing-for-your-disease)
+4. [Dashboard overview](#dashboard-overview)
+5. [Connection setup](#connection-setup)
+6. [Clinical features reference](#clinical-features-reference)
+7. [Key functions](#key-functions)
+8. [Package structure](#package-structure)
+
+---
 
 ## Installation
 
 ```r
-# From source (development)
+# Install from source
 devtools::install("path/to/TrajectoryDashboard")
 
-# Or load without installing
+# Or load without installing (development)
 devtools::load_all("path/to/TrajectoryDashboard")
 ```
 
-**Core dependencies:** `dplyr`, `lubridate`, `tibble`, `tidyr`, `stringr`, `rlang`, `purrr`
+**Required:** `dplyr`, `lubridate`, `tibble`, `tidyr`, `stringr`, `rlang`, `purrr`  
+**Shiny UI:** `shiny`, `shinydashboard`, `plotly`, `DT`  
+**Live OMOP:** `DatabaseConnector`, `SqlRender`
 
-**Suggests (Shiny app):** `shiny`, `shinydashboard`, `plotly`, `DT`
+---
 
-**Suggests (live OMOP):** `DatabaseConnector`, `SqlRender`, `rJava`, `RJDBC`, `DBI`
+## Getting started
 
-## Quick start
-
-### Demo mode (no database required)
+### Option A — Demo mode (no database needed)
 
 ```r
 library(TrajectoryDashboard)
 launch_trajectory_dashboard()
 ```
 
-Opens the dashboard with bundled synthetic myositis patients covering full disease courses
-(flare → response → stable → relapse → second response).
+Opens immediately with bundled synthetic patients showing full disease trajectories
+(flare → response → stable → relapse → second response). No credentials required.
 
-### Live OMOP database
+---
 
-Create a `.env` file in your working directory (copy `.env.example`):
+### Option B — Live OMOP database (recommended starting point)
 
+Open **`launch_dashboard.R`**, fill in the four blanks, and run it.
+
+```r
+devtools::load_all(".")
+
+# 1. Fill in your site's connection details
+connection_details <- DatabaseConnector::createConnectionDetails(
+  dbms         = "sql server",     # "postgresql", "spark", "redshift", ...
+  server       = "yourserver.edu/OMOP",
+  user         = "your_username",
+  password     = "your_password",
+  port         = 1433,
+  pathToDriver = "C:/jdbc"         # folder containing the JDBC .jar
+)
+cdm_database_schema   <- "dbo"    # schema that holds OMOP CDM tables
+vocab_database_schema <- "dbo"    # vocabulary schema (often same as CDM)
+
+# 2. Connect
+connection <- DatabaseConnector::connect(connection_details)
+
+# 3. Select your cohort (swap in your own ATLAS JSON)
+person_ids <- fetch_cohort_ids(
+  connection,
+  json_path    = system.file("json", "cohort_VZV_antivirals.json",
+                             package = "TrajectoryDashboard"),
+  cdm_schema   = cdm_database_schema,
+  vocab_schema = vocab_database_schema
+)
+message(length(person_ids), " patients in cohort.")
+
+# 4. Launch
+launch_trajectory_dashboard(
+  connector    = connection,
+  cdm_schema   = cdm_database_schema,
+  vocab_schema = vocab_database_schema,
+  person_ids   = as.character(person_ids)
+)
+
+DatabaseConnector::disconnect(connection)
+```
+
+> **JDBC drivers** are not bundled. Download once with:
+> ```r
+> DatabaseConnector::downloadJdbcDrivers("sql server", pathToDriver = "C:/jdbc")
+> # Other values: "postgresql" | "spark" | "redshift"
+> ```
+
+---
+
+## Customizing for your disease
+
+The dashboard engine is fully disease-agnostic. A `dashboard_config` object
+controls which lab and drug concepts are queried, what the UI labels say, and
+which optional panels appear. Pass it to `launch_trajectory_dashboard()` via
+`config = ...`.
+
+### Step 1 — Choose a starting point
+
+| Preset | Primary biomarker | Workup concepts | Event row |
+|---|---|---|---|
+| `myositis_config()` *(default)* | CK | Myositis antibodies (8 panels) | Shingles / VZV |
+| `ra_config()` | CRP | RF, Anti-CCP | RA Events |
+| `sle_config()` | CRP | Anti-dsDNA, C3, C4 | Lupus Events |
+
+```r
+# Use a preset directly — no other changes needed
+config <- ra_config()
+
+launch_trajectory_dashboard(
+  connector  = connection,
+  cdm_schema = "dbo",
+  person_ids = as.character(person_ids),
+  config     = config
+)
+```
+
+---
+
+### Step 2 — Customize what you need
+
+Pick any combination of fields. You only need to specify what differs from
+the default.
+
+```r
+config <- dashboard_config(
+
+  # ── Trajectory ──────────────────────────────────────────────────────────
+  # The "primary lab" drives the trajectory curve (the main plot).
+  # It must be a key that exists in lab_concepts below.
+  primary_lab = "crp",
+
+  # ── Lab concepts ─────────────────────────────────────────────────────────
+  # Named list: short key → integer vector of OMOP measurement_concept_ids.
+  # These are the only labs that will be fetched and shown in the picker.
+  # Keys become the lab picker choices; use meaningful short names.
+  lab_concepts = list(
+    crp         = c(3020460L),          # C-Reactive Protein
+    esr         = c(3009542L),          # ESR
+    rf          = c(3033408L),          # Rheumatoid Factor
+    anti_ccp    = c(3010148L),          # Anti-CCP antibody
+    wbc         = c(3010813L),          # WBC
+    lymphocytes = c(3004327L),          # Lymphocyte count
+    creatinine  = c(3051825L)           # Creatinine
+  ),
+
+  # ── Drug concepts ────────────────────────────────────────────────────────
+  # Reuse the full myositis DMARD list (covers most rheumatic diseases),
+  # or supply your own named list of drug_concept_ids.
+  drug_concepts = MYOSITIS_DRUG_CONCEPTS,
+
+  # ── Workup decision points ───────────────────────────────────────────────
+  # Measurements in this list trigger a "workup point" marker on the timeline.
+  # Label is the display name; value is a vector of measurement_concept_ids.
+  # Set to NULL to disable workup markers entirely.
+  workup_concepts = list(
+    "Rheumatoid Factor" = c(3033408L),
+    "Anti-CCP"          = c(3010148L)
+  ),
+
+  # ── Events timeline row ──────────────────────────────────────────────────
+  # Label shown on the y-axis and in the "episode gap" slider.
+  # To add a custom event row from your own SQL, also set event_sql_path.
+  event_row_label = "RA Flares",
+
+  # ── Cohort research panel ─────────────────────────────────────────────────
+  # Optional: pass any data.frame to display a cohort-level summary table
+  # below the per-patient view.  Set to NULL to hide the panel.
+  research_table       = my_cohort_summary_df,   # data.frame or NULL
+  research_table_title = "RA Cohort Summary"
+
+)
+
+launch_trajectory_dashboard(
+  connector  = connection,
+  cdm_schema = "dbo",
+  person_ids = as.character(person_ids),
+  config     = config
+)
+```
+
+---
+
+### Config field reference
+
+| Field | Type | What it changes in the UI |
+|---|---|---|
+| `primary_lab` | `character(1)` | Default lab selected in the picker; drives the trajectory curve |
+| `lab_concepts` | named list of `integer` vectors | Which measurements are fetched; each key becomes a picker option |
+| `drug_concepts` | named list of `integer` vectors | Which drugs are fetched from `drug_exposure` |
+| `drug_families` | named list of `character` vectors | How individual drug names are grouped into sidebar checkbox rows |
+| `lab_uln` | named `numeric` vector | Override upper limit of normal per lab key (fallback: OMOP `range_high`) |
+| `event_row_label` | `character(1)` | Y-axis label and "episode gap" slider heading in the event layer |
+| `event_sql_path` | `character(1)` or `NULL` | Path to a SqlRender SQL file returning custom disease events; `NULL` = no generic event row |
+| `condition_categories` | named list of `integer` vectors or `NULL` | Condition badge categories in the patient summary bar; `NULL` = hide |
+| `workup_concepts` | named list of `integer` vectors or `NULL` | Measurements that trigger workup decision-point markers; `NULL` = disable |
+| `research_table` | `data.frame` or `NULL` | Cohort-level table shown in a collapsible panel below the patient view |
+| `research_table_title` | `character(1)` | Heading for the research table panel |
+
+> **Note:** `lab_concepts` also controls the ILD monitoring panel: the **FVC/DLCO** checkbox
+> appears automatically when `"fvc"` or `"dlco"` are keys in `lab_concepts`, and is hidden otherwise.
+
+---
+
+### Adding a custom disease-events row
+
+Any SQL file that returns `event_date`, `event_label`, `event_detail` columns and
+accepts `@cdm_schema`, `@vocab_schema`, `@person_id` parameters can power the
+events timeline row.
+
+```sql
+-- my_events.sql
+SELECT
+    co.person_id,
+    co.condition_start_date  AS event_date,
+    c.concept_name           AS event_label,
+    co.condition_source_value AS event_detail
+FROM @cdm_schema.condition_occurrence co
+JOIN @cdm_schema.concept c ON c.concept_id = co.condition_concept_id
+WHERE co.person_id        = @person_id
+  AND co.condition_concept_id IN (123456, 234567)  -- your concept IDs
+ORDER BY co.condition_start_date
+;
+```
+
+```r
+config <- dashboard_config(
+  primary_lab     = "crp",
+  lab_concepts    = list(crp = c(3020460L)),
+  event_sql_path  = "path/to/my_events.sql",
+  event_row_label = "Disease Flares"
+)
+```
+
+---
+
+### Backward compatibility
+
+If you omit the `config` argument, the dashboard behaves exactly as before —
+myositis defaults with no changes required:
+
+```r
+# Still works without any config argument
+launch_trajectory_dashboard(connector = con, person_ids = as.character(ids))
+```
+
+---
+
+## Dashboard overview
+
+```
+┌─ Sidebar ──────────────┐  ┌─ Main content ─────────────────────────────────────┐
+│                        │  │                                                      │
+│  Patient               │  │  Patient summary bar                                 │
+│  ├─ ID selector        │  │  Age · Sex · Dx · Follow-up · Peak CK · Steroids    │
+│  ├─ Load Patient       │  │  Last-values row with trend arrows (↗ ↘ →)           │
+│  └─ Date range         │  │                                                      │
+│                        │  ├─ Layer 1: Macro Trajectory ──────────────────────── │
+│  Primary Lab           │  │  Data density strip (quarterly event counts)         │
+│  ├─ Lab picker         │  │  Primary lab + LOESS trend + normal range band       │
+│  └─ Enzyme panel mode  │  │  Phase shading (flare/worsening/stable/response)     │
+│                        │  │  Prednisone overlay on secondary axis                │
+│  Medications           │  │                                                      │
+│  └─ [checkboxes]       │  ├─ Layer 2: Events & Treatments ──────────────────── │
+│                        │  │  Disease event row (config-driven)                   │
+│  Display Options       │  │  Medication bars by drug family                      │
+│  ├─ Show sparse        │  │  Decision-point markers (▲ escalation, ▽ taper …)   │
+│  ├─ Show decision pts  │  │  Drug toxicity flags (orange/red triangles)          │
+│  ├─ Show ILD panel*    │  │                                                      │
+│  ├─ Episode gap slider │  ├─ Layer 3: Detail Drawer (click any event) ───────── │
+│  └─ Phase window       │  │  Selected Event · Labs · Meds · Notes               │
+│                        │  │  Conditions · Antibodies · Safety                   │
+│  Research Intelligence │  │                                                      │
+│  Download Data         │  ├─ ILD Panel* (FVC / DLCO)                            │
+└────────────────────────┘  └──────────────────────────────────────────────────────┘
+                             * shown only when fvc/dlco are in config lab_concepts
+```
+
+---
+
+## Connection setup
+
+### OHDSI-standard (recommended)
+
+The pattern in `launch_dashboard.R` follows the same fill-in-the-blanks
+convention as CohortDiagnostics, PatientLevelPrediction, and other HADES studies.
+
+```r
+DatabaseConnector::createConnectionDetails(
+  dbms         = "sql server",
+  server       = "yourserver.edu/OMOP",
+  user         = "your_username",
+  password     = "your_password",
+  port         = 1433,
+  pathToDriver = "C:/jdbc"
+)
+```
+
+Supported `dbms` values: `"sql server"`, `"postgresql"`, `"spark"`,
+`"redshift"`, `"oracle"`, `"bigquery"`.
+
+---
+
+### Env-file approach (legacy) — `test_dashboard.R`
+
+For sites that already have a `.env` or `R.env` file, the original helpers
+are still fully supported.
+
+**.env** (SQL Server / generic OMOP):
 ```
 SQL_SERVER=yourserver.institution.edu
 SQL_DATABASE=OMOP_CDM
@@ -53,117 +327,63 @@ USE_WINDOWS_AUTH=true
 SQL_JDBC_PATH=jdbc_drivers/sql
 ```
 
-Then launch:
-
 ```r
 con <- create_connection_from_env(".env")
-launch_trajectory_dashboard(con)
+launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 ```
 
-### Restrict to a cohort with pre-fetched data
+---
+
+### JHU SAFER Desktop (Databricks via proxy)
+
+Copy `.env.example` to `R.env` and fill in the `DATABRICKS_*` fields:
+
+```
+DATABRICKS_SERVER_HOSTNAME=adb-xxxx.azuredatabricks.net
+DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxx
+DATABRICKS_TOKEN=dapi...
+DATABRICKS_DATA_CATALOG=deid
+DATABRICKS_JDBC_JAR=C:/jdbc/databricks-jdbc-2.6.36.jar
+```
+
+**Prerequisites:** Java OpenJDK 17 (64-bit), `databricks-jdbc-2.6.36.jar`
+([download](https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/)),
+R packages `rJava`, `RJDBC`, `DBI`.
 
 ```r
-# Step 1: identify the cohort (VZV antivirals example)
-person_ids <- fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_VZV_antivirals.json",
-                          package = "TrajectoryDashboard")
-)
-
-# Step 2: download ALL patient data in ONE connection before launching
-#   — avoids repeated JDBC auth round-trips during the session
-cache <- prefetch_cohort_data(con, person_ids)
-
-# Optionally persist the cache between R sessions:
-# saveRDS(cache, "cohort_cache.rds")
-# cache <- readRDS("cohort_cache.rds")
-
-# Step 3: launch — patient loads are served from memory, no DB queries
-launch_trajectory_dashboard(con,
-  person_ids     = as.character(person_ids),
-  preloaded_data = cache)
+con <- create_safer_connection("R.env")
+launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 ```
 
-### Ad-hoc patient list (no pre-fetch)
+---
+
+### JHU Discovery HPC (Databricks direct)
+
+Same `R.env` format, no proxy. Download the jar once:
+
+```bash
+mkdir -p ~/jdbc
+wget -P ~/jdbc https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/databricks-jdbc-2.6.36.jar
+```
 
 ```r
-launch_trajectory_dashboard(con, person_ids = c("10001", "10002", "10003"))
+con <- create_hpc_connection("R.env")
+launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 ```
 
-Each patient load issues live database queries in this mode.
+---
 
-## Dashboard layout
+### Automatic disconnect
 
-```
-+--sidebar-----------+  +--main-content------------------------------------------+
-| Patient ID         |  | [Patient summary bar: age, diagnosis, follow-up, CK,   |
-| Load Patient       |  |  ferritin, cumulative steroid, last-visit date, TIT %]  |
-| Date range         |  +--Layer 1: Macro Trajectory-----------------------------+
-| Reset history      |  | [Data density strip — quarterly event counts]           |
-|                    |  | [Primary lab + LOESS trend + normal range band + ULN]   |
-| Primary Lab        |  | [Phase shading: flare/worsening/stable/response/relapse]|
-| [focus lab picker] |  | [Normalization milestone stars after each flare]         |
-| Enzyme panel mode  |  | [Prednisone pred-equiv step line (secondary y-axis)]     |
-|                    |  +--Layer 2: Events & Treatments--------------------------+
-| Medications        |  | [Shingles/VZV events — orange diamonds]                  |
-| [checkboxes]       |  | [Medication bars by drug family]                         |
-|                    |  | [Decision points: escalation/taper/workup/admission]    |
-| Display Options    |  | [Drug toxicity warnings: hepatotox/lymphopenia/CrRise]  |
-| Show sparse        |  | [DMARD gap bands >= 30 days (optional)]                  |
-| Show decision pts  |  +--Layer 3: Detail Drawer (opens on click)---------------+
-| Show admissions    |  | Selected Event | Lab Values | Medications | Notes |      |
-| Show ILD panel     |  | Conditions | Antibodies | Safety (CBC + cardiac)         |
-| Show DMARD gaps    |  +--[ILD panel: FVC/DLCO (optional)]---------------------+
-| Phase window (d)   |  +--[Download Clinical Summary]---------------------------+
-|                    |
-| Download Data      |
-+--------------------+
-```
+The dashboard disconnects from the database and stops the R process
+automatically when the browser window closes (`session$onSessionEnded`).
+No manual cleanup is required.
 
-## Clinical features
+---
 
-### Layer 1 — Macro Trajectory
+## Clinical features reference
 
-| Feature | Description |
-|---|---|
-| Focus lab | CK, Aldolase, AST, ALT, LDH, ESR, CRP, ferritin, troponin-I, BNP, antibodies, CBC, creatinine |
-| Enzyme panel mode | Overlay all muscle enzymes as % ULN on one plot |
-| Normal range band | Green shaded band from `range_low` to `range_high` (or default ULN); grey dashed ULN line |
-| LOESS trend | Smoothed trend line (span = 0.4); requires >= 4 observations |
-| Normalization milestones | Green star at first value <= ULN after each flare/worsening phase; hover shows days from flare start |
-| Phase shading | Colored background bands per disease phase |
-| Steroid overlay | Prednisone pred-equiv step function on secondary y-axis (right) |
-| Time-in-target (TIT) | % of observations within normal range shown in box header |
-
-### Layer 2 — Events & Treatments
-
-| Feature | Description |
-|---|---|
-| Shingles row | Herpes zoster events from a dedicated VZV concept-set SQL query (orange diamonds); hover shows DMARDs active ±3 months |
-| Medication bars | One row per drug family; gap-bridged episodes with 30-day merge window |
-| Decision points | Automatically detected clinical decision moments (see table below) |
-| Toxicity flags | Orange/red triangles for hepatotoxicity, lymphopenia, creatinine rise |
-| DMARD gap bands | Orange bands highlighting >= 30-day periods without non-steroid DMARD (optional) |
-
-### Layer 3 — Detail Drawer (7 tabs)
-
-| Tab | Content |
-|---|---|
-| Selected Event | Structured detail for the clicked decision point |
-| Lab Values | Full lab history table (DT, sortable/filterable) |
-| Medications | Full medication history table |
-| Clinical Notes | Note text viewer |
-| Conditions | Condition occurrence table |
-| Antibodies | Antibody timeline plot + table |
-| Safety | CBC (WBC + lymphocytes) and cardiac biomarkers (Troponin-I + BNP) with danger threshold lines |
-
-### Patient summary bar
-
-Tiles shown after patient load: age at first visit, sex, diagnosis, years of follow-up, peak CK (x ULN), ferritin (x ULN), cumulative corticosteroid exposure (grams pred-equiv), last visit date.
-
-A last-values status row shows the most recent value for each lab with trend arrows (↗ ↘ →) and color-coded tiers (normal / elevated / high / critical).
-
-## Trajectory phases
+### Trajectory phases
 
 | Phase | Color | Definition |
 |---|---|---|
@@ -174,382 +394,134 @@ A last-values status row shows the most recent value for each lab with trend arr
 | `relapse` | Purple | Worsening after a response period |
 | `sparse` | Grey hatched | < 2 observations in window — no phase inferred |
 
-## Decision point types
+### Decision point types
 
 | Type | Trigger |
 |---|---|
 | `escalation_point` | Flare/worsening with no new medication in prior 30 days |
-| `taper_point` | Response phase while corticosteroid is active |
+| `taper_point` | Response phase while a corticosteroid is active |
 | `medication_change` | New immunosuppressant or biologic starts |
-| `admission` | Shingles / VZV event (sourced from dedicated SQL query) |
-| `workup_point` | Myositis antibody result in labs |
+| `admission` | Inpatient or ER visit |
+| `workup_point` | A `workup_concepts` measurement result appears in labs |
 | `referral_point` | Referral keywords in clinical notes (low confidence) |
 
-## Drug toxicity detection
+### Drug toxicity flags
 
-Automatically flagged when:
+Automatically shown as triangles overlaid on medication bars:
 
-| Toxicity | Criterion | Drugs |
+| Toxicity | Criterion | Drugs checked |
 |---|---|---|
 | Hepatotoxicity | ALT or AST > 3× ULN within ±30 days of exposure | MTX, AZA |
 | Lymphopenia | Lymphocytes < 0.5 K/µL within ±14 days of exposure | Any IST |
 | Creatinine rise | Creatinine > 25% above 90-day baseline | CNIs |
 
-Severity: **warning** (borderline) or **alert** (action-required).
+Severity: **warning** (borderline) or **alert** (action required).
 
-## Supported OMOP CDM domains
+### Detail drawer tabs
+
+| Tab | Content |
+|---|---|
+| Selected Event | Full evidence summary for the clicked decision point |
+| Lab Values | Full lab history table (sortable, filterable, downloadable) |
+| Medications | Full medication history table |
+| Clinical Notes | Note text viewer |
+| Conditions | Condition occurrence table |
+| Antibodies | Antibody timeline plot + values table |
+| Safety | CBC (WBC + lymphocytes) and cardiac biomarkers (Troponin-I, BNP) with danger threshold lines |
+
+### Supported OMOP CDM domains
 
 | Domain | OMOP table | Dashboard use |
 |---|---|---|
-| Labs | `measurement` | Trajectory computation, focus lab plot, safety monitoring |
-| Medications | `drug_exposure` | Treatment interval bars, taper/escalation detection, toxicity |
-| Diagnoses | `condition_occurrence` | Event markers in Layer 2, detail table |
+| Labs | `measurement` | Trajectory computation, lab picker, safety monitoring |
+| Medications | `drug_exposure` | Treatment bars, escalation/taper detection, toxicity |
+| Diagnoses | `condition_occurrence` | Event markers, detail table, condition categories |
 | Visits | `visit_occurrence` | Hospitalization bands, admission events |
 | Notes | `note` | Notes viewer, referral keyword detection |
 | Observations | `observation` | ECOG / functional status |
-
-## OMOP CDM compatibility
-
-All SQL queries use **SqlRender** for cross-DBMS translation. Tested connection targets:
-
-| Platform | Auth | Function |
-|---|---|---|
-| SQL Server | Windows AD (NTLM) or username/password | `create_omop_connection()` |
-| PostgreSQL | Username/password | `create_omop_connection()` |
-| Databricks (generic) | PAT token | `create_omop_connection()` |
-| Amazon Redshift | Username/password | `create_omop_connection()` |
-| JHU SAFER Desktop | Databricks PAT + JHU proxy | `create_safer_connection()` |
-| JHU Discovery HPC | Databricks PAT (direct) | `create_hpc_connection()` |
-
-## Connection setup
-
-### OHDSI-standard approach (recommended) — `launch_dashboard.R`
-
-Same fill-in-the-blanks pattern used by CohortDiagnostics,
-PatientLevelPrediction, and other OHDSI network studies.
-Open `launch_dashboard.R`, fill in your values, and run it.
-
-```r
-connection_details <- DatabaseConnector::createConnectionDetails(
-  dbms         = "sql server",
-  server       = "yourserver.edu/OMOP",
-  user         = "your_username",
-  password     = "your_password",
-  port         = 1433,
-  pathToDriver = "C:/jdbc"
-)
-cdm_database_schema <- "dbo"
-
-connection <- DatabaseConnector::connect(connection_details)
-
-person_ids <- fetch_cohort_ids(connection,
-  json_path    = system.file("json", "cohort_VZV_antivirals.json",
-                              package = "TrajectoryDashboard"),
-  cdm_schema   = cdm_database_schema,
-  vocab_schema = cdm_database_schema)
-
-launch_trajectory_dashboard(connection,
-  cdm_schema = cdm_database_schema,
-  person_ids = as.character(person_ids))
-
-DatabaseConnector::disconnect(connection)
-```
-
-JDBC drivers are not bundled — download once with:
-
-```r
-DatabaseConnector::downloadJdbcDrivers("sql server", pathToDriver = "C:/jdbc")
-# or: "postgresql" | "spark" for other platforms
-```
-
----
-
-### Legacy env-file approach — `test_dashboard.R`
-
-The original connection helpers (`create_connection_from_env()`,
-`create_safer_connection()`, `create_hpc_connection()`) are still fully
-supported. They read a project-level `.env` or `R.env` file.
-
-Copy `.env.example` to `.env` and fill in your site's values:
-
-```
-# SQL Server + Windows AD (typical at US academic medical centres)
-SQL_SERVER=yourserver.institution.edu
-SQL_DATABASE=OMOP_CDM
-SQL_CDM_SCHEMA=dbo
-USE_WINDOWS_AUTH=true
-SQL_JDBC_PATH=jdbc_drivers/sql
-```
-
-```r
-con <- create_connection_from_env(".env")
-```
-
-JDBC drivers are not bundled. Download with:
-
-```r
-DatabaseConnector::downloadJdbcDrivers("sql server", pathToDriver = "jdbc_drivers/sql")
-```
-
-### JHU SAFER Desktop (Databricks via proxy)
-
-Uses RJDBC directly with the JHU proxy (`proxy.jh.edu:3129`), which is required on SAFER Desktop. Copy `.env.example` to `R.env` and fill in the `DATABRICKS_*` section:
-
-```
-DATABRICKS_SERVER_HOSTNAME=adb-xxxx.azuredatabricks.net
-DATABRICKS_HTTP_PATH=/sql/1.0/warehouses/xxxx
-DATABRICKS_TOKEN=dapi...
-DATABRICKS_DATA_CATALOG=deid
-DATABRICKS_USER_CATALOG=reach_users
-DATABRICKS_USERNAME=mxiong5
-DATABRICKS_JDBC_JAR=C:/jdbc/databricks-jdbc-2.6.36.jar
-```
-
-**Prerequisites:**
-- Java OpenJDK 17 (64-bit) installed on SAFER Desktop
-- `databricks-jdbc-2.6.36.jar` at `C:/jdbc/` (download from [Maven Central](https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/))
-- R packages: `rJava`, `RJDBC`, `DBI`
-
-```r
-con <- create_safer_connection("R.env")
-launch_trajectory_dashboard(con)
-```
-
-### JHU Discovery HPC (Databricks direct)
-
-Same `R.env` format, but no proxy. Default jar location is `~/jdbc/`:
-
-```
-DATABRICKS_JDBC_JAR=~/jdbc/databricks-jdbc-2.6.36.jar
-```
-
-**Prerequisites:**
-- Java configured via `R CMD javareconf` (contact rithhpc-help@jh.edu if needed)
-- `databricks-jdbc-2.6.36.jar` in `~/jdbc/`:
-  ```bash
-  mkdir -p ~/jdbc
-  wget -P ~/jdbc https://repo1.maven.org/maven2/com/databricks/databricks-jdbc/2.6.36/databricks-jdbc-2.6.36.jar
-  ```
-
-```r
-con <- create_hpc_connection("R.env")   # or ~/.env
-launch_trajectory_dashboard(con)
-```
-
-### Connection lifecycle
-
-The dashboard automatically disconnects when:
-- The browser window/tab is closed (`session$onSessionEnded`)
-- The R process / `shiny::runApp()` stops (`shiny::onStop`)
-
-Stale JDBC connections are automatically detected and reconnected on the next patient load.
-
-## Using with any OMOP CDM population
-
-The dashboard engine is 100% disease-agnostic. A `dashboard_config` object
-controls which lab/drug concepts are queried, how the UI is labelled, and
-which optional panels are shown. Pass it to `launch_trajectory_dashboard()`
-via the `config` argument.
-
-### Built-in presets
-
-```r
-config <- myositis_config()   # default — CK trajectory, myositis antibodies,
-                              # Shingles event row, rheumatic Dx panel
-config <- ra_config()         # CRP trajectory, RF + anti-CCP workup points
-config <- sle_config()        # CRP trajectory, anti-dsDNA + complement workup
-```
-
-### Custom config
-
-```r
-config <- dashboard_config(
-  primary_lab  = "crp",             # lab that drives the trajectory curve
-  lab_concepts = list(
-    crp         = c(3020460L),      # OMOP measurement_concept_ids
-    esr         = c(3009542L),
-    rf          = c(3033408L),
-    anti_ccp    = c(3010148L)
-  ),
-  drug_concepts = MYOSITIS_DRUG_CONCEPTS,  # reuse full DMARD list
-  workup_concepts = list(
-    "Rheumatoid Factor" = c(3033408L),
-    "Anti-CCP"          = c(3010148L)
-  ),
-  event_row_label = "RA Flares",    # label for the timeline events row
-  research_table_title = "RA Cohort"
-)
-
-launch_trajectory_dashboard(connection,
-  cdm_schema = "dbo",
-  person_ids = as.character(person_ids),
-  config     = config)
-```
-
-### What config controls
-
-| Field | Effect |
-|---|---|
-| `primary_lab` | Default lab driving the trajectory curve |
-| `lab_concepts` | Which measurements are fetched and shown in the lab picker |
-| `drug_concepts` | Which drugs are fetched from `drug_exposure` |
-| `drug_families` | How drug names are grouped into checkbox families |
-| `lab_uln` | Override upper limits of normal (otherwise uses OMOP `range_high`) |
-| `event_sql_path` | SQL file → timeline events row (NULL disables it) |
-| `event_row_label` | Y-axis label and slider label for the events row |
-| `condition_categories` | Condition badge categories in the patient summary bar |
-| `workup_concepts` | Which measurements trigger "workup point" decision markers |
-| `research_table` | Data frame shown in the cohort-level research panel |
-| `research_table_title` | Panel heading |
-
-Backward compatibility is preserved: calling
-`launch_trajectory_dashboard(con, person_ids = ids)` with no `config` argument
-continues to work exactly as before (myositis defaults).
 
 ---
 
 ## Key functions
 
 ```r
-# Connection
-create_connection_from_env(".env")             # Generic: load from .env file
-create_omop_connection(...)                    # Generic: explicit parameters
-create_safer_connection("R.env")               # JHU SAFER Desktop (proxy + RJDBC)
-create_hpc_connection("R.env")                 # JHU Discovery HPC (direct + RJDBC)
-create_df_connector(patient_data_list)         # In-memory (tests/demos)
+# ── Connection ──────────────────────────────────────────────────────────────────
+DatabaseConnector::createConnectionDetails(...)    # OHDSI-standard (recommended)
+create_connection_from_env(".env")                 # Env-file (SQL Server)
+create_safer_connection("R.env")                   # JHU SAFER Desktop (Databricks)
+create_hpc_connection("R.env")                     # JHU Discovery HPC (Databricks)
 
-# Disease config
-myositis_config()                              # Myositis preset (default)
-ra_config()                                    # RA preset
-sle_config()                                   # SLE preset
-dashboard_config(primary_lab, lab_concepts, …) # Fully custom config
+# ── Disease config ──────────────────────────────────────────────────────────────
+myositis_config()                                  # Myositis preset (default)
+ra_config()                                        # RA preset
+sle_config()                                       # SLE preset
+dashboard_config(primary_lab, lab_concepts, ...)   # Fully custom config
 
-# Cohort selection
-fetch_cohort_ids(connector, json_path)         # ATLAS JSON → integer vector of person_ids
-test_cohort_connection(connector)              # Diagnose connection / SQL issues
+# ── Cohort selection ────────────────────────────────────────────────────────────
+fetch_cohort_ids(connector, json_path, ...)        # ATLAS JSON → person_id vector
+test_cohort_connection(connector)                  # Diagnose SQL / connection issues
 
-# Data extraction
-fetch_patient_data(connector, person_id = 12345L)
-fetch_disease_events(connector, person_id, event_sql_path)  # Generic events row
-fetch_shingles_events(connector, person_id = 12345L)        # VZV/herpes zoster events
-prefetch_cohort_data(connector, person_ids)    # Batch-fetch all patients (one connection)
+# ── Data extraction ─────────────────────────────────────────────────────────────
+fetch_patient_data(connector, person_id, ...)      # All domains for one patient
+fetch_disease_events(connector, person_id,         # Generic events row from SQL file
+                     event_sql_path)
+fetch_shingles_events(connector, person_id)        # VZV / herpes zoster events
+fetch_shingrix_patients(connector, person_ids)     # Cohort-level Shingrix vaccine flag
 
-# Analytics
-compute_trajectory_phases(labs_df, concept_id = 4013722L)
-compute_treatment_phases(medications_df)
-compute_data_density(patient_data)
-detect_decision_points(patient_data, trajectory, treatment_phases, config = config)
-detect_toxicity_flags(labs_df, medications_df)
+# ── Analytics ───────────────────────────────────────────────────────────────────
+compute_trajectory_phases(labs_df, ...)            # Phase segmentation
+compute_treatment_phases(medications_df)            # Drug interval consolidation
+detect_decision_points(patient_data, trajectory,   # Clinical decision markers
+                       treatment_phases, config)
+detect_toxicity_flags(labs_df, medications_df)     # Safety flags
 
-# App
-launch_trajectory_dashboard(connector = NULL, person_ids = NULL, config = NULL)
-```
-
-## Myositis-specific concept IDs
-
-The package ships with pre-built OMOP concept ID lists for myositis-relevant labs and drugs:
-
-```r
-# Lab concept IDs
-# Muscle enzymes: CK, Aldolase, AST, ALT, LDH
-# Inflammatory: ESR, CRP
-# Myositis antibodies: Anti-Jo-1, Anti-Mi-2, Anti-MDA5, Anti-TIF1-gamma, Anti-HMGCR
-# Cardiac & safety: Ferritin, Troponin-I, BNP, WBC, Lymphocytes, Hemoglobin, Creatinine
-MYOSITIS_LAB_CONCEPTS
-
-# Drug concept IDs (prednisone, azathioprine, IVIG, rituximab, JAK inhibitors, etc.)
-MYOSITIS_DRUG_CONCEPTS
-
-# Fetch only myositis labs
-data <- fetch_patient_data(
-    con, person_id = 12345L,
-    lab_concepts = unlist(MYOSITIS_LAB_CONCEPTS)
+# ── Launch ──────────────────────────────────────────────────────────────────────
+launch_trajectory_dashboard(
+  connector  = connection,
+  cdm_schema = "dbo",
+  person_ids = as.character(person_ids),
+  config     = myositis_config()          # omit for myositis default
 )
 ```
+
+---
 
 ## Package structure
 
 ```
 R/
-    connector.R               S3 trajectory_connector (omop + df variants); stale-connection retry
-    connection.R              create_omop_connection(), create_connection_from_env(),
-                              create_safer_connection(), create_hpc_connection()
-    sql_helpers.R             render_translate_sql(), query_omop() (internal)
-    utils_validate.R          assert_required_cols(), safe_as_date(), %||%
-    utils_concepts.R          MYOSITIS_LAB_CONCEPTS, MYOSITIS_DRUG_CONCEPTS
-    extract_patient.R         fetch_patient_data(), prefetch_cohort_data()
-    extract_labs.R            fetch_labs() S3
-    extract_medications.R     fetch_medications() S3
-    extract_conditions.R      fetch_conditions() S3
-    extract_visits.R          fetch_visits() S3
-    extract_notes.R           fetch_notes() S3
-    extract_observations.R    fetch_observations() S3
-    cohort.R                  fetch_cohort_ids(), fetch_shingles_events(),
-                              build_cohort_sql(), test_cohort_connection()
-    trajectory.R              compute_trajectory_phases(), compute_treatment_phases()
-    data_density.R            compute_data_density()
-    decision_points.R         detect_decision_points(), detect_toxicity_flags()
-    report.R                  generate_patient_report() — HTML clinical summary
-    app.R                     launch_trajectory_dashboard()
-    app_ui.R                  trajectory_ui() — shinydashboard 3-layer layout
-    app_server.R              trajectory_server() — plotly reactive graph
+  dashboard_config.R    dashboard_config(), myositis_config(), ra_config(),
+                        sle_config(), fetch_disease_events()
+  app.R                 launch_trajectory_dashboard()
+  app_ui.R              trajectory_ui() — config-driven 3-layer layout
+  app_server.R          trajectory_server() — plotly reactive graph
+  connector.R           trajectory_connector S3 class; stale-connection retry
+  connection.R          create_omop_connection(), env-file helpers
+  utils_concepts.R      MYOSITIS_LAB_CONCEPTS, MYOSITIS_DRUG_CONCEPTS,
+                        .build_lab_picker_choices()
+  cohort.R              fetch_cohort_ids(), fetch_shingles_events(), …
+  extract_patient.R     fetch_patient_data()
+  extract_labs/meds/    Domain-specific S3 extractors
+    conditions/visits/
+    notes/observations.R
+  trajectory.R          compute_trajectory_phases(), compute_treatment_phases()
+  decision_points.R     detect_decision_points(), detect_toxicity_flags()
+  report.R              generate_patient_report() — HTML clinical summary
 
-inst/sql/                     SqlRender-parameterized OMOP SQL templates:
-                                cohort_VZV_antivirals.sql — full cohort query
-                                fetch_shingles_events.sql — per-patient VZV events
-                                fetch_phn_events.sql / fetch_vzv_organ_events.sql
-                                extract_labs/medications/conditions/visits/notes.sql
-inst/json/                    cohort_VZV_antivirals.json — ATLAS cohort definition
-preliminary_tables.R          Shingles / VZV analysis — PREVALENCE cohort (any RD dx + DMARD).
-                              SHINGLES_GAP_DAYS (default 90): consecutive VZV condition
-                                occurrences within this window are collapsed into one episode.
-                              Table 1 (base cohort characteristics by shingles status;
-                                       3 columns: Total | No Shingles | Shingles;
-                                       race: Asian / Black / White / Other)
-                              Table 2 (shingles episode stats; pre/post vaccine columns with
-                                       episode-proportion weighting for overlap patients)
-                              Step 6 post-vaccine cohort summary — passed to dashboard launch
-preliminary_tables_shingles_incident.R
-                              Shingles / VZV analysis — INCIDENT cohort.
-                              Base cohort requires TWO RD diagnoses, 30–365 days apart;
-                                second diagnosis = cohort index_date.
-                              Events restricted to >= index_date. Age at index_date.
-                              Table 1 (same structure as preliminary_tables.R)
-                              Table 2 (same structure; episodes filtered to >= index_date)
-preliminary_tables_pjp.R      PJP analysis — PREVALENCE cohort.
-                              Same base cohort as preliminary_tables.R.
-                              Table 1 — full base cohort characteristics by PJP status;
-                                         3 columns: Total | Without PJP | With PJP;
-                                         demographics: age, sex, race (Asian / Black / White / Other);
-                                         rheumatic Dx flags, any-ever prophylaxis exposure by regimen
-                              Table 2 — PJP patients only; all immunosuppressants + prophylaxis
-                                         drugs in 90d window before PJP index date; n (%) per drug
-                              Table 3 — prophylaxis regimen outcomes: PJP incidence rate and
-                                         ADE rate per 100 person-years (exact Poisson 95% CI)
-                                         for TMP-SMX, Dapsone, Atovaquone, Pentamidine
-preliminary_tables_pjp_incident.R
-                              PJP analysis — INCIDENT cohort.
-                              Same two-encounter RD definition as shingles incident script.
-                              first_rd_date returned from base cohort query (no separate STEP 1b).
-                              PJP events restricted to >= rd_index_date.
-                              Age at rd_index_date. Table 1 / 2 / 3 — same structure as
-                              preliminary_tables_pjp.R.
-inst/extdata/                 synthetic_patient_data.rds (demo patients)
-inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)
+inst/sql/               SqlRender-parameterized SQL templates
+inst/json/              ATLAS cohort JSON definitions
+inst/extdata/           synthetic_patient_data.rds (demo)
+inst/app/www/           trajectory_styles.css
+
+launch_dashboard.R      ← Start here for live OMOP (OHDSI-standard)
+test_dashboard.R        Env-file connection approach (existing deployments)
+preliminary_tables.R            Shingles / VZV analysis tables (prevalence cohort)
+preliminary_tables_shingles_incident.R   Shingles tables (incident cohort)
+preliminary_tables_pjp.R                PJP analysis tables (prevalence cohort)
+preliminary_tables_pjp_incident.R       PJP tables (incident cohort)
 ```
 
-## Design principles
-
-- **Never falsely imply continuity** — sparse windows render as hatched grey, not colored phases
-- **Observed vs inferred** — confidence levels (high/medium/low/none) on every phase and decision point
-- **Connector-first** — all functions work with both live OMOP databases and in-memory data frames
-- **Cross-platform SQL** — SqlRender translates all queries to the target DBMS dialect
-- **Pre-fetch, then serve from memory** — `prefetch_cohort_data()` batches all patients in one JDBC connection before launch; the dashboard never re-queries the database during an interactive session
-- **Concept-set consistency** — shingles events use the same VZV ancestor concept IDs as the cohort SQL, so eligibility and visualization are always aligned
-
-## Related packages
-
-- [SteroidDoseR](../DoseCalculation/SteroidDoseR/) — corticosteroid daily dose calculation from OMOP CDM, whose connector architecture this package extends
+---
 
 ## Author
 
