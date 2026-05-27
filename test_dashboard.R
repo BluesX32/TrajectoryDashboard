@@ -2,6 +2,20 @@
 # Interactive launch script for the TrajectoryDashboard Shiny app.
 # Run this file interactively in RStudio. Not part of the automated test suite.
 #
+# ── Which script should I use? ───────────────────────────────────────────────
+#
+#   launch_dashboard.R  (OHDSI-standard)
+#     Uses DatabaseConnector::createConnectionDetails() directly.
+#     Credentials live in ~/.Renviron (R's native startup config, loaded
+#     automatically — no explicit file reading).  Follow the OHDSI / HADES
+#     convention used by CohortDiagnostics, PatientLevelPrediction, etc.
+#     Recommended for new setups and OHDSI network studies.
+#
+#   test_dashboard.R  (this file — legacy env-file approach)
+#     Reads credentials from a project-level .env or R.env file via
+#     create_connection_from_env() / create_safer_connection().
+#     Kept for backwards compatibility with existing site deployments.
+#
 # ============================================================================
 # Workflow overview
 # ============================================================================
