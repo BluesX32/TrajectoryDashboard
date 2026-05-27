@@ -230,17 +230,29 @@ PatientLevelPrediction, and other OHDSI network studies.
 Open `launch_dashboard.R`, fill in your values, and run it.
 
 ```r
-connectionDetails <- DatabaseConnector::createConnectionDetails(
-  dbms       = "sql server",
-  server     = "yourserver.edu/OMOP",
-  user       = "your_username",
-  password   = "your_password",
-  port       = 1433,
+connection_details <- DatabaseConnector::createConnectionDetails(
+  dbms         = "sql server",
+  server       = "yourserver.edu/OMOP",
+  user         = "your_username",
+  password     = "your_password",
+  port         = 1433,
   pathToDriver = "C:/jdbc"
 )
+cdm_database_schema <- "dbo"
 
-cdmDatabaseSchema   <- "dbo"
-vocabDatabaseSchema <- "dbo"
+connection <- DatabaseConnector::connect(connection_details)
+
+person_ids <- fetch_cohort_ids(connection,
+  json_path    = system.file("json", "cohort_VZV_antivirals.json",
+                              package = "TrajectoryDashboard"),
+  cdm_schema   = cdm_database_schema,
+  vocab_schema = cdm_database_schema)
+
+launch_trajectory_dashboard(connection,
+  cdm_schema = cdm_database_schema,
+  person_ids = as.character(person_ids))
+
+DatabaseConnector::disconnect(connection)
 ```
 
 JDBC drivers are not bundled — download once with:

@@ -88,6 +88,8 @@
 #' launch_trajectory_dashboard(con, person_ids = as.character(person_ids))
 #' }
 launch_trajectory_dashboard <- function(connector            = NULL,
+                                        cdm_schema           = NULL,
+                                        vocab_schema         = NULL,
                                         person_ids           = NULL,
                                         shingrix_patient_ids = NULL,
                                         post_vacc_summary    = NULL,
@@ -139,6 +141,8 @@ launch_trajectory_dashboard <- function(connector            = NULL,
                           shingrix_patient_ids = as.character(shingrix_patient_ids),
                           post_vacc_summary    = post_vacc_summary)
   server <- trajectory_server(connector         = connector,
+                              cdm_schema        = cdm_schema,
+                              vocab_schema      = vocab_schema,
                               post_vacc_summary = post_vacc_summary)
 
   shiny::shinyApp(

@@ -39,13 +39,15 @@
 #' names(data)  # "labs" "medications" "conditions" "visits" "notes" "observations"
 fetch_patient_data <- function(connector,
                                 person_id,
-                                start_date   = "1900-01-01",
-                                end_date     = NULL,
-                                domains      = c("labs", "medications",
-                                                 "conditions", "visits",
-                                                 "notes", "observations"),
+                                start_date    = "1900-01-01",
+                                end_date      = NULL,
+                                domains       = c("labs", "medications",
+                                                  "conditions", "visits",
+                                                  "notes", "observations"),
                                 lab_concepts  = NULL,
-                                drug_concepts = NULL) {
+                                drug_concepts = NULL,
+                                cdm_schema    = NULL,
+                                vocab_schema  = NULL) {
 
   person_id <- as.integer(person_id)
   end_date  <- end_date %||% format(Sys.Date(), "%Y-%m-%d")
@@ -75,16 +77,17 @@ fetch_patient_data <- function(connector,
       result$observations <<- fetch_observations(active, person_id, start_date, end_date)
   }
 
-  # Auto-wrap raw DatabaseConnector / DBI / RJDBC connections that were passed
-  # directly (e.g. from DatabaseConnector::connect() or DBI::dbConnect()).
-  # This keeps the package backward-compatible while routing through the proper
-  # omop_connector dispatch chain.
+  # Auto-wrap raw DatabaseConnector connections (e.g. from
+  # DatabaseConnector::connect()) using explicitly supplied schemas.
+  # cdm_schema / vocab_schema take precedence over env-var fallback.
   if (!inherits(connector, "trajectory_connector") &&
       inherits(connector, c("DatabaseConnectorConnection",
                              "DatabaseConnectorJdbcConnection",
                              "JDBCConnection",
                              "DBIConnection"))) {
-    connector <- .wrap_raw_db_connection(connector)
+    connector <- .wrap_raw_db_connection(connector,
+                                         cdm_schema   = cdm_schema,
+                                         vocab_schema = vocab_schema)
   }
 
   if (inherits(connector, "omop_connector")) {

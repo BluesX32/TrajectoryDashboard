@@ -319,66 +319,51 @@ detect_capabilities.omop_connector <- function(connector) {
 # create_omop_connection() / create_connection_from_env().
 #
 # Schema is read from the same env vars that create_omop_connection() uses.
-.wrap_raw_db_connection <- function(conn) {
+.wrap_raw_db_connection <- function(conn,
+                                     cdm_schema   = NULL,
+                                     vocab_schema = NULL) {
   # Detect DBMS ---------------------------------------------------------------
-  # Use isTRUE(nzchar(...)) throughout: DatabaseConnector::dbms() can return
-  # character(0) (not NULL, not an error), and nzchar(character(0)) returns
-  # logical(0) — which would throw "argument is of length zero" inside `if`.
   dbms_str <- tryCatch(DatabaseConnector::dbms(conn), error = function(e) "")
   if (!isTRUE(nzchar(dbms_str))) {
-    # RJDBC connections don't support dbms(); default to spark
     dbms_str <- if (inherits(conn, "JDBCConnection")) "spark" else "sql server"
   }
 
   # Resolve CDM schema --------------------------------------------------------
-  cdm_schema <- Sys.getenv("SQL_CDM_SCHEMA")
-  if (!nzchar(cdm_schema)) cdm_schema <- Sys.getenv("CDM_SCHEMA")
-
-  if (!nzchar(cdm_schema)) {
-    # Databricks / SAFER path
-    data_cat <- Sys.getenv("DATABRICKS_DATA_CATALOG")
-    if (nzchar(data_cat)) {
-      cdm_schema <- paste0(data_cat, ".omop")
+  # Explicit argument takes precedence; env-var fallback for legacy deployments.
+  if (is.null(cdm_schema) || !nzchar(cdm_schema %||% "")) {
+    cdm_schema <- Sys.getenv("SQL_CDM_SCHEMA")
+    if (!nzchar(cdm_schema)) cdm_schema <- Sys.getenv("CDM_SCHEMA")
+    if (!nzchar(cdm_schema)) {
+      data_cat <- Sys.getenv("DATABRICKS_DATA_CATALOG")
+      if (nzchar(data_cat)) cdm_schema <- paste0(data_cat, ".omop")
     }
+    if (!nzchar(cdm_schema)) cdm_schema <- "dbo"
+    database <- Sys.getenv("SQL_DATABASE")
+    if (!nzchar(database)) database <- Sys.getenv("DB_DATABASE")
+    if (nzchar(database) && !grepl("\\.", cdm_schema))
+      cdm_schema <- paste0(database, ".", cdm_schema)
   }
 
-  if (!nzchar(cdm_schema)) cdm_schema <- "dbo"
-
-  # Auto-prefix with database name for SQL Server (no dot already present)
-  database <- Sys.getenv("SQL_DATABASE")
-  if (!nzchar(database)) database <- Sys.getenv("DB_DATABASE")
-  if (nzchar(database) && !grepl("\\.", cdm_schema)) {
-    cdm_schema <- paste0(database, ".", cdm_schema)
+  # Resolve vocab schema -------------------------------------------------------
+  if (is.null(vocab_schema) || !nzchar(vocab_schema %||% "")) {
+    vocab_schema <- Sys.getenv("SQL_VOCABULARY_SCHEMA")
+    if (!nzchar(vocab_schema)) vocab_schema <- cdm_schema
   }
-
-  # Resolve vocab / results schemas ------------------------------------------
-  vocab_schema <- Sys.getenv("SQL_VOCABULARY_SCHEMA")
-  if (!nzchar(vocab_schema)) vocab_schema <- cdm_schema
 
   results_schema <- Sys.getenv("SQL_RESULTS_SCHEMA")
   if (!nzchar(results_schema)) {
     user_cat <- Sys.getenv("DATABRICKS_USER_CATALOG")
     db_user  <- Sys.getenv("DATABRICKS_USERNAME")
-    if (nzchar(user_cat) && nzchar(db_user))
-      results_schema <- paste0(user_cat, ".", db_user)
-    else
-      results_schema <- NULL
+    results_schema <- if (nzchar(user_cat) && nzchar(db_user))
+      paste0(user_cat, ".", db_user) else NULL
   }
 
-  message(paste0(
-    "\u26a0  fetch_patient_data() received a raw database connection ",
-    "instead of an omop_connector.\n",
-    "   Wrapping automatically (cdm_schema = ", cdm_schema, ").\n",
-    "   For best results use: con <- create_connection_from_env(\".env\")"
-  ))
+  message(sprintf("Using plain connection  |  cdm_schema: %s", cdm_schema))
 
-  # Build a minimal omop_connector with the live connection baked in ----------
-  # We use structure() directly because create_omop_connector() requires
-  # non-NULL connectionDetails, which we don't have for a bare connection.
   structure(
     list(
       type               = "omop",
-      connectionDetails  = NULL,   # reconnection not available via this path
+      connectionDetails  = NULL,
       cdm_schema         = cdm_schema,
       vocab_schema       = vocab_schema,
       results_schema     = if (nzchar(results_schema %||% "")) results_schema else NULL,

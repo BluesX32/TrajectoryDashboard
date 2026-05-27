@@ -4,7 +4,7 @@
 devtools::load_all(".")
 
 # ==============================================================================
-# STEP 1 — Connection details  (fill in your values)
+# STEP 1 — Fill in your connection details
 # ==============================================================================
 
 connection_details <- DatabaseConnector::createConnectionDetails(
@@ -23,20 +23,18 @@ vocab_database_schema <- "dbo"
 # STEP 2 — Connect
 # ==============================================================================
 
-con <- create_omop_connection(
-  connectionDetails = connection_details,
-  cdm_schema        = cdm_database_schema,
-  vocabulary_schema = vocab_database_schema
-)
+connection <- DatabaseConnector::connect(connection_details)
 
 # ==============================================================================
 # STEP 3 — Select cohort
 # ==============================================================================
 
 person_ids <- fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_VZV_antivirals.json",
-                          package = "TrajectoryDashboard")
+  connection,
+  json_path    = system.file("json", "cohort_VZV_antivirals.json",
+                             package = "TrajectoryDashboard"),
+  cdm_schema   = cdm_database_schema,
+  vocab_schema = vocab_database_schema
 )
 message(length(person_ids), " patients in cohort.")
 
@@ -45,6 +43,10 @@ message(length(person_ids), " patients in cohort.")
 # ==============================================================================
 
 launch_trajectory_dashboard(
-  connector  = con,
-  person_ids = as.character(person_ids)
+  connector    = connection,
+  cdm_schema   = cdm_database_schema,
+  vocab_schema = vocab_database_schema,
+  person_ids   = as.character(person_ids)
 )
+
+DatabaseConnector::disconnect(connection)
