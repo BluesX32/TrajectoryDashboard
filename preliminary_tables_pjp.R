@@ -45,10 +45,10 @@ devtools::load_all("~/Myositis/TrajectoryDashboard")
 # install.packages(c("gtsummary", "gt", "dplyr", "labelled", "tidyr"))
 library(rlang,    lib.loc = "~/R/win-library/4.5")
 library(dplyr,    lib.loc = "C:/Program Files/RPackages")
+library(tidyr,    lib.loc = "C:/Program Files/RPackages")
 library(gtsummary)
 library(gt)
 library(labelled)
-library(tidyr)
 
 # ── Time windows ─────────────────────────────────────────────────────────────
 PJP_DMARD_WINDOW <- 90L   # days before PJP index to count DMARD use
@@ -465,10 +465,10 @@ ppx_flags_pjp <- ppx_pjp_raw |>
          ppx_start <= index_date) |>
   distinct(person_id, ppx_group) |>
   mutate(flag = 1L) |>
-  pivot_wider(names_from  = ppx_group,
-              values_from = flag,
-              values_fill = 0L,
-              names_prefix = "ppx_") |>
+  tidyr::pivot_wider(names_from   = ppx_group,
+                     values_from  = flag,
+                     values_fill  = 0L,
+                     names_prefix = "ppx_") |>
   rename_with(tolower)
 
 for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")) {
@@ -480,10 +480,10 @@ names(ppx_flags_pjp) <- gsub("-", "_", names(ppx_flags_pjp), fixed = TRUE)
 ppx_flags_all <- ppx_all_raw |>
   distinct(person_id, ppx_group) |>
   mutate(flag = 1L) |>
-  pivot_wider(names_from  = ppx_group,
-              values_from = flag,
-              values_fill = 0L,
-              names_prefix = "ppx_") |>
+  tidyr::pivot_wider(names_from   = ppx_group,
+                     values_from  = flag,
+                     values_fill  = 0L,
+                     names_prefix = "ppx_") |>
   rename_with(tolower)
 
 for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")) {
