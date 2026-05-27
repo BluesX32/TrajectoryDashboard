@@ -401,8 +401,8 @@ preliminary_tables_pjp.R      PJP (Pneumocystis jirovecii pneumonia) analysis.
                                          rheumatic Dx flags, any-ever prophylaxis exposure by regimen
                               Table 2 — PJP patients only; all immunosuppressants + prophylaxis
                                          drugs in 90d window before PJP index date; n (%) per drug
-                              Table 3 — prophylaxis regimen outcomes: PJP risk and adverse
-                                         drug events (RR vs. no-prophylaxis / TMP-SMX reference)
+                              Table 3 — prophylaxis regimen outcomes: PJP incidence rate and
+                                         ADE rate per 100 person-years (exact Poisson 95% CI)
                                          for TMP-SMX, Dapsone, Atovaquone, Pentamidine
 inst/extdata/                 synthetic_patient_data.rds (demo patients)
 inst/app/www/                 trajectory_styles.css (responsive 4-breakpoint layout)

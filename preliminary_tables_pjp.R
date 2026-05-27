@@ -20,8 +20,8 @@
 #   Rows: drug class / drug name, n (%) with that drug in the 90d window
 #
 # Table 3: Prophylaxis regimen outcomes
-#   Relative risk of PJP infection (vs. no prophylaxis) and adverse drug events
-#   (vs. TMP-SMX as reference) for each regimen: TMP-SMX, Dapsone, Atovaquone,
+#   Incidence rate of PJP infection (per 100 person-years, exact Poisson 95% CI)
+#   and adverse drug event rate by regimen: TMP-SMX, Dapsone, Atovaquone,
 #   Pentamidine in rheumatic disease patients.
 #
 # 30-day in-hospital mortality definition
@@ -96,7 +96,8 @@ SELECT DISTINCT
   p.person_id,
   p.year_of_birth,
   p.gender_concept_id,
-  MIN(op.observation_period_start_date) AS obs_start
+  MIN(op.observation_period_start_date) AS obs_start,
+  MAX(op.observation_period_end_date)   AS obs_end
 FROM @cdm_schema.person p
 JOIN @cdm_schema.observation_period op
   ON p.person_id = op.person_id
@@ -181,7 +182,8 @@ GROUP BY p.person_id, p.year_of_birth, p.gender_concept_id
 base_cohort <- run_sql(con, base_cohort_sql,
                        cdm_schema   = cdm,
                        vocab_schema = vocab) |>
-  mutate(obs_start = as.Date(obs_start))
+  mutate(obs_start = as.Date(obs_start),
+         obs_end   = as.Date(obs_end))
 
 message(nrow(base_cohort), " patients in base cohort.")
 cohort_ids <- base_cohort$person_id
@@ -850,7 +852,7 @@ print(table2_pjp)
 # ============================================================================
 # STEP 8: Prophylaxis exposure for entire base cohort (Table 3 setup)
 # Fetch all PJP prophylaxis drug exposures for the base cohort to determine:
-#   (a) who was ever on each regimen (for PJP RR denominator)
+#   (a) who was ever on each regimen (for PJP incidence rate denominator)
 #   (b) first prescription date per regimen per patient (for ADE window)
 # ============================================================================
 
@@ -932,31 +934,33 @@ ade_raw <- run_sql(con, ade_sql,
   mutate(condition_date = as.Date(condition_date))
 
 # ============================================================================
-# STEP 10: Compute Table 3 statistics
+# STEP 10: Compute Table 3 statistics — Incidence Rates
 # For each regimen:
-#   N         = patients ever on that regimen in the base cohort
-#   n_pjp     = patients in that group with a PJP diagnosis
-#   pjp_rate  = n_pjp / N
-#   n_ade     = patients with an ADE within ADE_WINDOW days of first Rx
-#   ade_rate  = n_ade / N
-#   rr_pjp    = (pjp_rate) / (pjp_rate of no-prophylaxis group)
-#   rr_ade    = (ade_rate) / (ade_rate of TMP-SMX group, reference)
+#   N            = patients ever on that regimen in the base cohort
+#   person_yrs   = total observation time (obs_end - obs_start) / 365.25, summed
+#   n_pjp        = patients in that group with a PJP diagnosis
+#   pjp_ir       = n_pjp / person_yrs * 100  (per 100 person-years)
+#   n_ade        = patients with an ADE within ADE_WINDOW days of first Rx
+#   ade_py       = sum(min(obs_end, first_rx + ADE_WINDOW) - first_rx) / 365.25
+#   ade_ir       = n_ade / ade_py * 100
+#   CIs: exact Poisson (chi-squared method)
 #
 # Note: patients may be on multiple regimens at different times; they
 # contribute independently to each group's denominator.
 # ============================================================================
 
-message("Computing Table 3 statistics...")
+message("Computing Table 3 incidence rates...")
 
-rr_ci <- function(a, n1, b, n2) {
-  if (b == 0L || n1 == 0L || n2 == 0L || a == 0L) return("—")
-  p1 <- a / n1
-  p2 <- b / n2
-  rr <- p1 / p2
-  se <- sqrt(1 / max(a, 1L) - 1 / n1 + 1 / max(b, 1L) - 1 / n2)
-  lo <- exp(log(rr) - 1.96 * se)
-  hi <- exp(log(rr) + 1.96 * se)
-  sprintf("%.2f (%.2f–%.2f)", rr, lo, hi)
+# Exact Poisson 95% CI for an incidence rate per 100 person-years.
+# Uses the chi-squared (Garwood) method: lo = qchisq(0.025, 2D) / (2T) * 100
+#                                         hi = qchisq(0.975, 2(D+1)) / (2T) * 100
+ir_fmt <- function(d, py) {
+  d <- as.integer(d)
+  if (is.na(py) || py <= 0) return("—")
+  ir <- d / py * 100
+  lo <- qchisq(0.025, 2 * d)       / (2 * py) * 100
+  hi <- qchisq(0.975, 2 * (d + 1)) / (2 * py) * 100
+  sprintf("%.2f (%.2f–%.2f)", ir, lo, hi)
 }
 
 fmt_np <- function(n, denom) {
@@ -964,7 +968,10 @@ fmt_np <- function(n, denom) {
   sprintf("%d (%.1f%%)", as.integer(n), 100 * n / denom)
 }
 
-# Group definitions: regimen name → person_ids
+# Observation time per patient (for PJP IR denominator)
+base_obs <- base_cohort |> select(person_id, obs_start, obs_end)
+
+# Group definitions: regimen name -> person_ids
 group_defs <- list(
   "No prophylaxis" = no_ppx_ids,
   "TMP-SMX"        = ever_on_ppx$person_id[ever_on_ppx$ppx_group == "TMP-SMX"],
@@ -973,62 +980,64 @@ group_defs <- list(
   "Pentamidine"    = ever_on_ppx$person_id[ever_on_ppx$ppx_group == "Pentamidine"]
 )
 
-# ADE in window per regimen
-ade_in_window_per_group <- lapply(
+# ADE events and person-time at risk per prophylaxis group.
+# Person-time at risk for ADE: first_rx to min(obs_end, first_rx + ADE_WINDOW).
+ade_stats_per_group <- lapply(
   setdiff(names(group_defs), "No prophylaxis"),
   function(grp) {
-    grp_ids <- group_defs[[grp]]
+    grp_ids      <- group_defs[[grp]]
     first_rx_grp <- first_ppx_base |>
       filter(ppx_group == grp, person_id %in% grp_ids)
-    ade_raw |>
+
+    py_df <- first_rx_grp |>
+      inner_join(base_obs, by = "person_id") |>
+      mutate(
+        risk_end  = pmin(obs_end, first_rx + ADE_WINDOW),
+        risk_days = as.numeric(pmax(risk_end - first_rx, 0))
+      )
+    ade_py <- sum(py_df$risk_days, na.rm = TRUE) / 365.25
+
+    n_ade <- ade_raw |>
       inner_join(first_rx_grp, by = "person_id") |>
       filter(condition_date >= first_rx,
              condition_date <= first_rx + ADE_WINDOW) |>
       distinct(person_id) |>
       nrow()
+
+    list(n_ade = n_ade, ade_py = ade_py)
   }
 )
-names(ade_in_window_per_group) <- setdiff(names(group_defs), "No prophylaxis")
-
-# Reference values for RR calculations
-n_noppx     <- length(no_ppx_ids)
-n_pjp_noppx <- length(intersect(pjp_ids, no_ppx_ids))
-
-n_tmpsmx      <- length(group_defs[["TMP-SMX"]])
-n_ade_tmpsmx  <- ade_in_window_per_group[["TMP-SMX"]]
+names(ade_stats_per_group) <- setdiff(names(group_defs), "No prophylaxis")
 
 t3_rows <- lapply(names(group_defs), function(grp) {
-  ids   <- group_defs[[grp]]
-  n_pts <- length(ids)
+  ids       <- group_defs[[grp]]
+  n_pts     <- length(ids)
   n_pjp_grp <- length(intersect(pjp_ids, ids))
 
-  if (grp == "No prophylaxis") {
-    n_ade_grp <- NA_integer_
-    ade_cell  <- "—"
-    rr_ade    <- "(Reference)"
-  } else {
-    n_ade_grp <- ade_in_window_per_group[[grp]]
-    ade_cell  <- fmt_np(n_ade_grp, n_pts)
-    rr_ade    <- if (grp == "TMP-SMX") {
-      "(Reference)"
-    } else {
-      rr_ci(n_ade_grp, n_pts, n_ade_tmpsmx, n_tmpsmx)
-    }
-  }
+  # Person-years: total observation time for all patients in this group
+  py_pjp <- base_obs |>
+    filter(person_id %in% ids) |>
+    mutate(days = as.numeric(obs_end - obs_start)) |>
+    summarise(py = sum(days, na.rm = TRUE) / 365.25) |>
+    pull(py)
 
-  rr_pjp <- if (grp == "No prophylaxis") {
-    "(Reference)"
+  if (grp == "No prophylaxis") {
+    ade_cell    <- "—"
+    ade_ir_cell <- "—"
   } else {
-    rr_ci(n_pjp_grp, n_pts, n_pjp_noppx, n_noppx)
+    st          <- ade_stats_per_group[[grp]]
+    ade_cell    <- fmt_np(st$n_ade, n_pts)
+    ade_ir_cell <- ir_fmt(st$n_ade, st$ade_py)
   }
 
   tibble(
-    Regimen     = grp,
-    N           = n_pts,
-    `PJP events`  = fmt_np(n_pjp_grp, n_pts),
-    `RR for PJP\n(vs. no ppx)` = rr_pjp,
-    `ADE events`  = ade_cell,
-    `RR for ADE\n(vs. TMP-SMX)` = rr_ade
+    regimen   = grp,
+    n         = n_pts,
+    py        = sprintf("%.1f", py_pjp),
+    pjp_n_pct = fmt_np(n_pjp_grp, n_pts),
+    pjp_ir    = ir_fmt(n_pjp_grp, py_pjp),
+    ade_n_pct = ade_cell,
+    ade_ir    = ade_ir_cell
   )
 })
 
@@ -1036,27 +1045,35 @@ t3_data <- bind_rows(t3_rows)
 
 table3_pjp <- t3_data |>
   gt() |>
-  cols_align(align = "left",   columns = Regimen) |>
-  cols_align(align = "right",  columns = N) |>
-  cols_align(align = "center", columns = c(`PJP events`, `RR for PJP\n(vs. no ppx)`,
-                                            `ADE events`, `RR for ADE\n(vs. TMP-SMX)`)) |>
+  cols_label(
+    regimen   = md("**Regimen**"),
+    n         = md("**N**"),
+    py        = md("**Person-years**"),
+    pjp_n_pct = md("**PJP events,** n (%)"),
+    pjp_ir    = md("**IR** per 100 PY (95% CI)"),
+    ade_n_pct = md("**ADE events,** n (%)"),
+    ade_ir    = md("**IR** per 100 PY (95% CI)")
+  ) |>
+  cols_align(align = "left",   columns = regimen) |>
+  cols_align(align = "right",  columns = c(n, py)) |>
+  cols_align(align = "center", columns = c(pjp_n_pct, pjp_ir, ade_n_pct, ade_ir)) |>
   tab_style(
     style     = cell_fill(color = "#eaf2fb"),
-    locations = cells_body(rows = Regimen == "No prophylaxis")
+    locations = cells_body(rows = regimen == "No prophylaxis")
   ) |>
   tab_style(
     style     = cell_text(weight = "bold"),
-    locations = cells_body(rows = Regimen %in% c("No prophylaxis", "TMP-SMX"))
+    locations = cells_body(rows = regimen %in% c("No prophylaxis", "TMP-SMX"))
   ) |>
   tab_spanner(
     label   = md("**PJP Infection**"),
     id      = "spanner_pjp",
-    columns = c(`PJP events`, `RR for PJP\n(vs. no ppx)`)
+    columns = c(pjp_n_pct, pjp_ir)
   ) |>
   tab_spanner(
     label   = md("**Adverse Drug Events**"),
     id      = "spanner_ade",
-    columns = c(`ADE events`, `RR for ADE\n(vs. TMP-SMX)`)
+    columns = c(ade_n_pct, ade_ir)
   ) |>
   tab_style(
     style     = cell_text(weight = "bold"),
@@ -1075,7 +1092,7 @@ table3_pjp <- t3_data |>
     table.border.bottom.color           = "#2c3e50",
     column_labels.border.bottom.width   = px(1),
     column_labels.border.bottom.color   = "#6c757d",
-    table.width                         = pct(85)
+    table.width                         = pct(90)
   ) |>
   tab_header(
     title    = "Table 3. PJP Prophylaxis Regimen Outcomes in Rheumatic Disease Patients",
@@ -1087,7 +1104,7 @@ table3_pjp <- t3_data |>
   tab_footnote(
     footnote = paste0(
       "PJP events: any PJP (SNOMED 438350 + descendants) diagnosis at any point ",
-      "after the patient's first prophylaxis prescription for that regimen. ",
+      "after the patient’s first prophylaxis prescription for that regimen. ",
       "For the no-prophylaxis group, any PJP diagnosis during observation."
     ),
     locations = cells_column_spanners(spanners = "spanner_pjp")
@@ -1103,10 +1120,15 @@ table3_pjp <- t3_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
-      "Risk ratio (RR) with 95% CI (Wald method). Interpretation is limited by confounding ",
-      "by indication: prophylaxis is preferentially prescribed to higher-risk patients."
+      "Incidence rate (IR) per 100 person-years with exact Poisson 95% CI ",
+      "(Garwood chi-squared method). ",
+      "PJP IR denominator: total observation period length (obs_start to obs_end). ",
+      "ADE IR denominator: time from first prophylaxis prescription to ",
+      "min(obs_end, first Rx + ", ADE_WINDOW, " days). ",
+      "Interpretation is limited by confounding by indication: prophylaxis is ",
+      "preferentially prescribed to higher-risk patients."
     ),
-    locations = cells_column_labels(columns = `RR for PJP\n(vs. no ppx)`)
+    locations = cells_column_labels(columns = pjp_ir)
   )
 
 print(table3_pjp)

@@ -83,7 +83,8 @@ message(length(person_ids), " patients in cohort.")
 # Without this step the selector shows a flat unsorted list.
 # With it, the dropdown splits into two labelled groups:
 #   "── Shingles only"          patient IDs with no Shingrix record
-#   "── Shingles + Vaccination" patient IDs that received Shingrix (shown as "ID [+Vacc]")
+#   "── Shingles + Vaccination" patient IDs that received Shingrix
+#                               (shown as "ID [+Vacc]")
 
 shingrix_ids <- fetch_shingrix_patients(con, person_ids)
 message(length(shingrix_ids), " / ", length(person_ids),
@@ -101,7 +102,8 @@ message(length(shingrix_ids), " / ", length(person_ids),
 # Step 5: Launch
 # ----------------------------------------------------------------------------
 # Patient data is fetched lazily per patient using the persistent connection.
-# The grouped selector shows "Shingles only" vs "Shingles + Vaccination" patients.
+# The grouped selector shows "Shingles only" vs
+# "Shingles + Vaccination" patients.
 
 launch_trajectory_dashboard(
   con,
@@ -118,7 +120,8 @@ launch_trajectory_dashboard(
 # Preliminary descriptive tables (separate scripts)
 # ----------------------------------------------------------------------------
 # Run preliminary_tables.R for shingles / VZV analysis:
-#   Table 1 — base cohort characteristics (3 cols: Total / No Shingles / Shingles)
+#   Table 1 — base cohort characteristics
+#             (3 cols: Total / No Shingles / Shingles)
 #             Race categorised as: Asian / Black / White / Other
 #   Table 2 — shingles episode stats (incidence, PHN, VZV organ involvement)
 #             Pre/post vaccine columns with episode-proportion weighting
@@ -135,5 +138,6 @@ launch_trajectory_dashboard(
 #             Rheumatic Dx flags and any-ever prophylaxis by regimen
 #   Table 2 — PJP patients only; immunosuppressants + prophylaxis in 90d
 #             window before PJP index date; n (%) per drug class
-#   Table 3 — prophylaxis regimen outcomes (RR, adverse drug events)
+#   Table 3 — prophylaxis regimen outcomes: PJP and ADE incidence rates
+#             per 100 person-years (exact Poisson 95% CI, Garwood method)
 # source("preliminary_tables_pjp.R")
