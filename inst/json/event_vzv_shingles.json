@@ -1,0 +1,9 @@
+{
+  "name": "VZV / Herpes Zoster (Shingles)",
+  "domain": "condition_occurrence",
+  "concept_ids": [
+    4205455, 35205739, 443943, 138682,   45770836, 436336,
+    440329,  45590840, 4151978, 192239,  381504,   45542548, 45556927
+  ],
+  "include_descendants": true
+}

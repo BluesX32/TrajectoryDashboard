@@ -243,7 +243,38 @@ config <- dashboard_config(
 )
 ```
 
-A working example is bundled at `inst/json/event_example.json`.
+### Bundled event definitions
+
+The following ready-to-use event JSON files are included in `inst/json/`:
+
+| File | Events |
+|---|---|
+| `event_example.json` | Generic RA flares template — copy and edit for your use case |
+| `event_vzv_shingles.json` | VZV / Herpes Zoster (shingles) conditions |
+| `event_vzv_organ.json` | VZV organ involvement (encephalitis, pneumonitis, hepatitis, …) |
+| `event_phn.json` | Post-herpetic neuralgia |
+| `event_pjp.json` | Pneumocystis jirovecii pneumonia (PJP / PCP) |
+
+Reference them with `system.file()`:
+
+```r
+config <- dashboard_config(
+  primary_lab      = "crp",
+  lab_concepts     = list(crp = c(3020460L)),
+  event_json_path  = system.file("json", "event_pjp.json",
+                                  package = "TrajectoryDashboard"),
+  event_row_label  = "PJP Events"
+)
+```
+
+---
+
+### Cohort definitions
+
+Cohort selection uses ATLAS JSON format. The bundled `cohort_VZV_antivirals.json`
+is a complete worked example. Create your own by exporting from the
+[OHDSI ATLAS](https://atlas-demo.ohdsi.org/) tool and passing the path to
+`fetch_cohort_ids()`.
 
 ---
 
@@ -511,7 +542,13 @@ R/
   report.R              generate_patient_report() — HTML clinical summary
 
 inst/sql/               SqlRender-parameterized SQL (extract + cohort + fetch queries)
-inst/json/              ATLAS cohort JSON definitions
+inst/json/              Cohort and event JSON definitions
+                          cohort_VZV_antivirals.json  — ATLAS cohort (reference)
+                          event_example.json          — generic event template
+                          event_vzv_shingles.json     — VZV / shingles conditions
+                          event_vzv_organ.json        — VZV organ involvement
+                          event_phn.json              — post-herpetic neuralgia
+                          event_pjp.json              — PJP / PCP
 inst/extdata/           synthetic_patient_data.rds (demo)
 inst/app/www/           trajectory_styles.css
 

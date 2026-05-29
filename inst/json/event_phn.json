@@ -1,0 +1,6 @@
+{
+  "name": "Post-Herpetic Neuralgia",
+  "domain": "condition_occurrence",
+  "concept_ids": [4044396, 4071164],
+  "include_descendants": true
+}
