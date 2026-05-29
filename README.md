@@ -508,17 +508,13 @@ R/
   decision_points.R     detect_decision_points(), detect_toxicity_flags()
   report.R              generate_patient_report() — HTML clinical summary
 
-inst/sql/               SqlRender-parameterized SQL templates
+inst/sql/               SqlRender-parameterized SQL (extract + cohort + fetch queries)
 inst/json/              ATLAS cohort JSON definitions
 inst/extdata/           synthetic_patient_data.rds (demo)
 inst/app/www/           trajectory_styles.css
 
 launch_dashboard.R      ← Start here for live OMOP (OHDSI-standard)
 test_dashboard.R        Env-file connection approach (existing deployments)
-preliminary_tables.R            Shingles / VZV analysis tables (prevalence cohort)
-preliminary_tables_shingles_incident.R   Shingles tables (incident cohort)
-preliminary_tables_pjp.R                PJP analysis tables (prevalence cohort)
-preliminary_tables_pjp_incident.R       PJP tables (incident cohort)
 ```
 
 ---
