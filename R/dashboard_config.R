@@ -301,6 +301,8 @@ display_config <- function(
 #'   Default: [default_toxicity_rules()].
 #' @param display A [display_config()] object. Controls phase colours and label
 #'   overrides. Default: [display_config()] with all defaults.
+#' @param reviewer_name Character(1) or `NULL`. Name shown on exported review
+#'   sheets. Defaults to `Sys.info()[["user"]]` at export time when `NULL`.
 #' @param research_table `data.frame` or `NULL`. Displayed in a collapsible
 #'   cohort-level research panel below the patient view. `NULL` hides the
 #'   panel.
@@ -335,6 +337,7 @@ dashboard_config <- function(
     decision_rules       = decision_rules(),
     toxicity_rules       = default_toxicity_rules(),
     display              = display_config(),
+    reviewer_name        = NULL,
     research_table       = NULL,
     research_table_title = "Research Panel"
 ) {
@@ -354,6 +357,7 @@ dashboard_config <- function(
       decision_rules       = decision_rules,
       toxicity_rules       = toxicity_rules,
       display              = display,
+      reviewer_name        = reviewer_name,
       research_table       = research_table,
       research_table_title = research_table_title
     ),

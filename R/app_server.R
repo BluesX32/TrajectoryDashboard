@@ -7,8 +7,31 @@
 #' @param connector A `trajectory_connector` (omop or df).
 #' @return A Shiny server function.
 #' @noRd
-trajectory_server <- function(connector, config = myositis_config()) {
+trajectory_server <- function(connector,
+                               config           = myositis_config(),
+                               cohort_json_path = NULL) {
   function(input, output, session) {
+
+    # ── Review store ──────────────────────────────────────────────────────
+    rv_reviews <- shiny::reactiveValues(
+      data = data.frame(
+        person_id   = character(0),
+        label       = character(0),
+        annotation  = character(0),
+        reviewed_at = character(0),
+        reviewer    = character(0),
+        stringsAsFactors = FALSE
+      )
+    )
+
+    .review_labels <- c(
+      "— Not reviewed —"  = "",
+      "✓ Confirmed case"       = "confirmed",
+      "📋 History only"   = "history_only",
+      "🔎 Rule-out"       = "rule_out",
+      "✗ False positive"       = "false_positive",
+      "? Uncertain"                  = "uncertain"
+    )
 
     # ── Config-aware lab/ULN resolvers (used throughout this closure) ────────
     # These replace the global .resolve() / .uln()
@@ -2182,6 +2205,224 @@ trajectory_server <- function(connector, config = myositis_config()) {
     # -------------------------------------------------------------------------
     # Downloads
     # -------------------------------------------------------------------------
+    # =========================================================================
+    # Phenotype Review
+    # =========================================================================
+
+    # Render the sidebar review form (empty state or current patient form)
+    output$review_panel_ui <- shiny::renderUI({
+      pid <- input$person_id
+      if (is.null(pid) || !nzchar(as.character(pid))) {
+        return(shiny::p(
+          style = "font-size:11px;color:rgba(255,255,255,0.45);margin:0;",
+          shiny::icon("arrow-pointer", style = "margin-right:4px;"),
+          "Load a patient to start reviewing."
+        ))
+      }
+
+      # Look up existing review for this patient
+      existing <- rv_reviews$data[rv_reviews$data$person_id == as.character(pid), ]
+      cur_label      <- if (nrow(existing) > 0L) existing$label[1L]      else ""
+      cur_annotation <- if (nrow(existing) > 0L) existing$annotation[1L] else ""
+
+      total_pts  <- length(input$person_id_choices %||% character(0))
+      n_reviewed <- nrow(rv_reviews$data[rv_reviews$data$label != "", ])
+
+      shiny::tagList(
+        # Patient badge
+        shiny::tags$p(
+          style = "font-size:11px;color:rgba(255,255,255,0.6);margin:0 0 8px;",
+          shiny::icon("user", style = "margin-right:4px;"),
+          shiny::tags$strong(style = "color:#fff;", paste("Patient:", pid))
+        ),
+
+        # Label selector
+        shiny::selectInput(
+          "review_label",
+          label = NULL,
+          choices  = .review_labels,
+          selected = cur_label,
+          width    = "100%"
+        ),
+
+        # Annotation text
+        shiny::textAreaInput(
+          "review_annotation",
+          label       = NULL,
+          value       = cur_annotation,
+          placeholder = "Optional notes…",
+          rows        = 3,
+          width       = "100%"
+        ),
+
+        # Save button
+        shiny::actionButton(
+          "save_review",
+          label = shiny::tagList(shiny::icon("floppy-disk"), " Save Review"),
+          class = "btn-primary btn-sm",
+          style = "width:100%;margin-bottom:6px;"
+        ),
+
+        # Progress
+        shiny::tags$p(
+          style = "font-size:10px;color:rgba(255,255,255,0.45);margin:4px 0 0;",
+          sprintf("%d patients reviewed", n_reviewed),
+          if (total_pts > 0L) sprintf(" / %d total", total_pts) else ""
+        )
+      )
+    })
+
+    # Keep person_id_choices available for the progress counter
+    shiny::observe({
+      sel_choices <- tryCatch(
+        shiny::isolate(session$input$person_id_choices),
+        error = function(e) NULL
+      )
+    })
+
+    # When a patient loads, update the review form to show their existing review
+    shiny::observeEvent(input$load_patient, {
+      pid      <- as.character(input$person_id)
+      existing <- rv_reviews$data[rv_reviews$data$person_id == pid, ]
+      if (nrow(existing) > 0L) {
+        shiny::updateSelectInput(session, "review_label",
+                                  selected = existing$label[1L])
+        shiny::updateTextAreaInput(session, "review_annotation",
+                                    value = existing$annotation[1L])
+      } else {
+        shiny::updateSelectInput(session,    "review_label",      selected = "")
+        shiny::updateTextAreaInput(session,  "review_annotation", value    = "")
+      }
+    })
+
+    # Save the current review
+    shiny::observeEvent(input$save_review, {
+      pid   <- as.character(input$person_id)
+      lbl   <- input$review_label   %||% ""
+      note  <- input$review_annotation %||% ""
+      reviewer_name <- config$reviewer_name %||%
+        Sys.info()[["user"]] %||% "Anonymous"
+
+      df <- rv_reviews$data
+      existing_row <- which(df$person_id == pid)
+
+      new_row <- data.frame(
+        person_id   = pid,
+        label       = lbl,
+        annotation  = note,
+        reviewed_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+        reviewer    = reviewer_name,
+        stringsAsFactors = FALSE
+      )
+
+      if (length(existing_row) > 0L) {
+        df[existing_row[[1L]], ] <- new_row
+      } else {
+        df <- rbind(df, new_row)
+      }
+      rv_reviews$data <- df
+
+      shiny::showNotification(
+        shiny::tagList(
+          shiny::icon("check"), " Review saved for patient ", pid,
+          if (nzchar(lbl)) paste0(" (", lbl, ")") else ""
+        ),
+        type     = "message",
+        duration = 3
+      )
+    })
+
+    # =========================================================================
+    # Cohort Entry Explanation
+    # =========================================================================
+
+    cohort_entry <- shiny::reactive({
+      pid <- input$person_id
+      shiny::req(nzchar(as.character(pid %||% "")))
+      if (is.null(cohort_json_path) || !file.exists(cohort_json_path))
+        return(NULL)
+      tryCatch(
+        explain_cohort_entry(
+          connector    = connector,
+          person_id    = as.integer(pid),
+          json_path    = cohort_json_path
+        ),
+        error = function(e) {
+          message("[cohort_entry] ", e$message)
+          NULL
+        }
+      )
+    }) |> shiny::bindCache(input$person_id, cohort_json_path %||% "")
+
+    output$cohort_entry_ui <- shiny::renderUI({
+      pid <- input$person_id
+      if (is.null(pid) || !nzchar(as.character(pid %||% ""))) {
+        return(shiny::p(
+          style = "color:#9099B3;font-size:12px;padding:8px;",
+          shiny::icon("circle-info"), " Load a patient to see cohort entry details."
+        ))
+      }
+
+      if (is.null(cohort_json_path)) {
+        return(shiny::div(
+          style = "padding:12px;",
+          shiny::p(
+            style = "color:#9099B3;font-size:12px;",
+            shiny::icon("file-code"), " No cohort JSON provided."
+          ),
+          shiny::p(
+            style = "color:#9099B3;font-size:11px;",
+            "Pass ", shiny::tags$code("cohort_json_path"), " to ",
+            shiny::tags$code("launch_trajectory_dashboard()"),
+            " to enable cohort entry explanation."
+          )
+        ))
+      }
+
+      entry <- cohort_entry()
+      .render_cohort_entry_ui(entry)
+    })
+
+    # =========================================================================
+    # Review export
+    # =========================================================================
+
+    output$dl_reviews <- shiny::downloadHandler(
+      filename = function() {
+        paste0("phenotype_review_",
+               gsub("[^A-Za-z0-9]", "_",
+                    config$disease_name %||% "cohort"),
+               "_", Sys.Date(), ".csv")
+      },
+      content = function(file) {
+        df <- rv_reviews$data
+        if (nrow(df) == 0L) {
+          df <- data.frame(
+            person_id = character(0), label = character(0),
+            annotation = character(0), reviewed_at = character(0),
+            reviewer = character(0),
+            stringsAsFactors = FALSE
+          )
+        }
+        # Human-readable label column
+        label_map <- c(
+          confirmed     = "Confirmed case",
+          history_only  = "History only",
+          rule_out      = "Rule-out",
+          false_positive = "False positive",
+          uncertain     = "Uncertain",
+          ""            = "Not reviewed"
+        )
+        df$label_display <- label_map[df$label]
+        df$label_display[is.na(df$label_display)] <- df$label[is.na(df$label_display)]
+        col_order <- c("person_id", "label_display", "annotation",
+                       "reviewed_at", "reviewer")
+        df <- df[, intersect(col_order, names(df)), drop = FALSE]
+        names(df)[names(df) == "label_display"] <- "label"
+        utils::write.csv(df, file, row.names = FALSE)
+      }
+    )
+
     output$dl_labs <- shiny::downloadHandler(
       filename = function() paste0("labs_", input$person_id, "_",
                                     Sys.Date(), ".csv"),

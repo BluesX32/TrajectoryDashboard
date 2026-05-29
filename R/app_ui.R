@@ -237,17 +237,29 @@ trajectory_ui <- function(person_ids           = NULL,
             )
           ),
 
+          # ── Phenotype Review ─────────────────────────────────────────
+          shinydashboard::menuItem(
+            "Phenotype Review", icon = shiny::icon("user-check"),
+            shiny::tags$div(
+              style = "padding: 4px 10px 10px;",
+              shiny::uiOutput("review_panel_ui")
+            )
+          ),
+
           # ── Download ─────────────────────────────────────────────────
           shinydashboard::menuItem(
             "Download Data", icon = shiny::icon("download"),
             shiny::tags$div(
               style = "padding: 4px 10px 10px;",
-              shiny::downloadButton("dl_labs",   "Labs CSV",
+              shiny::downloadButton("dl_labs",    "Labs CSV",
                                     class = "btn-download"),
-              shiny::downloadButton("dl_meds",   "Medications CSV",
+              shiny::downloadButton("dl_meds",    "Medications CSV",
                                     class = "btn-download"),
-              shiny::downloadButton("dl_phases", "Phases CSV",
-                                    class = "btn-download")
+              shiny::downloadButton("dl_phases",  "Phases CSV",
+                                    class = "btn-download"),
+              shiny::downloadButton("dl_reviews", "Review Sheet",
+                                    class = "btn-download btn-review-export",
+                                    style = "margin-top:6px;")
             )
           )
         )
@@ -508,6 +520,13 @@ trajectory_ui <- function(person_ids           = NULL,
                          "Dashed red lines = danger thresholds."),
                        shiny::div(class = "plot-wrap",
                          plotly::plotlyOutput("safety_monitoring_plot", height = "32vh")))
+          ),
+
+          shiny::tabPanel(
+            shiny::span(shiny::icon("list-check", style = "margin-right:5px;"),
+                        "Cohort Entry"),
+            shiny::div(style = "padding-top: 8px;",
+                       shiny::uiOutput("cohort_entry_ui"))
           )
         )
       ),

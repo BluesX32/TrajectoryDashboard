@@ -97,6 +97,7 @@ launch_trajectory_dashboard <- function(connector            = NULL,
                                         shingrix_patient_ids = NULL,
                                         post_vacc_summary    = NULL,
                                         config               = NULL,
+                                        cohort_json_path     = NULL,
                                         port                 = NULL,
                                         launch_browser       = TRUE) {
   .require_pkg("shiny")
@@ -168,8 +169,9 @@ launch_trajectory_dashboard <- function(connector            = NULL,
   ui     <- trajectory_ui(person_ids           = person_ids,
                           shingrix_patient_ids = as.character(shingrix_patient_ids),
                           config               = config)
-  server <- trajectory_server(connector = connector,
-                               config   = config)
+  server <- trajectory_server(connector        = connector,
+                               config          = config,
+                               cohort_json_path = cohort_json_path)
 
   shiny::shinyApp(
     ui      = ui,

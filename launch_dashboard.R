@@ -77,5 +77,3 @@ launch_trajectory_dashboard(
   person_ids   = as.character(person_ids),
   config       = config
 )
-
-DatabaseConnector::disconnect(connection)
