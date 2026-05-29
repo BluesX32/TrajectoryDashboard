@@ -2406,14 +2406,17 @@ trajectory_server <- function(connector,
         }
         # Human-readable label column
         label_map <- c(
-          confirmed     = "Confirmed case",
-          history_only  = "History only",
-          rule_out      = "Rule-out",
+          confirmed      = "Confirmed case",
+          history_only   = "History only",
+          rule_out       = "Rule-out",
           false_positive = "False positive",
-          uncertain     = "Uncertain",
-          ""            = "Not reviewed"
+          uncertain      = "Uncertain"
         )
-        df$label_display <- label_map[df$label]
+        df$label_display <- ifelse(
+          is.na(df$label) | df$label == "",
+          "Not reviewed",
+          label_map[df$label]
+        )
         df$label_display[is.na(df$label_display)] <- df$label[is.na(df$label_display)]
         col_order <- c("person_id", "label_display", "annotation",
                        "reviewed_at", "reviewer")
