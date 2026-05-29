@@ -25,12 +25,12 @@ trajectory_server <- function(connector,
     )
 
     .review_labels <- c(
-      "— Not reviewed —"  = "",
-      "✓ Confirmed case"       = "confirmed",
-      "📋 History only"   = "history_only",
-      "🔎 Rule-out"       = "rule_out",
-      "✗ False positive"       = "false_positive",
-      "? Uncertain"                  = "uncertain"
+      "(not reviewed)" = "",
+      "Confirmed case" = "confirmed",
+      "History only"   = "history_only",
+      "Rule-out"       = "rule_out",
+      "False positive" = "false_positive",
+      "Uncertain"      = "uncertain"
     )
 
     # ── Config-aware lab/ULN resolvers (used throughout this closure) ────────
