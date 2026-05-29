@@ -150,7 +150,7 @@ trajectory_server <- function(connector, config = myositis_config()) {
 
     # ── Disease-event reactives (config-driven) ───────────────────────────────
     # Myositis configs: use the specialised multi-type shingles/shingrix/PHN/VZV
-    # fetchers that have existed since v1.  Generic configs with event_sql_path
+    # fetchers that have existed since v1.  Generic configs with event_json_path
     # use the new fetch_disease_events() wrapper; configs with neither get NULL.
 
     # Shingles events (myositis) / generic events row — raw fetch on patient
@@ -167,11 +167,11 @@ trajectory_server <- function(connector, config = myositis_config()) {
             .empty_shingles()
           }
         )
-      } else if (!is.null(config$event_sql_path)) {
+      } else if (!is.null(config$event_json_path)) {
         tryCatch(
           fetch_disease_events(connector,
-                               person_id     = as.integer(input$person_id),
-                               event_sql_path = config$event_sql_path),
+                               person_id      = as.integer(input$person_id),
+                               event_json_path = config$event_json_path),
           error = function(e) {
             message("[events] fetch_disease_events failed: ", e$message)
             data.frame(condition_start_date = as.Date(character(0)),

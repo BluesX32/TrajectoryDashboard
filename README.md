@@ -172,7 +172,7 @@ config <- dashboard_config(
 
   # ── Events timeline row ──────────────────────────────────────────────────
   # Label shown on the y-axis and in the "episode gap" slider.
-  # To add a custom event row from your own SQL, also set event_sql_path.
+  # To add a custom event row, supply a JSON file via event_json_path (see below).
   event_row_label = "RA Flares",
 
   # ── Cohort research panel ─────────────────────────────────────────────────
@@ -203,7 +203,7 @@ launch_trajectory_dashboard(
 | `drug_families` | named list of `character` vectors | How individual drug names are grouped into sidebar checkbox rows |
 | `lab_uln` | named `numeric` vector | Override upper limit of normal per lab key (fallback: OMOP `range_high`) |
 | `event_row_label` | `character(1)` | Y-axis label and "episode gap" slider heading in the event layer |
-| `event_sql_path` | `character(1)` or `NULL` | Path to a SqlRender SQL file returning custom disease events; `NULL` = no generic event row |
+| `event_json_path` | `character(1)` or `NULL` | Path to an event definition JSON file specifying domain and concept IDs; SQL is generated automatically. `NULL` = no generic event row |
 | `condition_categories` | named list of `integer` vectors or `NULL` | Condition badge categories in the patient summary bar; `NULL` = hide |
 | `workup_concepts` | named list of `integer` vectors or `NULL` | Measurements that trigger workup decision-point markers; `NULL` = disable |
 | `research_table` | `data.frame` or `NULL` | Cohort-level table shown in a collapsible panel below the patient view |
@@ -216,33 +216,34 @@ launch_trajectory_dashboard(
 
 ### Adding a custom disease-events row
 
-Any SQL file that returns `event_date`, `event_label`, `event_detail` columns and
-accepts `@cdm_schema`, `@vocab_schema`, `@person_id` parameters can power the
-events timeline row.
+Create a small JSON file that tells the dashboard which OMOP domain and concept
+IDs define your events. No SQL required — the dashboard generates
+platform-appropriate SQL from the JSON automatically.
 
-```sql
--- my_events.sql
-SELECT
-    co.person_id,
-    co.condition_start_date  AS event_date,
-    c.concept_name           AS event_label,
-    co.condition_source_value AS event_detail
-FROM @cdm_schema.condition_occurrence co
-JOIN @cdm_schema.concept c ON c.concept_id = co.condition_concept_id
-WHERE co.person_id        = @person_id
-  AND co.condition_concept_id IN (123456, 234567)  -- your concept IDs
-ORDER BY co.condition_start_date
-;
+**Supported `domain` values:** `condition_occurrence`, `drug_exposure`,
+`measurement`, `observation`, `procedure_occurrence`
+
+```json
+{
+  "name": "RA Flares",
+  "domain": "condition_occurrence",
+  "concept_ids": [80809, 4189790],
+  "include_descendants": true
+}
 ```
+
+Pass the JSON path via `event_json_path`:
 
 ```r
 config <- dashboard_config(
-  primary_lab     = "crp",
-  lab_concepts    = list(crp = c(3020460L)),
-  event_sql_path  = "path/to/my_events.sql",
-  event_row_label = "Disease Flares"
+  primary_lab      = "crp",
+  lab_concepts     = list(crp = c(3020460L)),
+  event_json_path  = "path/to/my_events.json",
+  event_row_label  = "Disease Flares"
 )
 ```
+
+A working example is bundled at `inst/json/event_example.json`.
 
 ---
 
@@ -463,8 +464,9 @@ test_cohort_connection(connector)                  # Diagnose SQL / connection i
 
 # ── Data extraction ─────────────────────────────────────────────────────────────
 fetch_patient_data(connector, person_id, ...)      # All domains for one patient
-fetch_disease_events(connector, person_id,         # Generic events row from SQL file
-                     event_sql_path)
+fetch_disease_events(connector, person_id,         # Generic events row from JSON definition
+                     event_json_path)
+build_event_sql(json_path, cdm_schema, ...)        # Compile event JSON → dialect SQL
 fetch_shingles_events(connector, person_id)        # VZV / herpes zoster events
 fetch_shingrix_patients(connector, person_ids)     # Cohort-level Shingrix vaccine flag
 

@@ -1,0 +1,6 @@
+{
+  "name": "RA Flares",
+  "domain": "condition_occurrence",
+  "concept_ids": [80809, 4189790],
+  "include_descendants": true
+}

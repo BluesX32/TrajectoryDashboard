@@ -192,7 +192,7 @@ trajectory_ui <- function(person_ids           = NULL,
                 )
               ),
               # Event gap slider: label driven by config
-              if (!is.null(config$event_sql_path) ||
+              if (!is.null(config$event_json_path) ||
                   inherits(config, "myositis_dashboard_config")) {
                 shiny::tags$div(
                   style = "margin-top: 8px;",

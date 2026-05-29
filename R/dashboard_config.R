@@ -36,15 +36,15 @@
 #' @param lab_uln Named numeric vector. Override default upper limits of normal
 #'   for specific labs. Names must match keys in `lab_concepts`. `NULL` uses
 #'   built-in defaults.
-#' @param event_sql_path Character(1) or `NULL`. Path to a SqlRender SQL file
-#'   that returns disease-specific events for the timeline row. The SQL must
-#'   accept `@cdm_schema`, `@vocab_schema`, `@person_id` parameters and return
-#'   at least `event_date` (Date), `event_label` (character), `event_detail`
-#'   (character). `NULL` disables the generic events row (myositis configs use
-#'   their own specialised event functions instead).
+#' @param event_json_path Character(1) or `NULL`. Path to a JSON file that
+#'   defines disease-specific events for the timeline row. The JSON must contain
+#'   `domain` (OMOP table name), `concept_ids` (integer vector), and optionally
+#'   `include_descendants` (logical). SQL is generated automatically from the
+#'   JSON so no hand-written SQL is required. `NULL` disables the generic events
+#'   row (myositis configs use their own specialised event functions instead).
 #' @param event_row_label Character(1). Label shown on the y-axis for the
 #'   disease event row (e.g. `"Shingles"`, `"Flares"`, `"Infections"`).
-#'   Only used when `event_sql_path` is non-`NULL` or for myositis configs.
+#'   Only used when `event_json_path` is non-`NULL` or for myositis configs.
 #' @param condition_categories Named list or `NULL`. Each element is an integer
 #'   vector of `condition_concept_id` values; the name becomes the badge label
 #'   in the patient summary bar. `NULL` hides the condition-category panel
@@ -78,7 +78,7 @@ dashboard_config <- function(
     drug_concepts        = MYOSITIS_DRUG_CONCEPTS,
     drug_families        = .DRUG_FAMILY_MAP,
     lab_uln              = NULL,
-    event_sql_path       = NULL,
+    event_json_path      = NULL,
     event_row_label      = "Events",
     condition_categories = NULL,
     workup_concepts      = NULL,
@@ -92,7 +92,7 @@ dashboard_config <- function(
       drug_concepts        = drug_concepts,
       drug_families        = drug_families,
       lab_uln              = lab_uln,
-      event_sql_path       = event_sql_path,
+      event_json_path      = event_json_path,
       event_row_label      = event_row_label,
       condition_categories = condition_categories,
       workup_concepts      = workup_concepts,
@@ -127,11 +127,11 @@ validate_dashboard_config <- function(config) {
   if (!is.list(config$drug_concepts) || is.null(names(config$drug_concepts)))
     stop("'drug_concepts' must be a named list.", call. = FALSE)
 
-  if (!is.null(config$event_sql_path) &&
-      (!is.character(config$event_sql_path) ||
-       !file.exists(config$event_sql_path)))
+  if (!is.null(config$event_json_path) &&
+      (!is.character(config$event_json_path) ||
+       !file.exists(config$event_json_path)))
     stop(sprintf(
-      "'event_sql_path' does not exist: %s", config$event_sql_path
+      "'event_json_path' does not exist: %s", config$event_json_path
     ), call. = FALSE)
 
   if (!is.null(config$condition_categories) &&
@@ -162,7 +162,7 @@ print.dashboard_config <- function(x, ...) {
     paste(names(x$lab_concepts), collapse = ", "),
     length(x$drug_concepts),
     x$event_row_label,
-    if (!is.null(x$event_sql_path)) basename(x$event_sql_path) else "(none)",
+    if (!is.null(x$event_json_path)) basename(x$event_json_path) else "(none)",
     if (!is.null(x$workup_concepts)) paste(names(x$workup_concepts), collapse = ", ") else "(none)",
     if (!is.null(x$condition_categories)) paste(names(x$condition_categories), collapse = ", ") else "(none)",
     if (!is.null(x$research_table)) x$research_table_title else "(none)",
@@ -191,9 +191,9 @@ myositis_config <- function() {
     drug_concepts = MYOSITIS_DRUG_CONCEPTS,
     drug_families = .DRUG_FAMILY_MAP,
     lab_uln      = NULL,          # .LAB_DEFAULT_ULN used as fallback
-    # event_sql_path: NULL here; the server detects myositis class and uses
+    # event_json_path: NULL here; the server detects myositis class and uses
     # the specialised shingles/shingrix/PHN/VZV fetchers instead.
-    event_sql_path  = NULL,
+    event_json_path  = NULL,
     event_row_label = "Shingles",
     # condition_categories: NULL here; the server detects myositis class and
     # calls fetch_rheumatic_diagnoses() (hardcoded concept-set SQL).
@@ -287,18 +287,116 @@ sle_config <- function() {
 # Generic disease-events fetcher
 # ---------------------------------------------------------------------------
 
-#' Fetch disease events from a custom SQL file
+#' Build a per-patient event query from a JSON definition
+#'
+#' Reads a simple event definition JSON and returns a ready-to-execute SQL
+#' string (already rendered and translated). The JSON must contain:
+#' - `domain`: OMOP table name (e.g. `"condition_occurrence"`)
+#' - `concept_ids`: integer array of standard concept IDs
+#' - `include_descendants`: (optional, default `false`) expand via
+#'   `concept_ancestor`
+#'
+#' @param json_path Path to the event definition JSON file.
+#' @param cdm_schema OMOP CDM schema.
+#' @param vocab_schema Vocabulary schema (defaults to `cdm_schema`).
+#' @param person_id Integer patient ID.
+#' @param dbms SqlRender target dialect (default `"sql server"`).
+#' @return A translated SQL string returning `event_date`, `event_label`,
+#'   `event_detail` for the given patient.
+#' @export
+build_event_sql <- function(json_path,
+                             cdm_schema,
+                             vocab_schema = cdm_schema,
+                             person_id,
+                             dbms         = "sql server") {
+  if (!requireNamespace("jsonlite",   quietly = TRUE))
+    stop("Package 'jsonlite' required.",   call. = FALSE)
+  if (!requireNamespace("SqlRender",  quietly = TRUE))
+    stop("Package 'SqlRender' required.",  call. = FALSE)
+
+  if (!file.exists(json_path))
+    stop(sprintf("Event JSON not found: %s", json_path), call. = FALSE)
+
+  def          <- jsonlite::fromJSON(json_path, simplifyVector = TRUE)
+  domain       <- def$domain %||% "condition_occurrence"
+  concept_ids  <- as.integer(def$concept_ids)
+  include_desc <- isTRUE(def$include_descendants)
+
+  supported <- c("condition_occurrence", "drug_exposure",
+                  "measurement", "observation", "procedure_occurrence")
+  if (!domain %in% supported)
+    stop(sprintf(
+      "Unsupported domain '%s'. Choose one of: %s",
+      domain, paste(supported, collapse = ", ")
+    ), call. = FALSE)
+
+  ids_str     <- paste(unique(concept_ids), collapse = ", ")
+  date_col    <- .domain_date_col(domain)
+  concept_col <- .domain_concept_col(domain)
+  src_col     <- .domain_source_col(domain)
+
+  cte <- paste0(
+    "event_concepts AS (\n",
+    "  SELECT DISTINCT concept_id\n",
+    "  FROM @vocab_schema.concept\n",
+    sprintf("  WHERE concept_id IN (%s)", ids_str)
+  )
+  if (include_desc) {
+    cte <- paste0(cte,
+      "\n  UNION\n",
+      "  SELECT DISTINCT ca.descendant_concept_id\n",
+      "  FROM @vocab_schema.concept_ancestor ca\n",
+      "  JOIN @vocab_schema.concept c\n",
+      "    ON ca.descendant_concept_id = c.concept_id\n",
+      sprintf("  WHERE ca.ancestor_concept_id IN (%s)\n", ids_str),
+      "    AND c.invalid_reason IS NULL"
+    )
+  }
+  cte <- paste0(cte, "\n)")
+
+  sql <- paste0(
+    "WITH\n", cte, "\n\n",
+    "SELECT\n",
+    sprintf("  t.%s AS event_date,\n",   date_col),
+    "  c2.concept_name AS event_label,\n",
+    sprintf("  t.%s AS event_detail\n",  src_col),
+    sprintf("FROM @cdm_schema.%s t\n", domain),
+    sprintf("JOIN event_concepts ec ON t.%s = ec.concept_id\n", concept_col),
+    sprintf("JOIN @vocab_schema.concept c2 ON t.%s = c2.concept_id\n", concept_col),
+    "WHERE t.person_id = @person_id\n",
+    sprintf("ORDER BY t.%s", date_col)
+  )
+
+  sql <- SqlRender::render(sql,
+                           cdm_schema   = cdm_schema,
+                           vocab_schema = vocab_schema,
+                           person_id    = as.integer(person_id))
+  SqlRender::translate(sql, targetDialect = dbms)
+}
+
+#' @noRd
+.domain_source_col <- function(domain) {
+  switch(domain,
+    condition_occurrence = "condition_source_value",
+    drug_exposure        = "drug_source_value",
+    measurement          = "value_source_value",
+    observation          = "value_source_value",
+    procedure_occurrence = "procedure_source_value",
+    "source_value"
+  )
+}
+
+#' Fetch disease events from a JSON definition
 #'
 #' Generic replacement for the myositis-specific `fetch_shingles_events()` /
-#' `fetch_phn_events()` / `fetch_vzv_organ_events()`. Executes the SQL file at
-#' `event_sql_path` (set in [dashboard_config()]) and returns a standardised
-#' tibble. The SQL must accept `@cdm_schema`, `@vocab_schema`, `@person_id`
-#' parameters and return at minimum `event_date` (Date), `event_label`
-#' (character), `event_detail` (character).
+#' `fetch_phn_events()` / `fetch_vzv_organ_events()`. Builds platform-agnostic
+#' SQL from the event definition JSON at `event_json_path` (set in
+#' [dashboard_config()]) and returns a standardised tibble. No hand-written SQL
+#' is required — the JSON specifies domain and concept IDs only.
 #'
 #' @param connector A `trajectory_connector`.
 #' @param person_id Integer patient identifier.
-#' @param event_sql_path Character(1). Absolute path to a SqlRender SQL file.
+#' @param event_json_path Character(1). Path to the event definition JSON file.
 #' @param cdm_schema CDM schema (inferred from connector when `NULL`).
 #' @param vocab_schema Vocabulary schema (inferred from connector when `NULL`).
 #' @param dbms Target dialect (default `"sql server"`).
@@ -306,17 +404,15 @@ sle_config <- function() {
 #' @return A tibble with columns: `event_date` (Date), `event_label`
 #'   (character), `event_detail` (character). Zero rows if no events found.
 #' @export
-fetch_disease_events <- function(connector, person_id, event_sql_path,
+fetch_disease_events <- function(connector, person_id, event_json_path,
                                   cdm_schema   = NULL,
                                   vocab_schema = NULL,
                                   dbms         = "sql server") {
-  if (!requireNamespace("SqlRender", quietly = TRUE))
-    stop("Package 'SqlRender' required.", call. = FALSE)
   if (!requireNamespace("DatabaseConnector", quietly = TRUE))
     stop("Package 'DatabaseConnector' required.", call. = FALSE)
 
-  if (!is.character(event_sql_path) || !file.exists(event_sql_path))
-    stop(sprintf("'event_sql_path' does not exist: %s", event_sql_path),
+  if (!is.character(event_json_path) || !file.exists(event_json_path))
+    stop(sprintf("'event_json_path' does not exist: %s", event_json_path),
          call. = FALSE)
 
   if (inherits(connector, "trajectory_connector")) {
@@ -329,16 +425,14 @@ fetch_disease_events <- function(connector, person_id, event_sql_path,
     vocab_schema <- vocab_schema %||% cdm_schema
   }
 
-  sql_template <- SqlRender::readSql(event_sql_path)
-
   .run <- function(conn, actual_dbms) {
-    sql <- SqlRender::render(sql_template,
-                             cdm_schema   = cdm_schema,
-                             vocab_schema = vocab_schema,
-                             person_id    = as.integer(person_id))
-    sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
+    sql <- build_event_sql(event_json_path,
+                           cdm_schema   = cdm_schema,
+                           vocab_schema = vocab_schema,
+                           person_id    = person_id,
+                           dbms         = actual_dbms)
     res <- tryCatch(
-      DatabaseConnector::querySql(conn, sql, snakeCaseToCamelCase = FALSE),
+      .exec_sql(conn, sql),
       error = function(e) {
         message("[fetch_disease_events] SQL error: ", e$message)
         data.frame(event_date   = as.Date(character(0)),
@@ -347,7 +441,6 @@ fetch_disease_events <- function(connector, person_id, event_sql_path,
                    stringsAsFactors = FALSE)
       }
     )
-    # Normalise column names to lower-snake
     names(res) <- tolower(gsub("([A-Z])", "_\\1", names(res)))
     names(res) <- sub("^_", "", names(res))
     res
@@ -363,7 +456,6 @@ fetch_disease_events <- function(connector, person_id, event_sql_path,
     .run(connector, dbms)
   }
 
-  # Guarantee standard columns
   if (!"event_date" %in% names(result))
     result$event_date <- as.Date(character(nrow(result)))
   if (!"event_label" %in% names(result))
