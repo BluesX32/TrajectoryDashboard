@@ -13,6 +13,240 @@
 #   )
 
 # ---------------------------------------------------------------------------
+# Sub-config constructors
+# ---------------------------------------------------------------------------
+
+#' Phase detection rules
+#'
+#' Controls the rolling-window trajectory algorithm and treatment episode
+#' gap-bridging. Pass to [dashboard_config()] via `phase_rules = phase_rules(...)`.
+#'
+#' @param window_days Integer. Rolling window width in days. Default `90L`.
+#' @param min_observations Integer. Minimum lab points in a window to assign a
+#'   phase. Fewer points → `"sparse"`. Default `2L`.
+#' @param slope_threshold_pct Numeric. Slope is considered rising/falling only
+#'   when `|slope| > slope_threshold_pct × ULN` per day. Default `0.05`.
+#' @param flare_multiplier Numeric. Mean lab `> N × ULN` **and** rising → `"flare"`.
+#'   Default `3.0`.
+#' @param worsening_multiplier Numeric. Mean lab `> N × ULN` **and** rising →
+#'   `"worsening"`. Default `1.0`.
+#' @param response_drop_pct Numeric. Fractional drop from flare/worsening peak
+#'   required to classify a window as `"response"`. Default `0.30`.
+#' @param treatment_gap_days Integer. Maximum gap (days) between drug records
+#'   to bridge into a single episode in [compute_treatment_phases()]. Default `30L`.
+#' @return A named list of class `"phase_rules"`.
+#' @export
+phase_rules <- function(
+    window_days          = 90L,
+    min_observations     = 2L,
+    slope_threshold_pct  = 0.05,
+    flare_multiplier     = 3.0,
+    worsening_multiplier = 1.0,
+    response_drop_pct    = 0.30,
+    treatment_gap_days   = 30L
+) {
+  structure(
+    list(
+      window_days          = as.integer(window_days),
+      min_observations     = as.integer(min_observations),
+      slope_threshold_pct  = as.numeric(slope_threshold_pct),
+      flare_multiplier     = as.numeric(flare_multiplier),
+      worsening_multiplier = as.numeric(worsening_multiplier),
+      response_drop_pct    = as.numeric(response_drop_pct),
+      treatment_gap_days   = as.integer(treatment_gap_days)
+    ),
+    class = "phase_rules"
+  )
+}
+
+#' Clinical decision detection rules
+#'
+#' Controls which clinical decision points are flagged and how they are detected.
+#' Pass to [dashboard_config()] via `decision_rules = decision_rules(...)`.
+#'
+#' @param escalation_lookback_days Integer. Look back this many days before a
+#'   flare/worsening event for a recent medication start. If found, the event is
+#'   not flagged as an escalation point. Default `30L`.
+#' @param taper_watch_families Character vector. Drug families whose active exposure
+#'   during a `"response"` phase triggers a taper-opportunity marker. The label
+#'   uses the matched family name: `"Lab response — consider [family] taper"`.
+#'   Default `c("Corticosteroids")`.
+#' @param medication_change_skip_families Character vector or `NULL`. Drug families
+#'   excluded from generic "Started: X" medication-change markers (they are already
+#'   captured by taper detection). `NULL` inherits `taper_watch_families`. Default `NULL`.
+#' @param admission_visit_types Character vector. OMOP visit concept labels that
+#'   count as admissions.
+#' @param referral_trigger Character(1). Regex that must match a note for it to be
+#'   considered a referral event at all (prevents false positives from notes that
+#'   merely mention a specialty). Default `"\\brefer|\\breferral|\\bconsult\\b"`.
+#' @param referral_to_specialties Named character vector. Names are display labels;
+#'   values are regex patterns matched against note text to identify the destination
+#'   specialty. Multiple matches are collapsed: `"Referral to Pulmonology, Neurology"`.
+#' @param referral_from_specialties Named character vector. Names are display labels;
+#'   values are regex patterns for the referring provider/specialty. The first match
+#'   is used. When found, label becomes `"Referral from [From] to [To]"`.
+#' @param show_medication_changes Logical. Show generic medication-start markers.
+#'   Default `TRUE`.
+#' @param show_admissions Logical. Show admission markers. Default `TRUE`.
+#' @param show_referrals Logical. Show referral markers. Default `TRUE`.
+#' @return A named list of class `"decision_rules"`.
+#' @export
+decision_rules <- function(
+    escalation_lookback_days        = 30L,
+    taper_watch_families            = c("Corticosteroids"),
+    medication_change_skip_families = NULL,
+    admission_visit_types = c("Inpatient Visit",
+                               "Emergency Room Visit",
+                               "Emergency Room and Inpatient Visit"),
+    referral_trigger = "\\brefer|\\breferral|\\bconsult\\b",
+    referral_to_specialties = c(
+      "Pulmonology"       = "pulmonolog",
+      "Neurology"         = "\\bneurol",
+      "Rheumatology"      = "rheumatolog",
+      "Cardiology"        = "cardiol",
+      "Gastroenterology"  = "gastroenterol",
+      "Nephrology"        = "nephrol",
+      "Hematology"        = "hematol",
+      "Oncology"          = "oncol",
+      "Dermatology"       = "dermatol"
+    ),
+    referral_from_specialties = c(
+      "Primary Care"      = "primary care|\\bpcp\\b|family medicine|general practice",
+      "Internal Medicine" = "internal medicine"
+    ),
+    show_medication_changes = TRUE,
+    show_admissions         = TRUE,
+    show_referrals          = TRUE
+) {
+  skip <- medication_change_skip_families %||% taper_watch_families
+  structure(
+    list(
+      escalation_lookback_days        = as.integer(escalation_lookback_days),
+      taper_watch_families            = taper_watch_families,
+      medication_change_skip_families = skip,
+      admission_visit_types           = admission_visit_types,
+      referral_trigger                = referral_trigger,
+      referral_to_specialties         = referral_to_specialties,
+      referral_from_specialties       = referral_from_specialties,
+      show_medication_changes         = isTRUE(show_medication_changes),
+      show_admissions                 = isTRUE(show_admissions),
+      show_referrals                  = isTRUE(show_referrals)
+    ),
+    class = "decision_rules"
+  )
+}
+
+#' Default toxicity monitoring rules
+#'
+#' Returns the three built-in rules (hepatotoxicity, lymphopenia, nephrotoxicity)
+#' that match the original hardcoded behaviour. Pass a modified or extended list to
+#' [dashboard_config()] via `toxicity_rules = list(...)`.
+#'
+#' **Rule structure**: each element of the list is a named list with fields:
+#' \describe{
+#'   \item{`name`}{Character. Display label for this toxicity.}
+#'   \item{`drug_selector`}{Named list with optional fields: `families` (character
+#'     vector of `drug_family` values), `name_pattern` (regex on `drug_name`),
+#'     `concept_ids` (integer vector of OMOP `drug_concept_id`). Fields are OR'd —
+#'     a drug matches if it satisfies ANY non-`NULL` field. All `NULL` means every
+#'     drug in the patient record is watched.}
+#'   \item{`lab_keys`}{Character vector of keys into `config$lab_concepts`. Multiple
+#'     keys are OR'd (any matching lab can trigger the rule).}
+#'   \item{`threshold_type`}{One of `"x_uln"` (value > N × ULN), `"absolute_low"`
+#'     (value < N), `"absolute_high"` (value > N), `"pct_rise"` (value >
+#'     baseline × (1 + N)), `"pct_drop"` (value < baseline × (1 − N)).}
+#'   \item{`threshold_value`}{Numeric. The threshold in units matching `threshold_type`.}
+#'   \item{`window_days`}{Integer. Labs within this many days of drug exposure are checked.}
+#'   \item{`severity_levels`}{Named list with `warning` and `alert` thresholds in
+#'     the same units as `threshold_type`.}
+#' }
+#'
+#' Set `toxicity_rules = NULL` in [dashboard_config()] to disable all monitoring.
+#'
+#' @return A list of three toxicity rule objects.
+#' @export
+default_toxicity_rules <- function() {
+  list(
+    list(
+      name          = "Hepatotoxicity",
+      drug_selector = list(
+        families     = c("Methotrexate", "Azathioprine"),
+        name_pattern = NULL,
+        concept_ids  = NULL
+      ),
+      lab_keys        = c("alt", "ast"),
+      threshold_type  = "x_uln",
+      threshold_value = 3.0,
+      window_days     = 30L,
+      severity_levels = list(warning = 3.0, alert = 5.0)
+    ),
+    list(
+      name          = "Lymphopenia",
+      drug_selector = list(
+        families     = c("Azathioprine", "Methotrexate", "Mycophenolate",
+                          "Rituximab", "JAK inhibitors", "Corticosteroids",
+                          "Other IST"),
+        name_pattern = NULL,
+        concept_ids  = NULL
+      ),
+      lab_keys        = "lymphocytes",
+      threshold_type  = "absolute_low",
+      threshold_value = 0.5,
+      window_days     = 14L,
+      severity_levels = list(warning = 0.5, alert = 0.2)
+    ),
+    list(
+      name          = "Nephrotoxicity",
+      drug_selector = list(
+        families     = NULL,
+        name_pattern = "cyclosporine|tacrolimus",
+        concept_ids  = NULL
+      ),
+      lab_keys        = "creatinine",
+      threshold_type  = "pct_rise",
+      threshold_value = 0.25,
+      window_days     = 30L,
+      severity_levels = list(warning = 0.25, alert = 0.50)
+    )
+  )
+}
+
+#' Display configuration
+#'
+#' Controls phase colours and label overrides shown in the dashboard UI.
+#' Pass to [dashboard_config()] via `display = display_config(...)`.
+#'
+#' @param phase_colors Named list. One hex colour string per phase: `flare`,
+#'   `worsening`, `stable`, `response`, `relapse`, `sparse`.
+#' @param phase_labels Named list. Display strings per phase. Override any subset
+#'   to rename phases in the UI (e.g. `flare = "Active Disease"`).
+#' @return A named list of class `"display_config"`.
+#' @export
+display_config <- function(
+    phase_colors = list(
+      flare     = "#D32F2F",
+      worsening = "#F57C00",
+      stable    = "#388E3C",
+      response  = "#0288D1",
+      relapse   = "#7B1FA2",
+      sparse    = "#BDBDBD"
+    ),
+    phase_labels = list(
+      flare     = "Flare",
+      worsening = "Worsening",
+      stable    = "Stable",
+      response  = "Response",
+      relapse   = "Relapse",
+      sparse    = "Sparse"
+    )
+) {
+  structure(
+    list(phase_colors = phase_colors, phase_labels = phase_labels),
+    class = "display_config"
+  )
+}
+
+# ---------------------------------------------------------------------------
 # Constructor
 # ---------------------------------------------------------------------------
 
@@ -36,6 +270,8 @@
 #' @param lab_uln Named numeric vector. Override default upper limits of normal
 #'   for specific labs. Names must match keys in `lab_concepts`. `NULL` uses
 #'   built-in defaults.
+#' @param disease_name Character(1). Display name used in the dashboard title and
+#'   axis labels. Default `"Myositis"`.
 #' @param event_json_path Character(1) or `NULL`. Path to a JSON file that
 #'   defines disease-specific events for the timeline row. The JSON must contain
 #'   `domain` (OMOP table name), `concept_ids` (integer vector), and optionally
@@ -53,6 +289,18 @@
 #'   vector of `measurement_concept_id` values for a workup test type; the name
 #'   becomes the decision-point label (e.g. `"Anti-Jo-1"`). `NULL` disables
 #'   workup detection (myositis configs use antibody concepts automatically).
+#' @param phase_rules A [phase_rules()] object. Controls trajectory window size,
+#'   flare/worsening thresholds, response sensitivity, and treatment gap bridging.
+#'   Default: [phase_rules()] with all defaults.
+#' @param decision_rules A [decision_rules()] object. Controls escalation lookback,
+#'   taper-watch drug families, admission visit types, and referral detection patterns.
+#'   Default: [decision_rules()] with all defaults.
+#' @param toxicity_rules A list of toxicity rule objects (see [default_toxicity_rules()])
+#'   or `NULL` to disable toxicity monitoring. Each rule specifies a drug selector,
+#'   a lab key, a threshold type, and severity levels.
+#'   Default: [default_toxicity_rules()].
+#' @param display A [display_config()] object. Controls phase colours and label
+#'   overrides. Default: [display_config()] with all defaults.
 #' @param research_table `data.frame` or `NULL`. Displayed in a collapsible
 #'   cohort-level research panel below the patient view. `NULL` hides the
 #'   panel.
@@ -73,6 +321,7 @@
 #' # Use the myositis preset (identical to the pre-config default behaviour)
 #' cfg <- myositis_config()
 dashboard_config <- function(
+    disease_name         = "Myositis",
     primary_lab          = "ck",
     lab_concepts         = MYOSITIS_LAB_CONCEPTS,
     drug_concepts        = MYOSITIS_DRUG_CONCEPTS,
@@ -82,11 +331,16 @@ dashboard_config <- function(
     event_row_label      = "Events",
     condition_categories = NULL,
     workup_concepts      = NULL,
+    phase_rules          = phase_rules(),
+    decision_rules       = decision_rules(),
+    toxicity_rules       = default_toxicity_rules(),
+    display              = display_config(),
     research_table       = NULL,
     research_table_title = "Research Panel"
 ) {
   config <- structure(
     list(
+      disease_name         = disease_name,
       primary_lab          = primary_lab,
       lab_concepts         = lab_concepts,
       drug_concepts        = drug_concepts,
@@ -96,6 +350,10 @@ dashboard_config <- function(
       event_row_label      = event_row_label,
       condition_categories = condition_categories,
       workup_concepts      = workup_concepts,
+      phase_rules          = phase_rules,
+      decision_rules       = decision_rules,
+      toxicity_rules       = toxicity_rules,
+      display              = display,
       research_table       = research_table,
       research_table_title = research_table_title
     ),
@@ -111,6 +369,9 @@ dashboard_config <- function(
 #' @noRd
 validate_dashboard_config <- function(config) {
   stopifnot(inherits(config, "dashboard_config"))
+
+  if (!is.character(config$disease_name) || length(config$disease_name) != 1L)
+    stop("'disease_name' must be a single character string.", call. = FALSE)
 
   if (!is.character(config$primary_lab) || length(config$primary_lab) != 1L)
     stop("'primary_lab' must be a single character string.", call. = FALSE)
@@ -144,6 +405,18 @@ validate_dashboard_config <- function(config) {
        is.null(names(config$workup_concepts))))
     stop("'workup_concepts' must be a named list or NULL.", call. = FALSE)
 
+  if (!inherits(config$phase_rules, "phase_rules"))
+    stop("'phase_rules' must be a phase_rules() object.", call. = FALSE)
+
+  if (!inherits(config$decision_rules, "decision_rules"))
+    stop("'decision_rules' must be a decision_rules() object.", call. = FALSE)
+
+  if (!is.null(config$toxicity_rules) && !is.list(config$toxicity_rules))
+    stop("'toxicity_rules' must be a list of rule objects or NULL.", call. = FALSE)
+
+  if (!inherits(config$display, "display_config"))
+    stop("'display' must be a display_config() object.", call. = FALSE)
+
   if (!is.null(config$research_table) && !is.data.frame(config$research_table))
     stop("'research_table' must be a data.frame or NULL.", call. = FALSE)
 
@@ -156,17 +429,39 @@ validate_dashboard_config <- function(config) {
 
 #' @export
 print.dashboard_config <- function(x, ...) {
-  cat(sprintf(
-    "<dashboard_config>\n  primary_lab : %s\n  lab keys    : %s\n  drug keys   : %d\n  event row   : %s\n  event SQL   : %s\n  workup      : %s\n  cond cats   : %s\n  research tbl: %s (%s)\n",
+  pr <- x$phase_rules
+  dr <- x$decision_rules
+  cat(sprintf(paste0(
+    "<dashboard_config>\n",
+    "  disease     : %s\n",
+    "  primary_lab : %s\n",
+    "  lab keys    : %s\n",
+    "  drug keys   : %d\n",
+    "  event row   : %s (%s)\n",
+    "  workup      : %s\n",
+    "  phase_rules : window=%dd  flare=%.1fx  worsening=%.1fx  response_drop=%.0f%%\n",
+    "  dec_rules   : lookback=%dd  taper_watch=[%s]  referrals=%s\n",
+    "  tox_rules   : %s\n",
+    "  research tbl: %s\n"
+  ),
+    x$disease_name,
     x$primary_lab,
     paste(names(x$lab_concepts), collapse = ", "),
     length(x$drug_concepts),
     x$event_row_label,
-    if (!is.null(x$event_json_path)) basename(x$event_json_path) else "(none)",
+    if (!is.null(x$event_json_path)) basename(x$event_json_path) else "none",
     if (!is.null(x$workup_concepts)) paste(names(x$workup_concepts), collapse = ", ") else "(none)",
-    if (!is.null(x$condition_categories)) paste(names(x$condition_categories), collapse = ", ") else "(none)",
-    if (!is.null(x$research_table)) x$research_table_title else "(none)",
-    if (!is.null(x$research_table)) paste0(nrow(x$research_table), " rows") else ""
+    pr$window_days, pr$flare_multiplier, pr$worsening_multiplier,
+    pr$response_drop_pct * 100,
+    dr$escalation_lookback_days,
+    paste(dr$taper_watch_families, collapse = ", "),
+    if (dr$show_referrals) "on" else "off",
+    if (is.null(x$toxicity_rules)) "disabled"
+    else paste0(length(x$toxicity_rules), " rules: ",
+                paste(vapply(x$toxicity_rules, `[[`, "", "name"), collapse = ", ")),
+    if (!is.null(x$research_table))
+      paste0(x$research_table_title, " (", nrow(x$research_table), " rows)")
+    else "(none)"
   ))
   invisible(x)
 }
@@ -186,18 +481,15 @@ print.dashboard_config <- function(x, ...) {
 #' @export
 myositis_config <- function() {
   cfg <- dashboard_config(
-    primary_lab  = "ck",
-    lab_concepts = MYOSITIS_LAB_CONCEPTS,
+    disease_name  = "Myositis",
+    primary_lab   = "ck",
+    lab_concepts  = MYOSITIS_LAB_CONCEPTS,
     drug_concepts = MYOSITIS_DRUG_CONCEPTS,
     drug_families = .DRUG_FAMILY_MAP,
-    lab_uln      = NULL,          # .LAB_DEFAULT_ULN used as fallback
-    # event_json_path: NULL here; the server detects myositis class and uses
-    # the specialised shingles/shingrix/PHN/VZV fetchers instead.
-    event_json_path  = NULL,
-    event_row_label = "Shingles",
-    # condition_categories: NULL here; the server detects myositis class and
-    # calls fetch_rheumatic_diagnoses() (hardcoded concept-set SQL).
-    condition_categories = NULL,
+    lab_uln       = NULL,
+    event_json_path  = NULL,   # server detects myositis class → specialised fetchers
+    event_row_label  = "Shingles",
+    condition_categories = NULL,  # server detects myositis class → fetch_rheumatic_diagnoses()
     workup_concepts = list(
       "Anti-Jo-1"   = MYOSITIS_LAB_CONCEPTS$anti_jo1,
       "Anti-Mi-2"   = MYOSITIS_LAB_CONCEPTS$anti_mi2,
@@ -208,6 +500,10 @@ myositis_config <- function() {
       "Anti-NXP2"   = MYOSITIS_LAB_CONCEPTS$anti_nxp2,
       "Anti-PM/Scl" = MYOSITIS_LAB_CONCEPTS$anti_pm_scl
     ),
+    phase_rules    = phase_rules(),
+    decision_rules = decision_rules(),
+    toxicity_rules = default_toxicity_rules(),
+    display        = display_config(),
     research_table       = NULL,
     research_table_title = "Post-Vaccine Shingles Cohort"
   )
@@ -225,16 +521,17 @@ myositis_config <- function() {
 #' @export
 ra_config <- function() {
   dashboard_config(
+    disease_name = "Rheumatoid Arthritis",
     primary_lab  = "crp",
     lab_concepts = list(
-      crp         = c(3020460L, 3034963L),   # CRP
-      esr         = c(3009542L),              # ESR
-      rf          = c(3033408L),              # Rheumatoid factor
-      anti_ccp    = c(3010148L),              # Anti-CCP
-      wbc         = c(3010813L),              # WBC
-      lymphocytes = c(3004327L),              # Lymphocytes
-      hemoglobin  = c(3000963L),              # Hemoglobin
-      creatinine  = c(3051825L)               # Creatinine
+      crp         = c(3020460L, 3034963L),
+      esr         = c(3009542L),
+      rf          = c(3033408L),
+      anti_ccp    = c(3010148L),
+      wbc         = c(3010813L),
+      lymphocytes = c(3004327L),
+      hemoglobin  = c(3000963L),
+      creatinine  = c(3051825L)
     ),
     drug_concepts = MYOSITIS_DRUG_CONCEPTS,
     drug_families = .DRUG_FAMILY_MAP,
@@ -244,6 +541,24 @@ ra_config <- function() {
       "Rheumatoid Factor" = c(3033408L),
       "Anti-CCP"          = c(3010148L)
     ),
+    # CRP does not scale 3× ULN for flare the same way CK does
+    phase_rules = phase_rules(flare_multiplier = 2.0),
+    decision_rules = decision_rules(
+      referral_to_specialties = c(
+        "Pulmonology"       = "pulmonolog",
+        "Neurology"         = "\\bneurol",
+        "Rheumatology"      = "rheumatolog",
+        "Cardiology"        = "cardiol",
+        "Gastroenterology"  = "gastroenterol",
+        "Nephrology"        = "nephrol",
+        "Hematology"        = "hematol",
+        "Oncology"          = "oncol",
+        "Dermatology"       = "dermatol",
+        "Immunology"        = "immunolog"
+      )
+    ),
+    toxicity_rules       = default_toxicity_rules(),
+    display              = display_config(),
     research_table_title = "RA Cohort Panel"
   )
 }
@@ -258,17 +573,18 @@ ra_config <- function() {
 #' @export
 sle_config <- function() {
   dashboard_config(
+    disease_name = "Systemic Lupus Erythematosus",
     primary_lab  = "crp",
     lab_concepts = list(
-      crp         = c(3020460L, 3034963L),   # CRP
-      esr         = c(3009542L),              # ESR
-      anti_dsdna  = c(3003999L),              # Anti-dsDNA
-      c3          = c(3013429L),              # Complement C3
-      c4          = c(3003714L),              # Complement C4
-      wbc         = c(3010813L),              # WBC
-      lymphocytes = c(3004327L),              # Lymphocytes
-      creatinine  = c(3051825L),              # Creatinine
-      hemoglobin  = c(3000963L)               # Hemoglobin
+      crp         = c(3020460L, 3034963L),
+      esr         = c(3009542L),
+      anti_dsdna  = c(3003999L),
+      c3          = c(3013429L),
+      c4          = c(3003714L),
+      wbc         = c(3010813L),
+      lymphocytes = c(3004327L),
+      creatinine  = c(3051825L),
+      hemoglobin  = c(3000963L)
     ),
     drug_concepts = MYOSITIS_DRUG_CONCEPTS,
     drug_families = .DRUG_FAMILY_MAP,
@@ -279,6 +595,23 @@ sle_config <- function() {
       "C3"         = c(3013429L),
       "C4"         = c(3003714L)
     ),
+    # CRP-based; lupus labs are typically ordered frequently → tighter window
+    phase_rules = phase_rules(flare_multiplier = 2.0, window_days = 60L),
+    decision_rules = decision_rules(
+      referral_to_specialties = c(
+        "Pulmonology"       = "pulmonolog",
+        "Neurology"         = "\\bneurol",
+        "Rheumatology"      = "rheumatolog",
+        "Cardiology"        = "cardiol",
+        "Nephrology"        = "nephrol",
+        "Hematology"        = "hematol",
+        "Gastroenterology"  = "gastroenterol",
+        "Oncology"          = "oncol",
+        "Dermatology"       = "dermatol"
+      )
+    ),
+    toxicity_rules       = default_toxicity_rules(),
+    display              = display_config(),
     research_table_title = "SLE Cohort Panel"
   )
 }

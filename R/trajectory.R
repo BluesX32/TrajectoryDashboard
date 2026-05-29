@@ -36,6 +36,10 @@ PHASE_COLORS <- c(
 #'   of ULN per day. Default `0.05` (5% of ULN per day).
 #' @param response_drop_pct Numeric. Minimum percentage drop from a flare/
 #'   worsening peak to classify a window as `"response"`. Default `0.30`.
+#' @param config A [dashboard_config()] object. When supplied, `phase_rules`
+#'   values from `config$phase_rules` override the individual parameters above
+#'   (except `window_days`, `uln_override`, and `concept_id` which are passed
+#'   directly by the server and take precedence).
 #'
 #' @return A tibble with one row per phase segment:
 #'   `window_start`, `window_end`, `phase`, `confidence`, `mean_value`,
@@ -49,7 +53,16 @@ compute_trajectory_phases <- function(lab_df,
                                        min_observations  = 2L,
                                        uln_override      = NULL,
                                        slope_threshold_pct = 0.05,
-                                       response_drop_pct   = 0.30) {
+                                       response_drop_pct   = 0.30,
+                                       config            = NULL) {
+  if (!is.null(config$phase_rules)) {
+    pr <- config$phase_rules
+    if (missing(min_observations))  min_observations  <- pr$min_observations
+    if (missing(slope_threshold_pct)) slope_threshold_pct <- pr$slope_threshold_pct
+    if (missing(response_drop_pct))  response_drop_pct  <- pr$response_drop_pct
+  }
+  flare_multiplier     <- config$phase_rules$flare_multiplier     %||% 3.0
+  worsening_multiplier <- config$phase_rules$worsening_multiplier %||% 1.0
 
   if (nrow(lab_df) == 0L) return(.empty_phases())
 
@@ -167,9 +180,9 @@ compute_trajectory_phases <- function(lab_df,
     is_falling <- !is.na(w$slope_per_day) && w$slope_per_day < -slope_thresh
 
     if (!is.na(w_uln)) {
-      if (w$mean_value > 3 * w_uln && is_rising) {
+      if (w$mean_value > flare_multiplier * w_uln && is_rising) {
         wdf$phase[i] <- "flare"
-      } else if (w$mean_value > w_uln && is_rising) {
+      } else if (w$mean_value > worsening_multiplier * w_uln && is_rising) {
         wdf$phase[i] <- "worsening"
       } else if (is_falling && i > 1) {
         prev_phase <- wdf$phase[i - 1]
@@ -297,15 +310,21 @@ compute_trajectory_phases <- function(lab_df,
 #'
 #' @param medications_df Tibble from [fetch_medications()].
 #' @param gap_days Integer. Maximum gap in days to bridge. Default `30L`.
+#'   Overridden by `config$phase_rules$treatment_gap_days` when `config` is supplied.
 #' @param drug_name_col Character. Column containing drug name. Tries
 #'   `"drug_name"` first, then `"drug_source_value"`.
+#' @param config A [dashboard_config()] object. When supplied, `gap_days` is
+#'   read from `config$phase_rules$treatment_gap_days`.
 #'
 #' @return A tibble: `drug_name`, `drug_family`, `phase_start`,
 #'   `phase_end`, `n_records`, `n_days`.
 #'
 #' @export
 compute_treatment_phases <- function(medications_df, gap_days = 30L,
-                                      drug_name_col = NULL) {
+                                      drug_name_col = NULL,
+                                      config        = NULL) {
+  if (!is.null(config$phase_rules$treatment_gap_days) && missing(gap_days))
+    gap_days <- config$phase_rules$treatment_gap_days
 
   if (nrow(medications_df) == 0L) return(.empty_treatment_phases())
 

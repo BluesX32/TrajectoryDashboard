@@ -109,11 +109,11 @@ which optional panels appear. Pass it to `launch_trajectory_dashboard()` via
 
 ### Step 1 — Choose a starting point
 
-| Preset | Primary biomarker | Workup concepts | Event row |
-|---|---|---|---|
-| `myositis_config()` *(default)* | CK | Myositis antibodies (8 panels) | Shingles / VZV |
-| `ra_config()` | CRP | RF, Anti-CCP | RA Events |
-| `sle_config()` | CRP | Anti-dsDNA, C3, C4 | Lupus Events |
+| Preset | `disease_name` | Primary biomarker | Workup concepts | Phase `flare_multiplier` |
+|---|---|---|---|---|
+| `myositis_config()` *(default)* | `"Myositis"` | CK | 8 myositis antibodies | 3× ULN |
+| `ra_config()` | `"Rheumatoid Arthritis"` | CRP | RF, Anti-CCP | 2× ULN |
+| `sle_config()` | `"Systemic Lupus Erythematosus"` | CRP | Anti-dsDNA, C3, C4 | 2× ULN, 60-day window |
 
 ```r
 # Use a preset directly — no other changes needed
@@ -137,48 +137,56 @@ the default.
 ```r
 config <- dashboard_config(
 
+  # ── Identity ─────────────────────────────────────────────────────────────
+  disease_name = "Rheumatoid Arthritis",   # shown in browser title + header
+
   # ── Trajectory ──────────────────────────────────────────────────────────
-  # The "primary lab" drives the trajectory curve (the main plot).
-  # It must be a key that exists in lab_concepts below.
   primary_lab = "crp",
 
   # ── Lab concepts ─────────────────────────────────────────────────────────
-  # Named list: short key → integer vector of OMOP measurement_concept_ids.
-  # These are the only labs that will be fetched and shown in the picker.
-  # Keys become the lab picker choices; use meaningful short names.
   lab_concepts = list(
-    crp         = c(3020460L),          # C-Reactive Protein
-    esr         = c(3009542L),          # ESR
-    rf          = c(3033408L),          # Rheumatoid Factor
-    anti_ccp    = c(3010148L),          # Anti-CCP antibody
-    wbc         = c(3010813L),          # WBC
-    lymphocytes = c(3004327L),          # Lymphocyte count
-    creatinine  = c(3051825L)           # Creatinine
+    crp         = c(3020460L),
+    esr         = c(3009542L),
+    rf          = c(3033408L),
+    anti_ccp    = c(3010148L),
+    wbc         = c(3010813L),
+    lymphocytes = c(3004327L),
+    creatinine  = c(3051825L)
   ),
 
   # ── Drug concepts ────────────────────────────────────────────────────────
-  # Reuse the full myositis DMARD list (covers most rheumatic diseases),
-  # or supply your own named list of drug_concept_ids.
   drug_concepts = MYOSITIS_DRUG_CONCEPTS,
 
   # ── Workup decision points ───────────────────────────────────────────────
-  # Measurements in this list trigger a "workup point" marker on the timeline.
-  # Label is the display name; value is a vector of measurement_concept_ids.
-  # Set to NULL to disable workup markers entirely.
   workup_concepts = list(
     "Rheumatoid Factor" = c(3033408L),
     "Anti-CCP"          = c(3010148L)
   ),
 
   # ── Events timeline row ──────────────────────────────────────────────────
-  # Label shown on the y-axis and in the "episode gap" slider.
-  # To add a custom event row, supply a JSON file via event_json_path (see below).
   event_row_label = "RA Flares",
 
+  # ── Phase detection ───────────────────────────────────────────────────────
+  # CRP does not scale 3× ULN the same way CK does — lower flare threshold
+  phase_rules = phase_rules(flare_multiplier = 2.0),
+
+  # ── Decision point detection ─────────────────────────────────────────────
+  decision_rules = decision_rules(
+    taper_watch_families = c("Corticosteroids"),
+    referral_to_specialties = c(
+      "Rheumatology" = "rheumatolog",
+      "Immunology"   = "immunolog",
+      "Cardiology"   = "cardiol"
+    )
+  ),
+
+  # ── Toxicity monitoring ───────────────────────────────────────────────────
+  # Use defaults (hepatotoxicity, lymphopenia, nephrotoxicity)
+  # or NULL to disable, or supply a custom list of rules
+  toxicity_rules = default_toxicity_rules(),
+
   # ── Cohort research panel ─────────────────────────────────────────────────
-  # Optional: pass any data.frame to display a cohort-level summary table
-  # below the per-patient view.  Set to NULL to hide the panel.
-  research_table       = my_cohort_summary_df,   # data.frame or NULL
+  research_table       = my_cohort_summary_df,
   research_table_title = "RA Cohort Summary"
 
 )
@@ -195,22 +203,107 @@ launch_trajectory_dashboard(
 
 ### Config field reference
 
-| Field | Type | What it changes in the UI |
+#### Top-level fields
+
+| Field | Type | What it controls |
 |---|---|---|
-| `primary_lab` | `character(1)` | Default lab selected in the picker; drives the trajectory curve |
+| `disease_name` | `character(1)` | Browser title and dashboard header |
+| `primary_lab` | `character(1)` | Default lab driving the trajectory curve |
 | `lab_concepts` | named list of `integer` vectors | Which measurements are fetched; each key becomes a picker option |
 | `drug_concepts` | named list of `integer` vectors | Which drugs are fetched from `drug_exposure` |
-| `drug_families` | named list of `character` vectors | How individual drug names are grouped into sidebar checkbox rows |
-| `lab_uln` | named `numeric` vector | Override upper limit of normal per lab key (fallback: OMOP `range_high`) |
-| `event_row_label` | `character(1)` | Y-axis label and "episode gap" slider heading in the event layer |
-| `event_json_path` | `character(1)` or `NULL` | Path to an event definition JSON file specifying domain and concept IDs; SQL is generated automatically. `NULL` = no generic event row |
-| `condition_categories` | named list of `integer` vectors or `NULL` | Condition badge categories in the patient summary bar; `NULL` = hide |
-| `workup_concepts` | named list of `integer` vectors or `NULL` | Measurements that trigger workup decision-point markers; `NULL` = disable |
-| `research_table` | `data.frame` or `NULL` | Cohort-level table shown in a collapsible panel below the patient view |
-| `research_table_title` | `character(1)` | Heading for the research table panel |
+| `drug_families` | named list of `character` vectors | How drug names are grouped into sidebar checkbox rows |
+| `lab_uln` | named `numeric` vector | ULN override per lab key (fallback: OMOP `range_high`) |
+| `event_row_label` | `character(1)` | Y-axis label for the disease event row |
+| `event_json_path` | `character(1)` or `NULL` | Path to event definition JSON; SQL is generated automatically |
+| `condition_categories` | named list or `NULL` | Condition badge categories in the patient summary bar |
+| `workup_concepts` | named list or `NULL` | Measurements that trigger workup decision-point markers |
+| `phase_rules` | `phase_rules()` object | Trajectory thresholds (see below) |
+| `decision_rules` | `decision_rules()` object | Decision point detection (see below) |
+| `toxicity_rules` | list or `NULL` | Safety monitoring rules (see below); `NULL` = disable |
+| `display` | `display_config()` object | Phase colours and label overrides |
+| `research_table` | `data.frame` or `NULL` | Cohort-level table in a collapsible panel |
+| `research_table_title` | `character(1)` | Heading for the research panel |
 
-> **Note:** `lab_concepts` also controls the ILD monitoring panel: the **FVC/DLCO** checkbox
-> appears automatically when `"fvc"` or `"dlco"` are keys in `lab_concepts`, and is hidden otherwise.
+> `lab_concepts` also controls the ILD panel: the **FVC/DLCO** checkbox appears automatically
+> when `"fvc"` or `"dlco"` are keys in `lab_concepts`.
+
+---
+
+#### `phase_rules()` — trajectory thresholds
+
+```r
+phase_rules(
+  window_days           = 90L,    # rolling window width
+  min_observations      = 2L,     # fewer obs → "sparse"
+  slope_threshold_pct   = 0.05,   # rising/falling sensitivity (× ULN/day)
+  flare_multiplier      = 3.0,    # mean > N × ULN + rising → "flare"
+  worsening_multiplier  = 1.0,    # mean > N × ULN + rising → "worsening"
+  response_drop_pct     = 0.30,   # drop ≥ 30% from peak → "response"
+  treatment_gap_days    = 30L     # max gap to bridge in treatment episodes
+)
+```
+
+---
+
+#### `decision_rules()` — decision point detection
+
+```r
+decision_rules(
+  escalation_lookback_days        = 30L,
+  taper_watch_families            = c("Corticosteroids"),  # any drug family
+  medication_change_skip_families = NULL,   # NULL = same as taper_watch_families
+  admission_visit_types = c("Inpatient Visit", "Emergency Room Visit", ...),
+  referral_trigger          = "\\brefer|\\breferral|\\bconsult\\b",
+  referral_to_specialties   = c("Pulmonology" = "pulmonolog", ...),  # named vector
+  referral_from_specialties = c("Primary Care" = "primary care|pcp", ...),
+  show_medication_changes = TRUE,
+  show_admissions         = TRUE,
+  show_referrals          = TRUE
+)
+```
+
+Referral labels are direction-aware: `"Referral to Pulmonology"` or
+`"Referral from Primary Care to Rheumatology"`.
+
+---
+
+#### `toxicity_rules` — safety monitoring
+
+A list of rule objects, each with this structure:
+
+```r
+list(
+  name          = "Hepatotoxicity",
+  drug_selector = list(
+    families     = c("Methotrexate", "Azathioprine"),  # OR logic
+    name_pattern = NULL,    # regex on drug_name; NULL = skip
+    concept_ids  = NULL     # OMOP drug_concept_id; NULL = skip
+    # All NULL → watch ALL drugs
+  ),
+  lab_keys        = c("alt", "ast"),     # keys in lab_concepts
+  threshold_type  = "x_uln",            # "x_uln" | "absolute_low" | "absolute_high"
+                                         # | "pct_rise" | "pct_drop"
+  threshold_value = 3.0,
+  window_days     = 30L,
+  severity_levels = list(warning = 3.0, alert = 5.0)
+)
+```
+
+`default_toxicity_rules()` returns hepatotoxicity + lymphopenia + nephrotoxicity.
+Set `toxicity_rules = NULL` to disable all monitoring.
+
+---
+
+#### `display_config()` — phase colours and labels
+
+```r
+display_config(
+  phase_colors = list(flare="#D32F2F", worsening="#F57C00", stable="#388E3C",
+                       response="#0288D1", relapse="#7B1FA2", sparse="#BDBDBD"),
+  phase_labels = list(flare="Flare", worsening="Worsening", stable="Stable",
+                       response="Response", relapse="Relapse", sparse="Sparse")
+)
+```
 
 ---
 

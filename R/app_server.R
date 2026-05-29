@@ -380,13 +380,14 @@ trajectory_server <- function(connector, config = myositis_config()) {
         labs_filtered(),
         concept_id       = concept_id,
         window_days      = as.integer(trajectory_window_d()),
-        uln_override     = if (!is.na(uln)) uln else NULL
+        uln_override     = if (!is.na(uln)) uln else NULL,
+        config           = config
       )
     }) |> shiny::bindCache(labs_filtered(), input$focus_lab, trajectory_window_d())
 
     treatment_phases <- shiny::reactive({
       shiny::req(meds_filtered())
-      compute_treatment_phases(meds_filtered())
+      compute_treatment_phases(meds_filtered(), config = config)
     }) |> shiny::bindCache(meds_filtered())
 
     density <- shiny::reactive({
@@ -412,7 +413,7 @@ trajectory_server <- function(connector, config = myositis_config()) {
       if (!"drug_family" %in% names(meds_t) && "drug_name" %in% names(meds_t)) {
         meds_t$drug_family <- .standardize_drug_family(meds_t$drug_name)
       }
-      detect_toxicity_flags(pd_t$labs, meds_t)
+      detect_toxicity_flags(pd_t$labs, meds_t, config = config)
     }) |> shiny::bindCache(patient_data())
 
     # Pre-compute DMARD coverage gaps outside the plot render so the
@@ -691,21 +692,21 @@ trajectory_server <- function(connector, config = myositis_config()) {
 
       if (length(phases_present) == 0) return(NULL)
 
-      phase_labels <- c(
-        flare = "Flare", worsening = "Worsening", stable = "Stable",
-        response = "Response", relapse = "Relapse", sparse = "Sparse"
-      )
+      cfg_labels <- config$display$phase_labels %||%
+        list(flare="Flare", worsening="Worsening", stable="Stable",
+             response="Response", relapse="Relapse", sparse="Sparse")
+      cfg_colors <- config$display$phase_colors %||% as.list(PHASE_COLORS)
 
       pills <- lapply(phases_present, function(ph) {
-        color <- PHASE_COLORS[ph]
-        if (is.na(color)) color <- "#999"
+        color <- cfg_colors[[ph]] %||% "#999"
+        if (is.null(color) || is.na(color)) color <- "#999"
         shiny::tags$span(
           class = "phase-pill",
           shiny::tags$span(
             class = "phase-swatch",
             style = paste0("background:", color, ";")
           ),
-          phase_labels[ph] %||% tools::toTitleCase(ph)
+          cfg_labels[[ph]] %||% tools::toTitleCase(ph)
         )
       })
 
@@ -814,11 +815,12 @@ trajectory_server <- function(connector, config = myositis_config()) {
 
       # Phase background shading — use layout shapes with yref="paper" so the
       # rectangles span the full plot height without inflating the y-axis range.
+      cfg_colors  <- config$display$phase_colors %||% as.list(PHASE_COLORS)
       phase_shapes <- vector("list", nrow(phases))
       for (i in seq_len(nrow(phases))) {
         ph    <- phases$phase[i]
-        color <- PHASE_COLORS[ph]
-        if (is.na(color)) color <- "#BDBDBD"
+        color <- cfg_colors[[ph]] %||% "#BDBDBD"
+        if (is.null(color) || is.na(color)) color <- "#BDBDBD"
 
         fill_color <- if (ph == "sparse")
           "rgba(189,189,189,0.25)"
@@ -1586,7 +1588,10 @@ trajectory_server <- function(connector, config = myositis_config()) {
           )
           phase_idx <- pmax(pmin(phase_idx, nrow(phases_traj)), 1L)
           pt_phases <- phases_traj$phase[phase_idx]
-          pt_colors <- PHASE_COLORS[pt_phases]
+          cfg_colors <- config$display$phase_colors %||% as.list(PHASE_COLORS)
+          pt_colors  <- vapply(pt_phases,
+                               function(p) cfg_colors[[p]] %||% "#9E9E9E",
+                               character(1L))
           pt_colors[is.na(pt_colors)] <- "#9E9E9E"
 
           fig <- plotly::add_trace(

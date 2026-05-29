@@ -35,6 +35,7 @@
 detect_decision_points <- function(patient_data, trajectory, treatment_phases,
                                     config = NULL) {
   if (is.null(config)) config <- myositis_config()
+  dr <- config$decision_rules %||% decision_rules()
 
   result <- list()
 
@@ -48,10 +49,9 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
       seg <- esc_phases[i, ]
       event_date <- seg$window_start
 
-      # Check if a new med started within 30 days prior
       new_med_recent <- FALSE
       if (nrow(treatment_phases) > 0) {
-        look_back <- as.integer(event_date) - 30L
+        look_back <- as.integer(event_date) - dr$escalation_lookback_days
         new_med_recent <- any(
           as.integer(treatment_phases$phase_start) >= look_back &
           as.integer(treatment_phases$phase_start) <= as.integer(event_date)
@@ -67,7 +67,7 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
           evidence_summary = paste0(
             "Lab value rising: mean ", round(seg$mean_value),
             " (phase: ", seg$phase, ", confidence: ", seg$confidence, "). ",
-            "No new medication started in prior 30 days."
+            "No new medication started in prior ", dr$escalation_lookback_days, " days."
           ),
           confidence       = seg$confidence,
           source_domain    = "labs",
@@ -78,30 +78,34 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
   }
 
   # ---------------------------------------------------------------------------
-  # 2. Taper points: trajectory → response while corticosteroid active
+  # 2. Taper points: response phase + any taper_watch_families drug active
   # ---------------------------------------------------------------------------
-  if (nrow(trajectory) > 0 && nrow(treatment_phases) > 0) {
+  if (nrow(trajectory) > 0 && nrow(treatment_phases) > 0 &&
+      length(dr$taper_watch_families) > 0) {
     resp_phases <- trajectory[trajectory$phase == "response", , drop = FALSE]
-    steroid_phases <- treatment_phases[
-      tolower(treatment_phases$drug_family) == "corticosteroids", , drop = FALSE]
+    watch_phases <- treatment_phases[
+      tolower(treatment_phases$drug_family) %in%
+        tolower(dr$taper_watch_families), , drop = FALSE]
 
     for (i in seq_len(nrow(resp_phases))) {
-      seg <- resp_phases[i]
+      seg        <- resp_phases[i, ]
       event_date <- seg$window_start
 
-      steroid_active <- any(
-        steroid_phases$phase_start <= event_date &
-        steroid_phases$phase_end   >= event_date
+      active_idx <- which(
+        watch_phases$phase_start <= event_date &
+        watch_phases$phase_end   >= event_date
       )
 
-      if (steroid_active) {
+      if (length(active_idx) > 0) {
+        active_family <- watch_phases$drug_family[active_idx[[1L]]]
         result[[length(result) + 1L]] <- data.frame(
           date             = event_date,
           event_type       = "taper_point",
-          label            = "Lab response — consider steroid taper",
+          label            = paste0("Lab response — consider ",
+                                    active_family, " taper"),
           evidence_summary = paste0(
             "Lab trend improving (response phase, confidence: ", seg$confidence,
-            "). Corticosteroid currently active. Potential taper opportunity."
+            "). ", active_family, " currently active. Potential taper opportunity."
           ),
           confidence       = seg$confidence,
           source_domain    = "labs+medications",
@@ -112,16 +116,15 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
   }
 
   # ---------------------------------------------------------------------------
-  # 3. Medication changes
+  # 3. Medication changes (skip taper-watched families to avoid duplication)
   # ---------------------------------------------------------------------------
-  if (nrow(treatment_phases) > 0) {
-    # Skip steroids — too many records, captures taper automatically
-    non_steroid <- treatment_phases[
-      !tolower(treatment_phases$drug_family) %in% c("corticosteroids"), ,
-      drop = FALSE]
+  if (isTRUE(dr$show_medication_changes) && nrow(treatment_phases) > 0) {
+    skip_fams <- tolower(dr$medication_change_skip_families %||% dr$taper_watch_families)
+    show_meds <- treatment_phases[
+      !tolower(treatment_phases$drug_family) %in% skip_fams, , drop = FALSE]
 
-    for (i in seq_len(nrow(non_steroid))) {
-      ep <- non_steroid[i, ]
+    for (i in seq_len(nrow(show_meds))) {
+      ep <- show_meds[i, ]
       result[[length(result) + 1L]] <- data.frame(
         date             = ep$phase_start,
         event_type       = "medication_change",
@@ -140,14 +143,13 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
   # ---------------------------------------------------------------------------
   # 4. Admissions (inpatient/ER visits)
   # ---------------------------------------------------------------------------
-  if (nrow(patient_data$visits) > 0) {
-    inpatient_types <- c("Inpatient Visit", "Emergency Room Visit",
-                         "Emergency Room and Inpatient Visit")
+  if (isTRUE(dr$show_admissions) && nrow(patient_data$visits) > 0) {
     admissions <- patient_data$visits[
-      patient_data$visits$visit_type %in% inpatient_types, , drop = FALSE]
+      patient_data$visits$visit_type %in% dr$admission_visit_types, ,
+      drop = FALSE]
 
     for (i in seq_len(nrow(admissions))) {
-      v <- admissions[i, ]
+      v      <- admissions[i, ]
       n_days <- as.integer(v$visit_end_date - v$visit_start_date) + 1L
       result[[length(result) + 1L]] <- data.frame(
         date             = v$visit_start_date,
@@ -172,7 +174,6 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
   # 5. Workup points (biomarker / antibody results)
   # ---------------------------------------------------------------------------
   if (nrow(patient_data$labs) > 0) {
-    # Use config$workup_concepts when available; fall back to NULL (skips block)
     workup_ids <- if (!is.null(config$workup_concepts) &&
                       length(config$workup_concepts) > 0) {
       unlist(config$workup_concepts, use.names = FALSE)
@@ -185,7 +186,7 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
         patient_data$labs$measurement_concept_id %in% workup_ids, ,
         drop = FALSE]
     } else {
-      patient_data$labs[integer(0), , drop = FALSE]   # empty — no workup concepts
+      patient_data$labs[integer(0), , drop = FALSE]
     }
 
     for (i in seq_len(nrow(ab_labs))) {
@@ -207,28 +208,59 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
   }
 
   # ---------------------------------------------------------------------------
-  # 6. Referral points from notes (keyword-based, low confidence)
+  # 6. Referral points — two-step: trigger word + specialty extraction
   # ---------------------------------------------------------------------------
-  if (nrow(patient_data$notes) > 0) {
-    referral_keywords <- "refer|referral|pulmonolog|neurol|rheumatolog|cardiol|gastroenterol"
+  if (isTRUE(dr$show_referrals) && nrow(patient_data$notes) > 0) {
     notes <- patient_data$notes[!is.na(patient_data$notes$note_text), ]
 
     for (i in seq_len(nrow(notes))) {
       note <- notes[i, ]
-      if (grepl(referral_keywords, note$note_text, ignore.case = TRUE)) {
-        result[[length(result) + 1L]] <- data.frame(
-          date             = note$note_date,
-          event_type       = "referral_point",
-          label            = paste0("Potential referral in ", note$note_type),
-          evidence_summary = paste0(
-            "Note (", format(note$note_date, "%Y-%m-%d"), ") contains referral keywords. ",
-            "Preview: ", substr(note$note_text, 1, 150), "..."
-          ),
-          confidence       = "low",
-          source_domain    = "notes",
-          stringsAsFactors = FALSE
-        )
+      txt  <- note$note_text
+
+      # Step 1: must contain a referral action word
+      if (!grepl(dr$referral_trigger, txt, ignore.case = TRUE, perl = TRUE))
+        next
+
+      # Step 2: find destination specialty/specialties
+      to_matches <- names(dr$referral_to_specialties)[
+        vapply(dr$referral_to_specialties,
+               function(pat) grepl(pat, txt, ignore.case = TRUE, perl = TRUE),
+               logical(1L))
+      ]
+
+      # Step 3: find origin specialty (first match)
+      from_match <- NULL
+      for (nm in names(dr$referral_from_specialties)) {
+        if (grepl(dr$referral_from_specialties[[nm]], txt,
+                  ignore.case = TRUE, perl = TRUE)) {
+          from_match <- nm
+          break
+        }
       }
+
+      # Build label
+      if (length(to_matches) > 0) {
+        to_str <- paste(to_matches, collapse = ", ")
+        lbl <- if (!is.null(from_match))
+          paste0("Referral from ", from_match, " to ", to_str)
+        else
+          paste0("Referral to ", to_str)
+      } else {
+        lbl <- "Unspecified referral"
+      }
+
+      result[[length(result) + 1L]] <- data.frame(
+        date             = note$note_date,
+        event_type       = "referral_point",
+        label            = lbl,
+        evidence_summary = paste0(
+          "Note (", format(note$note_date, "%Y-%m-%d"), "): ", lbl, ". ",
+          "Preview: ", substr(txt, 1L, 150L), "..."
+        ),
+        confidence       = "low",
+        source_domain    = "notes",
+        stringsAsFactors = FALSE
+      )
     }
   }
 
@@ -255,21 +287,21 @@ detect_decision_points <- function(patient_data, trajectory, treatment_phases,
 
 #' Detect drug toxicity events
 #'
-#' Scans labs and medications for co-occurrences suggesting drug toxicity:
-#' \describe{
-#'   \item{Hepatotoxicity}{ALT or AST > 3× ULN while MTX or AZA is active ±30 d.}
-#'   \item{Lymphopenia}{Lymphocytes < 0.5 K/µL while any immunosuppressant active.}
-#'   \item{Creatinine rise}{Creatinine > 25% increase from prior while CNI active.}
-#' }
+#' Iterates the `toxicity_rules` list from [dashboard_config()] and flags
+#' co-occurrences of drug exposure and abnormal lab values. Each rule specifies
+#' which drugs to watch (via `drug_selector`), which lab to check (`lab_keys`),
+#' the threshold type, and severity levels. Supports five threshold types:
+#' `"x_uln"`, `"absolute_low"`, `"absolute_high"`, `"pct_rise"`, `"pct_drop"`.
 #'
 #' @param labs_df Lab tibble from [fetch_patient_data()]`$labs`.
 #' @param meds_df Medications tibble from [fetch_patient_data()]`$medications`,
-#'   with a `drug_family` column (added by [compute_treatment_phases()] or
-#'   [.standardize_drug_family()]).
+#'   with a `drug_family` column.
+#' @param config A [dashboard_config()] object. When `NULL`, [default_toxicity_rules()]
+#'   is used. Set `config$toxicity_rules = NULL` to disable all monitoring.
 #' @return A tibble with columns `date`, `drug_name`, `toxicity_type`,
-#'   `value`, `threshold`, `severity` ("warning" or "alert").
+#'   `value`, `threshold`, `severity` (`"warning"` or `"alert"`).
 #' @noRd
-detect_toxicity_flags <- function(labs_df, meds_df) {
+detect_toxicity_flags <- function(labs_df, meds_df, config = NULL) {
 
   empty_out <- tibble::tibble(
     date          = as.Date(character(0)),
@@ -281,156 +313,169 @@ detect_toxicity_flags <- function(labs_df, meds_df) {
   )
 
   if (nrow(labs_df) == 0L || nrow(meds_df) == 0L) return(empty_out)
-  if (!"drug_family" %in% names(meds_df)) return(empty_out)
+  if (!"drug_family" %in% names(meds_df))          return(empty_out)
+
+  rules <- if (!is.null(config) && !is.null(config$toxicity_rules))
+    config$toxicity_rules
+  else if (!is.null(config) && is.null(config$toxicity_rules))
+    return(empty_out)   # explicitly disabled
+  else
+    default_toxicity_rules()
+
+  if (length(rules) == 0L) return(empty_out)
 
   result <- list()
 
-  # ---------------------------------------------------------------------------
-  # 1. Hepatotoxicity: ALT/AST > 3× ULN while MTX or AZA is active (±30 days)
-  # ---------------------------------------------------------------------------
-  hepatotoxic_drugs <- c("Methotrexate", "Azathioprine")
-  hep_meds <- meds_df[!is.na(meds_df$drug_family) &
-                         meds_df$drug_family %in% hepatotoxic_drugs &
-                         !is.na(meds_df$drug_exposure_start_date), ]
+  for (rule in rules) {
+    # ── Resolve lab concept IDs ──────────────────────────────────────────────
+    lab_ids <- unique(unlist(lapply(rule$lab_keys, function(k) {
+      ids <- if (!is.null(config$lab_concepts[[k]])) config$lab_concepts[[k]]
+             else .resolve_lab_concept(k)
+      as.integer(ids)
+    }), use.names = FALSE))
+    if (length(lab_ids) == 0L) next
 
-  alt_ids <- .resolve_lab_concept("alt")
-  ast_ids <- .resolve_lab_concept("ast")
-  alt_uln <- .get_default_uln("alt")   # 56
-  ast_uln <- .get_default_uln("ast")   # 40
+    # ── Select matching drugs via drug_selector (OR logic) ───────────────────
+    sel  <- rule$drug_selector %||% list()
+    mask <- rep(FALSE, nrow(meds_df))
 
-  liver_labs <- labs_df[
-    !is.na(labs_df$measurement_concept_id) &
-      labs_df$measurement_concept_id %in% c(alt_ids, ast_ids) &
-      !is.na(labs_df$value_as_number) &
-      !is.na(labs_df$measurement_date), ]
+    if (!is.null(sel$families) && length(sel$families) > 0L)
+      mask <- mask | (!is.na(meds_df$drug_family) &
+                        meds_df$drug_family %in% sel$families)
 
-  if (nrow(hep_meds) > 0 && nrow(liver_labs) > 0) {
-    for (li in seq_len(nrow(liver_labs))) {
-      lab_row <- liver_labs[li, ]
-      is_alt  <- lab_row$measurement_concept_id %in% alt_ids
-      uln_v   <- if (is_alt) alt_uln else ast_uln
-      lab_nm  <- if (is_alt) "ALT" else "AST"
-      if (is.na(uln_v) || uln_v <= 0) next
-      ratio   <- lab_row$value_as_number / uln_v
-      if (ratio < 3) next
+    if (!is.null(sel$name_pattern) && nzchar(sel$name_pattern))
+      mask <- mask | (!is.na(meds_df$drug_name) &
+                        grepl(sel$name_pattern, meds_df$drug_name,
+                              ignore.case = TRUE))
 
-      # Check if any hepatotoxic drug was active within ±30 days of this lab
-      lab_dt  <- lab_row$measurement_date
-      overlap <- hep_meds[
-        !is.na(hep_meds$drug_exposure_start_date) & {
-          s <- safe_as_date(hep_meds$drug_exposure_start_date)
-          e <- safe_as_date(hep_meds$drug_exposure_end_date)
-          e[is.na(e)] <- s[is.na(e)] + 30L
-          (lab_dt >= s - 30L) & (lab_dt <= e + 30L)
-        }, ]
+    if (!is.null(sel$concept_ids) && length(sel$concept_ids) > 0L &&
+        "drug_concept_id" %in% names(meds_df))
+      mask <- mask | (!is.na(meds_df$drug_concept_id) &
+                        meds_df$drug_concept_id %in% as.integer(sel$concept_ids))
 
-      if (nrow(overlap) > 0) {
-        result[[length(result) + 1L]] <- data.frame(
-          date          = lab_dt,
-          drug_name     = overlap$drug_name[1L] %||% overlap$drug_family[1L],
-          toxicity_type = paste0("Hepatotoxicity (", lab_nm, ")"),
-          value         = lab_row$value_as_number,
-          threshold     = uln_v * 3,
-          severity      = if (ratio >= 5) "alert" else "warning",
-          stringsAsFactors = FALSE
-        )
-      }
+    # All NULL selectors → all drugs
+    if (!any(c(!is.null(sel$families), !is.null(sel$name_pattern),
+                !is.null(sel$concept_ids))))
+      mask <- rep(TRUE, nrow(meds_df))
+
+    watch_meds <- meds_df[mask & !is.na(meds_df$drug_exposure_start_date), ,
+                           drop = FALSE]
+    if (nrow(watch_meds) == 0L) next
+
+    # ── Filter labs to this rule's concept IDs ───────────────────────────────
+    rule_labs <- labs_df[
+      !is.na(labs_df$measurement_concept_id) &
+        labs_df$measurement_concept_id %in% lab_ids &
+        !is.na(labs_df$value_as_number) &
+        !is.na(labs_df$measurement_date), , drop = FALSE]
+    if (nrow(rule_labs) == 0L) next
+
+    rule_labs <- rule_labs[order(rule_labs$measurement_date), ]
+
+    # ── Compute baseline for pct_rise / pct_drop ────────────────────────────
+    baseline <- if (rule$threshold_type %in% c("pct_rise", "pct_drop") &&
+                    nrow(rule_labs) >= 2L) {
+      stats::median(rule_labs$value_as_number[
+        seq_len(min(3L, nrow(rule_labs)))], na.rm = TRUE)
+    } else {
+      NA_real_
     }
-  }
 
-  # ---------------------------------------------------------------------------
-  # 2. Lymphopenia: lymphocytes < 0.5 K/µL while any immunosuppressant active
-  # ---------------------------------------------------------------------------
-  ist_families <- c("Azathioprine", "Methotrexate", "Mycophenolate",
-                    "Rituximab", "JAK inhibitors", "Other IST", "Corticosteroids")
-  ist_meds <- meds_df[!is.na(meds_df$drug_family) &
-                         meds_df$drug_family %in% ist_families &
-                         !is.na(meds_df$drug_exposure_start_date), ]
+    window_d <- as.integer(rule$window_days %||% 30L)
+    sev      <- rule$severity_levels %||% list(warning = rule$threshold_value,
+                                                alert   = rule$threshold_value)
 
-  lymp_ids <- .resolve_lab_concept("lymphocytes")
-  lymp_labs <- labs_df[
-    !is.na(labs_df$measurement_concept_id) &
-      !is.null(lymp_ids) &
-      labs_df$measurement_concept_id %in% lymp_ids &
-      !is.na(labs_df$value_as_number) &
-      labs_df$value_as_number < 0.5 &
-      !is.na(labs_df$measurement_date), ]
-
-  if (nrow(ist_meds) > 0 && nrow(lymp_labs) > 0) {
-    for (li in seq_len(nrow(lymp_labs))) {
-      lab_row <- lymp_labs[li, ]
+    for (li in seq_len(nrow(rule_labs))) {
+      lab_row <- rule_labs[li, ]
+      val     <- lab_row$value_as_number
       lab_dt  <- lab_row$measurement_date
-      overlap <- ist_meds[{
-        s <- safe_as_date(ist_meds$drug_exposure_start_date)
-        e <- safe_as_date(ist_meds$drug_exposure_end_date)
-        e[is.na(e)] <- s[is.na(e)] + 30L
-        (lab_dt >= s - 14L) & (lab_dt <= e + 14L)
-      }, ]
-      if (nrow(overlap) > 0) {
-        result[[length(result) + 1L]] <- data.frame(
-          date          = lab_dt,
-          drug_name     = overlap$drug_name[1L] %||% overlap$drug_family[1L],
-          toxicity_type = "Lymphopenia",
-          value         = lab_row$value_as_number,
-          threshold     = 0.5,
-          severity      = if (lab_row$value_as_number < 0.2) "alert" else "warning",
-          stringsAsFactors = FALSE
-        )
+
+      # ── ULN lookup for x_uln ────────────────────────────────────────────
+      uln_v <- if (rule$threshold_type == "x_uln") {
+        if ("range_high" %in% names(lab_row) && !is.na(lab_row$range_high))
+          lab_row$range_high
+        else {
+          k <- rule$lab_keys[[1L]]
+          cfg_uln <- config$lab_uln[[k]]
+          if (!is.null(cfg_uln) && !is.na(cfg_uln)) cfg_uln
+          else .get_default_uln(k)
+        }
+      } else NA_real_
+
+      # ── Check threshold ──────────────────────────────────────────────────
+      flagged   <- FALSE
+      threshold <- NA_real_
+
+      if (rule$threshold_type == "x_uln") {
+        if (is.na(uln_v) || uln_v <= 0) next
+        threshold <- uln_v * rule$threshold_value
+        flagged   <- val > threshold
+
+      } else if (rule$threshold_type == "absolute_low") {
+        threshold <- rule$threshold_value
+        flagged   <- val < threshold
+
+      } else if (rule$threshold_type == "absolute_high") {
+        threshold <- rule$threshold_value
+        flagged   <- val > threshold
+
+      } else if (rule$threshold_type == "pct_rise") {
+        if (is.na(baseline) || baseline <= 0) next
+        threshold <- baseline * (1 + rule$threshold_value)
+        flagged   <- val > threshold
+
+      } else if (rule$threshold_type == "pct_drop") {
+        if (is.na(baseline) || baseline <= 0) next
+        threshold <- baseline * (1 - rule$threshold_value)
+        flagged   <- val < threshold
       }
-    }
-  }
 
-  # ---------------------------------------------------------------------------
-  # 3. Creatinine rise > 25% from personal baseline while CNI active
-  # ---------------------------------------------------------------------------
-  cni_families <- c("Other IST")  # cyclosporine/tacrolimus fall here
-  cni_meds <- meds_df[
-    !is.na(meds_df$drug_name) &
-      grepl("cyclosporine|tacrolimus", tolower(meds_df$drug_name %||% "")) &
-      !is.na(meds_df$drug_exposure_start_date), ]
+      if (!flagged) next
 
-  creat_ids <- .resolve_lab_concept("creatinine")
-  creat_labs <- labs_df[
-    !is.na(labs_df$measurement_concept_id) &
-      !is.null(creat_ids) &
-      labs_df$measurement_concept_id %in% creat_ids &
-      !is.na(labs_df$value_as_number) &
-      !is.na(labs_df$measurement_date), ]
+      # ── Check drug window overlap ────────────────────────────────────────
+      overlap <- watch_meds[{
+        s <- safe_as_date(watch_meds$drug_exposure_start_date)
+        e <- safe_as_date(watch_meds$drug_exposure_end_date)
+        e[is.na(e)] <- s[is.na(e)] + window_d
+        (lab_dt >= s - window_d) & (lab_dt <= e + window_d)
+      }, , drop = FALSE]
+      if (nrow(overlap) == 0L) next
 
-  if (nrow(cni_meds) > 0 && nrow(creat_labs) >= 2L) {
-    creat_labs <- creat_labs[order(creat_labs$measurement_date), ]
-    baseline   <- stats::median(creat_labs$value_as_number[
-      seq_len(min(3L, nrow(creat_labs)))], na.rm = TRUE)
-    for (li in seq_len(nrow(creat_labs))) {
-      lab_row <- creat_labs[li, ]
-      if (is.na(baseline) || baseline <= 0) next
-      pct_rise <- (lab_row$value_as_number - baseline) / baseline
-      if (pct_rise < 0.25) next
-      lab_dt  <- lab_row$measurement_date
-      overlap <- cni_meds[{
-        s <- safe_as_date(cni_meds$drug_exposure_start_date)
-        e <- safe_as_date(cni_meds$drug_exposure_end_date)
-        e[is.na(e)] <- s[is.na(e)] + 30L
-        (lab_dt >= s) & (lab_dt <= e + 30L)
-      }, ]
-      if (nrow(overlap) > 0) {
-        result[[length(result) + 1L]] <- data.frame(
-          date          = lab_dt,
-          drug_name     = overlap$drug_name[1L] %||% "CNI",
-          toxicity_type = paste0("Creatinine rise (+", round(pct_rise * 100), "%)"),
-          value         = lab_row$value_as_number,
-          threshold     = baseline * 1.25,
-          severity      = if (pct_rise >= 0.5) "alert" else "warning",
-          stringsAsFactors = FALSE
-        )
+      # ── Determine severity ───────────────────────────────────────────────
+      severity <- "warning"
+      if (rule$threshold_type %in% c("x_uln", "absolute_high", "pct_rise")) {
+        if (!is.null(sev$alert) && !is.na(sev$alert)) {
+          alert_thresh <- if (rule$threshold_type == "x_uln") uln_v * sev$alert
+                          else if (rule$threshold_type == "pct_rise")
+                            baseline * (1 + sev$alert)
+                          else sev$alert
+          if (val > alert_thresh) severity <- "alert"
+        }
+      } else {
+        if (!is.null(sev$alert) && !is.na(sev$alert)) {
+          alert_thresh <- if (rule$threshold_type == "pct_drop")
+                            baseline * (1 - sev$alert)
+                          else sev$alert
+          if (val < alert_thresh) severity <- "alert"
+        }
       }
+
+      result[[length(result) + 1L]] <- data.frame(
+        date          = lab_dt,
+        drug_name     = overlap$drug_name[1L] %||% overlap$drug_family[1L] %||% "Unknown",
+        toxicity_type = rule$name,
+        value         = val,
+        threshold     = threshold,
+        severity      = severity,
+        stringsAsFactors = FALSE
+      )
     }
   }
 
   if (length(result) == 0L) return(empty_out)
   out <- do.call(rbind, result)
   out$date <- as.Date(out$date, origin = "1970-01-01")
-  out <- out[!duplicated(paste(out$date, out$toxicity_type)), ]
+  out <- out[!duplicated(paste(out$date, out$toxicity_type, out$drug_name)), ]
   out <- out[order(out$date), ]
   rownames(out) <- NULL
   tibble::as_tibble(out)

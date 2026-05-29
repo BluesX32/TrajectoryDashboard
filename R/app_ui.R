@@ -29,7 +29,7 @@ trajectory_ui <- function(person_ids           = NULL,
 
   shinydashboard::dashboardPage(
     skin  = "blue",
-    title = "Patient Trajectory Dashboard",
+    title = paste0(config$disease_name %||% "Patient", " Trajectory Dashboard"),
 
     # -------------------------------------------------------------------
     # Header
@@ -37,9 +37,9 @@ trajectory_ui <- function(person_ids           = NULL,
     shinydashboard::dashboardHeader(
       title = shiny::tags$span(
         shiny::tags$i(class = "fa fa-heartbeat", style = "margin-right:8px; color:#5B8DEF;"),
-        "Patient Trajectory"
+        paste0(config$disease_name %||% "Patient", " Trajectory")
       ),
-      titleWidth = 260
+      titleWidth = 280
     ),
 
     # -------------------------------------------------------------------
