@@ -129,8 +129,10 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-# All herpes zoster diagnoses in prevalent RD patients (no antiviral required).
-# This is the authoritative shingles case definition used in STEP 2.
+# All herpes zoster in prevalent RD patients.  Inclusion rule "VZV condition all"
+# fires on CS 7 (PHN), CS 8 (organ involvement), or CS 9 (SNOMED 443943
+# Herpes zoster +descendants + specific complication codes).  Covers common
+# shingles rash through complicated forms.  Authoritative case definition for STEP 2.
 json_vzv_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
@@ -267,13 +269,17 @@ cohort_ids <- base_cohort$person_id
 # STEP 2  Shingles sub-cohort
 # ─────────────────────────────────────────────────────────────────────────────
 # Who:    Base cohort patients who appear in the ATLAS VZV cohort.
-# How:    json_vzv_ids (from cohort_PrevalentRD_VZV_all.json) is the case
-#         definition.  It captures all herpes zoster diagnoses in prevalent RD
-#         patients without requiring antiviral documentation (antivirals are
-#         often prescribed outside the system or under formulations not easily
-#         mapped, so requiring them would silently discard real cases).
+# How:    json_vzv_ids (cohort_PrevalentRD_VZV_all.json) is the authoritative
+#         case definition.  Its "VZV condition all" inclusion rule (Type ANY)
+#         fires on any of:
+#           CS 7  post-herpetic neuralgia
+#           CS 8  VZV organ involvement (encephalitis, myelitis, keratitis, etc.)
+#           CS 9  VZV condition (SNOMED 443943 Herpes zoster +descendants, plus
+#                 specific complication codes)
+#         SNOMED 443943 +descendants in CS 9 covers all standard herpes zoster
+#         presentations, including common uncomplicated shingles rash.
 #         We intersect with cohort_ids to ensure every shingles patient is also
-#         in the base cohort.
+#         in the DMARD-exposed base cohort.
 # Result: shingles_ids — integer vector of person_ids
 # ============================================================================
 

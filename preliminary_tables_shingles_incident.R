@@ -126,8 +126,9 @@ json_base_ids <- fetch_cohort_ids(
   json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
                             package = "TrajectoryDashboard")
 )
-# All herpes zoster diagnoses in prevalent RD patients (no antiviral required).
-# Applied in STEP 2 to validate the SQL-derived VZV case set.
+# All herpes zoster in prevalent RD patients (CS 9 includes SNOMED 443943
+# Herpes zoster +descendants, covering common shingles through complications).
+# Applied in STEP 2 to cross-validate the SQL-derived VZV case set.
 json_vzv_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
@@ -298,14 +299,19 @@ cohort_ids <- base_cohort$person_id
 #         RD index_date, confirmed by the ATLAS VZV cohort.
 # How:
 #   2a. SQL (shingles_dx_sql) retrieves all VZV condition_occurrence rows for
-#       cohort_ids, returning (person_id, vzv_date).  No antiviral required —
-#       antivirals are often under-recorded and would silently drop real cases.
+#       cohort_ids, returning (person_id, vzv_date).  The SQL uses a broad
+#       VZV concept list (38 direct codes including SNOMED 443943 + ancestor
+#       expansion) so it captures all shingles presentations.  No antiviral
+#       requirement — antiviral records are often missing or coded under
+#       formulations not mapped to the three ancestor concept IDs.
 #   2b. In R, restrict to vzv_date >= index_date (incident filter — only VZV
-#       events AFTER the patient entered the RD cohort).
-#   2c. filter(person_id %in% json_vzv_ids) validates against the ATLAS
-#       cohort_PrevalentRD_VZV_all.json case definition.  Patients in the SQL
-#       result but NOT in json_vzv_ids may be VZV miscodes or do not meet the
-#       ATLAS observation-window requirements.
+#       events ON OR AFTER the patient's RD cohort entry date).
+#   2c. filter(person_id %in% json_vzv_ids) cross-validates against the ATLAS
+#       cohort_PrevalentRD_VZV_all.json definition.  That cohort's CS 9 now
+#       includes SNOMED 443943 +descendants, so it covers the same VZV
+#       population as the SQL.  Patients in the SQL result but absent from
+#       json_vzv_ids are likely in an observation period that the ATLAS cohort
+#       excludes (e.g. VZV outside the continuous-enrollment window).
 # Result: shingles_ids — integer vector of person_ids (incident VZV cases)
 # ============================================================================
 
