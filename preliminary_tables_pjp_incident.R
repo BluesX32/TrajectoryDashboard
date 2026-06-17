@@ -942,9 +942,11 @@ first_ppx_base <- ppx_base_raw |>
   group_by(person_id, ppx_group) |>
   summarise(first_rx = min(ppx_start), .groups = "drop")
 
+# Do NOT filter by json_ppx_ids: that set is PPX-then-PJP patients only.
+# Restricting here would place all PPX-but-no-PJP patients in "No prophylaxis"
+# and make PPX group PJP IRs artificially ~100%.
 ever_on_ppx <- first_ppx_base |>
-  distinct(person_id, ppx_group) |>
-  filter(person_id %in% json_ppx_ids)
+  distinct(person_id, ppx_group)
 no_ppx_ids  <- setdiff(cohort_ids, ever_on_ppx$person_id)
 
 message(sprintf(
