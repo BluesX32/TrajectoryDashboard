@@ -276,10 +276,9 @@ pjp_cohort_raw <- run_sql(con, pjp_events_sql,
 pjp_cohort <- pjp_cohort_raw |>
   inner_join(base_cohort |> select(person_id, rd_index_date), by = "person_id") |>
   filter(index_date >= rd_index_date) |>
-  filter(person_id %in% json_pjp_ids) |>
   select(-rd_index_date)
 
-message(sprintf("%d / %d base cohort patients had PJP on or after RD index date (intersected with ATLAS JSON).",
+message(sprintf("%d / %d base cohort patients had PJP on or after RD index date.",
                 nrow(pjp_cohort), length(cohort_ids)))
 pjp_ids <- pjp_cohort$person_id
 

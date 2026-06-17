@@ -350,10 +350,9 @@ pjp_cohort <- run_sql(con, pjp_events_sql,
                       cdm_schema   = cdm,
                       vocab_schema = vocab,
                       person_ids   = cohort_ids) |>
-  mutate(index_date = as.Date(index_date)) |>
-  filter(person_id %in% json_pjp_ids)
+  mutate(index_date = as.Date(index_date))
 
-message(sprintf("%d / %d base cohort patients had PJP (intersected with ATLAS JSON).", nrow(pjp_cohort), length(cohort_ids)))
+message(sprintf("%d / %d base cohort patients had PJP.", nrow(pjp_cohort), length(cohort_ids)))
 pjp_ids <- pjp_cohort$person_id
 
 # ============================================================================
