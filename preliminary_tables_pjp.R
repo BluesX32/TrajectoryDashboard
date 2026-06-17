@@ -90,6 +90,28 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
+# ATLAS JSON cohort IDs — used as authoritative population filters.
+# ============================================================================
+
+message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
+
+json_base_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
+                            package = "TrajectoryDashboard")
+)
+json_pjp_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
+                            package = "TrajectoryDashboard")
+)
+json_ppx_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PJP_ppx_infection.json",
+                            package = "TrajectoryDashboard")
+)
+
+# ============================================================================
 # STEP 1: Base cohort
 # Rheumatic disease + DMARD (no IVIG), age >= 18.
 # Follows inst/sql/templates/rheum-dmard-nonivig-cohort-omop.sql (prefix nxw3dm5k).
@@ -190,9 +212,10 @@ base_cohort <- run_sql(con, base_cohort_sql,
                        cdm_schema   = cdm,
                        vocab_schema = vocab) |>
   mutate(obs_start = as.Date(obs_start),
-         obs_end   = as.Date(obs_end))
+         obs_end   = as.Date(obs_end)) |>
+  filter(person_id %in% json_base_ids)
 
-message(nrow(base_cohort), " patients in base cohort.")
+message(nrow(base_cohort), " patients in base cohort (intersected with ATLAS JSON).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
@@ -333,9 +356,10 @@ pjp_cohort <- run_sql(con, pjp_events_sql,
                       cdm_schema   = cdm,
                       vocab_schema = vocab,
                       person_ids   = cohort_ids) |>
-  mutate(index_date = as.Date(index_date))
+  mutate(index_date = as.Date(index_date)) |>
+  filter(person_id %in% json_pjp_ids)
 
-message(sprintf("%d / %d base cohort patients had PJP.", nrow(pjp_cohort), length(cohort_ids)))
+message(sprintf("%d / %d base cohort patients had PJP (intersected with ATLAS JSON).", nrow(pjp_cohort), length(cohort_ids)))
 pjp_ids <- pjp_cohort$person_id
 
 # ============================================================================
@@ -1017,7 +1041,8 @@ first_ppx_base <- ppx_base_raw |>
 
 # Patients with at least one qualifying prescription for each regimen
 ever_on_ppx <- first_ppx_base |>
-  distinct(person_id, ppx_group)
+  distinct(person_id, ppx_group) |>
+  filter(person_id %in% json_ppx_ids)
 
 # Patients on NO qualifying prophylaxis at all
 no_ppx_ids <- setdiff(cohort_ids, ever_on_ppx$person_id)

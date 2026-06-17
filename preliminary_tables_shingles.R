@@ -99,6 +99,33 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
+# ATLAS JSON cohort IDs — used as authoritative population filters.
+# ============================================================================
+
+message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
+
+json_base_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
+                            package = "TrajectoryDashboard")
+)
+json_vzv_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
+                            package = "TrajectoryDashboard")
+)
+json_vzv_morbidity_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_Morbidity.json",
+                            package = "TrajectoryDashboard")
+)
+json_vaccine_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_vaccine.json",
+                            package = "TrajectoryDashboard")
+)
+
+# ============================================================================
 # STEP 1: Identify base cohort
 # Follows inst/sql/templates/rheum-dmard-cohort-omop.sql:
 #   rheumatic disease diagnosis + DMARD exposure (codeset 8) + age >= 18
@@ -200,9 +227,10 @@ GROUP BY p.person_id, p.year_of_birth, p.gender_concept_id
 
 base_cohort <- run_sql(con, base_cohort_sql,
                        cdm_schema   = cdm,
-                       vocab_schema = vocab)
+                       vocab_schema = vocab) |>
+  filter(person_id %in% json_base_ids)
 
-message(nrow(base_cohort), " patients in base cohort.")
+message(nrow(base_cohort), " patients in base cohort (intersected with ATLAS JSON).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
@@ -272,9 +300,10 @@ WHERE EXISTS (
 shingles_ids <- run_sql(con, shingles_dx_sql,
                         cdm_schema   = cdm,
                         vocab_schema = vocab,
-                        person_ids   = cohort_ids)$person_id
+                        person_ids   = cohort_ids)$person_id |>
+  intersect(json_vzv_ids)
 
-message(sprintf("%d / %d base cohort patients had treated shingles (VZV Dx + antiviral).",
+message(sprintf("%d / %d base cohort patients had treated shingles (intersected with ATLAS JSON).",
                 length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
@@ -332,10 +361,11 @@ FROM (
 shingles_vaccine_ids <- run_sql(con, shingles_vaccine_sql,
                                  cdm_schema   = cdm,
                                  vocab_schema = vocab,
-                                 person_ids   = shingles_ids)$person_id
+                                 person_ids   = shingles_ids)$person_id |>
+  intersect(json_vaccine_ids)
 
 message(sprintf(
-  "%d / %d shingles patients have a zoster vaccine record.",
+  "%d / %d shingles patients have a zoster vaccine record (intersected with ATLAS JSON).",
   length(shingles_vaccine_ids), length(shingles_ids)
 ))
 message(sprintf(
