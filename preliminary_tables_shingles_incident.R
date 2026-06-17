@@ -249,13 +249,12 @@ cohort_ids <- base_cohort$person_id
 
 # ============================================================================
 # STEP 2: Shingles cohort (incident)
-# Among base cohort, patients with VZV diagnosis + antiviral ON OR AFTER
-# their RD index_date.
-# Returns person_id + vzv_date (one row per qualifying VZV+antiviral event),
-# so we can apply the per-patient index_date filter in R.
+# Among base cohort, patients with a VZV diagnosis ON OR AFTER their RD
+# index_date, then validated against the ATLAS JSON VZV cohort.
+# Returns person_id + vzv_date for the per-patient index_date filter in R.
 # ============================================================================
 
-message("Identifying shingles patients (VZV Dx + antiviral >= index_date)...")
+message("Identifying shingles patients (VZV Dx >= index_date, ATLAS validated)...")
 
 shingles_dx_sql <- "
 WITH
@@ -280,36 +279,12 @@ vzv_concepts AS (
     35205737, 35205738, 35205740, 35205741
   )
   AND c.invalid_reason IS NULL
-),
-antiviral_concepts AS (
-  SELECT DISTINCT concept_id
-  FROM @vocab_schema.concept
-  WHERE concept_id IN (1703687, 1703603, 1717704)
-  UNION
-  SELECT DISTINCT ca.descendant_concept_id
-  FROM @vocab_schema.concept_ancestor ca
-  JOIN @vocab_schema.concept c ON ca.descendant_concept_id = c.concept_id
-  WHERE ca.ancestor_concept_id IN (1703687, 1703603, 1717704)
-    AND c.invalid_reason IS NULL
-),
--- All VZV events (one row per patient per unique date)
-vzv_events AS (
-  SELECT DISTINCT co.person_id,
-    CAST(co.condition_start_date AS DATE) AS vzv_date
-  FROM @cdm_schema.condition_occurrence co
-  JOIN vzv_concepts vc ON co.condition_concept_id = vc.concept_id
-  WHERE co.person_id IN (@person_ids)
 )
--- Retain events where an antiviral was given on or after the VZV date
-SELECT DISTINCT va.person_id, va.vzv_date
-FROM vzv_events va
-WHERE EXISTS (
-  SELECT 1
-  FROM @cdm_schema.drug_exposure de
-  JOIN antiviral_concepts ac ON de.drug_concept_id = ac.concept_id
-  WHERE de.person_id = va.person_id
-    AND de.drug_exposure_start_date >= va.vzv_date
-)
+SELECT DISTINCT co.person_id,
+  CAST(co.condition_start_date AS DATE) AS vzv_date
+FROM @cdm_schema.condition_occurrence co
+JOIN vzv_concepts vc ON co.condition_concept_id = vc.concept_id
+WHERE co.person_id IN (@person_ids)
 "
 
 vzv_with_dates <- run_sql(con, shingles_dx_sql,
@@ -327,7 +302,7 @@ shingles_ids <- vzv_with_dates |>
   pull(person_id) |>
   unique()
 
-message(sprintf("%d / %d base cohort patients had treated shingles on or after RD index date (intersected with ATLAS JSON).",
+message(sprintf("%d / %d base cohort patients had shingles on or after RD index date (ATLAS JSON validated).",
                 length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
