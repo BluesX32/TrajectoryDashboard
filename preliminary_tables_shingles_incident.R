@@ -78,6 +78,35 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
+# ATLAS JSON cohort IDs — used as authoritative population filters.
+# The incident SQL (below) adds index dates and demographics; the JSON cohorts
+# confirm which patients belong to each analytical tier.
+# ============================================================================
+
+message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
+
+json_base_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
+                            package = "TrajectoryDashboard")
+)
+json_vzv_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
+                            package = "TrajectoryDashboard")
+)
+json_vzv_morbidity_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_Morbidity.json",
+                            package = "TrajectoryDashboard")
+)
+json_vaccine_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_VZV_vaccine.json",
+                            package = "TrajectoryDashboard")
+)
+
+# ============================================================================
 # STEP 1: INCIDENT base cohort
 #
 # Incident RD definition:
@@ -212,9 +241,10 @@ base_cohort <- run_sql(con, base_cohort_sql,
   mutate(index_date    = as.Date(index_date),
          first_rd_date = as.Date(first_rd_date),
          obs_start     = as.Date(obs_start),
-         obs_end       = as.Date(obs_end))
+         obs_end       = as.Date(obs_end)) |>
+  filter(person_id %in% json_base_ids)
 
-message(nrow(base_cohort), " patients in incident base cohort.")
+message(nrow(base_cohort), " patients in incident base cohort (intersected with ATLAS JSON).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
@@ -288,14 +318,16 @@ vzv_with_dates <- run_sql(con, shingles_dx_sql,
                            person_ids   = cohort_ids) |>
   mutate(vzv_date = as.Date(vzv_date))
 
-# Filter to VZV events on or after the patient's RD index date
+# Filter to VZV events on or after the patient's RD index date,
+# then intersect with ATLAS-defined VZV cohort.
 shingles_ids <- vzv_with_dates |>
   inner_join(base_cohort |> select(person_id, index_date), by = "person_id") |>
   filter(vzv_date >= index_date) |>
+  filter(person_id %in% json_vzv_ids) |>
   pull(person_id) |>
   unique()
 
-message(sprintf("%d / %d base cohort patients had treated shingles on or after RD index date.",
+message(sprintf("%d / %d base cohort patients had treated shingles on or after RD index date (intersected with ATLAS JSON).",
                 length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
@@ -353,9 +385,10 @@ FROM (
 shingles_vaccine_ids <- run_sql(con, shingles_vaccine_sql,
                                  cdm_schema   = cdm,
                                  vocab_schema = vocab,
-                                 person_ids   = shingles_ids)$person_id
+                                 person_ids   = shingles_ids)$person_id |>
+  intersect(json_vaccine_ids)
 
-message(sprintf("%d / %d shingles patients have a zoster vaccine record.",
+message(sprintf("%d / %d shingles patients have a zoster vaccine record (intersected with ATLAS JSON).",
                 length(shingles_vaccine_ids), length(shingles_ids)))
 
 # ============================================================================

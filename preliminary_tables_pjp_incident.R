@@ -68,6 +68,30 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
+# ATLAS JSON cohort IDs — used as authoritative population filters.
+# The incident SQL (below) adds index dates and demographics; the JSON cohorts
+# confirm which patients belong to each analytical tier.
+# ============================================================================
+
+message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
+
+json_base_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
+                            package = "TrajectoryDashboard")
+)
+json_pjp_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
+                            package = "TrajectoryDashboard")
+)
+json_ppx_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PJP_ppx_infection.json",
+                            package = "TrajectoryDashboard")
+)
+
+# ============================================================================
 # STEP 1: INCIDENT base cohort
 #
 # Incident RD definition:
@@ -201,9 +225,10 @@ base_cohort <- run_sql(con, base_cohort_sql,
   mutate(rd_index_date = as.Date(rd_index_date),
          first_rd_date = as.Date(first_rd_date),
          obs_start     = as.Date(obs_start),
-         obs_end       = as.Date(obs_end))
+         obs_end       = as.Date(obs_end)) |>
+  filter(person_id %in% json_base_ids)
 
-message(nrow(base_cohort), " patients in incident base cohort.")
+message(nrow(base_cohort), " patients in incident base cohort (intersected with ATLAS JSON).")
 cohort_ids <- base_cohort$person_id
 
 # first_rheum_dx_df — same interface as the prevalence script's STEP 1b,
@@ -246,13 +271,15 @@ pjp_cohort_raw <- run_sql(con, pjp_events_sql,
                            person_ids   = cohort_ids) |>
   mutate(index_date = as.Date(index_date))
 
-# Restrict to PJP events on or after the patient's RD index date
+# Restrict to PJP events on or after the patient's RD index date,
+# then intersect with ATLAS-defined PJP cohort.
 pjp_cohort <- pjp_cohort_raw |>
   inner_join(base_cohort |> select(person_id, rd_index_date), by = "person_id") |>
   filter(index_date >= rd_index_date) |>
+  filter(person_id %in% json_pjp_ids) |>
   select(-rd_index_date)
 
-message(sprintf("%d / %d base cohort patients had PJP on or after RD index date.",
+message(sprintf("%d / %d base cohort patients had PJP on or after RD index date (intersected with ATLAS JSON).",
                 nrow(pjp_cohort), length(cohort_ids)))
 pjp_ids <- pjp_cohort$person_id
 
@@ -861,7 +888,9 @@ first_ppx_base <- ppx_base_raw |>
   group_by(person_id, ppx_group) |>
   summarise(first_rx = min(ppx_start), .groups = "drop")
 
-ever_on_ppx <- first_ppx_base |> distinct(person_id, ppx_group)
+ever_on_ppx <- first_ppx_base |>
+  distinct(person_id, ppx_group) |>
+  filter(person_id %in% json_ppx_ids)
 no_ppx_ids  <- setdiff(cohort_ids, ever_on_ppx$person_id)
 
 message(sprintf(
