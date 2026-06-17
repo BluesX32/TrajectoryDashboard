@@ -95,11 +95,6 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-json_base_ids <- fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
-                            package = "TrajectoryDashboard")
-)
 json_pjp_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
@@ -212,10 +207,9 @@ base_cohort <- run_sql(con, base_cohort_sql,
                        cdm_schema   = cdm,
                        vocab_schema = vocab) |>
   mutate(obs_start = as.Date(obs_start),
-         obs_end   = as.Date(obs_end)) |>
-  filter(person_id %in% json_base_ids)
+         obs_end   = as.Date(obs_end))
 
-message(nrow(base_cohort), " patients in base cohort (intersected with ATLAS JSON).")
+message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis + any DMARD).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
