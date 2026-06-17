@@ -1,9 +1,99 @@
 {
-  "name": "VZV / Herpes Zoster (Shingles)",
-  "domain": "condition_occurrence",
-  "concept_ids": [
-    4205455, 35205739, 443943, 138682,   45770836, 436336,
-    440329,  45590840, 4151978, 192239,  381504,   45542548, 45556927
-  ],
-  "include_descendants": true
+  "items": [
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "ATC 4th",
+        "CONCEPT_CODE": "J07BK",
+        "CONCEPT_ID": 21601361,
+        "CONCEPT_NAME": "Varicella zoster vaccines",
+        "DOMAIN_ID": "Drug",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "C",
+        "STANDARD_CONCEPT_CAPTION": "Classification",
+        "VOCABULARY_ID": "ATC",
+        "VALID_START_DATE": "1969-12-31",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Procedure",
+        "CONCEPT_CODE": "859641000000109",
+        "CONCEPT_ID": 44808679,
+        "CONCEPT_NAME": "Herpes zoster vaccination",
+        "DOMAIN_ID": "Procedure",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "N",
+        "STANDARD_CONCEPT_CAPTION": "Non-Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2013-03-31",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "CVX",
+        "CONCEPT_CODE": "121",
+        "CONCEPT_ID": 40213260,
+        "CONCEPT_NAME": "zoster vaccine, live",
+        "DOMAIN_ID": "Drug",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "CVX",
+        "VALID_START_DATE": "2008-11-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "CVX",
+        "CONCEPT_CODE": "187",
+        "CONCEPT_ID": 706103,
+        "CONCEPT_NAME": "zoster vaccine recombinant",
+        "DOMAIN_ID": "Drug",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "CVX",
+        "VALID_START_DATE": "2018-02-26",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Vaccine Group",
+        "CONCEPT_CODE": "188",
+        "CONCEPT_ID": 706104,
+        "CONCEPT_NAME": "zoster vaccine, unspecified formulation",
+        "DOMAIN_ID": "Drug",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "CVX",
+        "VALID_START_DATE": "2018-08-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    }
+  ]
 }

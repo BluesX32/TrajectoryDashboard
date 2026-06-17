@@ -183,9 +183,12 @@ default_toxicity_rules <- function() {
     list(
       name          = "Lymphopenia",
       drug_selector = list(
-        families     = c("Azathioprine", "Methotrexate", "Mycophenolate",
-                          "Rituximab", "JAK inhibitors", "Corticosteroids",
-                          "Other IST"),
+        families     = c("Corticosteroids", "Antimetabolite", "csDMARD",
+                          "CNI", "Alkylating", "JAK inhibitors",
+                          "CD19/CD20", "T-cell inhibitors", "BAFF inhibitors",
+                          "TNF inhibitors", "IL-6 inhibitors",
+                          "IL-12/23 inhibitors", "IL-17 inhibitors",
+                          "Type 1 IFN inhibitors"),
         name_pattern = NULL,
         concept_ids  = NULL
       ),

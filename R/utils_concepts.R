@@ -94,7 +94,7 @@ MYOSITIS_LAB_CONCEPTS <- list(
 #' @export
 MYOSITIS_DRUG_CONCEPTS <- list(
   # Corticosteroids
-  prednisone         = c(1518254L, 19014878L),               # prednisone + ingredient-level ancestor
+  prednisone         = c(1518254L, 19014878L),
   prednisolone       = c(1550557L, 40224172L),
   methylprednisolone = c(1506270L, 19068900L),
   dexamethasone      = c(1518005L),
@@ -102,77 +102,117 @@ MYOSITIS_DRUG_CONCEPTS <- list(
   triamcinolone      = c(903963L),
   budesonide         = c(19003999L),
 
-  # csDMARDs (conventional synthetic)
-  azathioprine       = c(1513103L, 42904205L),
+  # csDMARDs
   methotrexate       = c(1305058L),
-  mycophenolate      = c(1361580L, 1593700L, 1186087L),      # MMF / MPA / mycophenolic acid
-  hydroxychloroquine = c(1777087L),
   leflunomide        = c(1310317L),
   sulfasalazine      = c(1314273L),
-  cyclosporine       = c(19011459L, 1101898L),
-  cyclophosphamide   = c(40171288L, 1594587L),
-  tacrolimus         = c(950637L, 40236987L),
-  sirolimus          = c(1594587L),
+  hydroxychloroquine = c(1777087L),
   chloroquine        = c(1777087L),
 
-  # bDMARDs — anti-CD20
-  rituximab          = c(1314273L, 1119119L),
+  # Antimetabolites
+  azathioprine       = c(1513103L),
+  mycophenolate      = c(1361580L, 1593700L),               # MMF / MPA
 
-  # bDMARDs — other biologics
-  ivig               = c(528323L, 35605670L, 19041569L, 701470L, 19014878L),
-  tocilizumab        = c(40161532L),
-  abatacept          = c(40175801L, 40236987L),
-  belimumab          = c(40222444L, 42904205L),
-  anifrolumab        = c(1511348L),
+  # Calcineurin inhibitors (CNI)
+  tacrolimus         = c(950637L),
   voclosporin        = c(45892883L),
+  cyclosporine       = c(19011459L, 1101898L),
 
-  # tsDMARDs — JAK inhibitors
-  tofacitinib        = c(42873985L, 45892883L),
-  baricitinib        = c(1510408L, 746895L),
+  # Alkylating
+  cyclophosphamide   = c(40171288L, 1594587L),
+
+  # TNF inhibitors
+  infliximab         = c(937368L),
+  adalimumab         = c(1119119L),
+  golimumab          = c(40161534L),                         # verify concept ID
+  certolizumab       = c(40174007L),                         # certolizumab pegol; verify
+  etanercept         = c(1151789L),
+
+  # IL-6 inhibitors
+  tocilizumab        = c(40161532L),
+  sarilumab          = c(1594982L),                          # verify concept ID
+
+  # IL-12/23 inhibitors
+  ustekinumab        = c(1592188L),                          # verify concept ID
+  risankizumab       = c(1510599L),                          # verify concept ID
+  guselkumab         = c(1509310L),                          # verify concept ID
+
+  # IL-17 inhibitors
+  secukinumab        = c(1186087L),
+  ixekizumab         = c(40161530L),                         # verify concept ID
+  bimekizumab        = c(40244265L),                         # verify concept ID; very new
+
+  # Type 1 IFN inhibitor
+  anifrolumab        = c(1511348L),
+
+  # JAK inhibitors
+  tofacitinib        = c(42873985L),
+  baricitinib        = c(1510408L),
   ruxolitinib        = c(42899491L),
   upadacitinib       = c(1151789L),
-  filgotinib         = c(1777087L),
+  filgotinib         = c(1777087L),                          # verify concept ID
 
-  # Anti-TNF (often used in SpA/RA patients in cohort)
-  infliximab         = c(937368L),
-  adalimumab         = c(40171288L),
-  etanercept         = c(1151789L),
-  secukinumab        = c(1186087L),
-  ixekizumab         = c(40161532L),
+  # T-cell co-stimulation inhibition
+  abatacept          = c(40175801L),
 
-  # Pulmonary / supportive
+  # BAFF inhibitors
+  belimumab          = c(40222444L),
+
+  # CD19/CD20
+  rituximab          = c(1119119L),
+  obinutuzumab       = c(43025770L),                         # verify concept ID
+
+  # IVIG
+  ivig               = c(528323L, 35605670L, 19041569L, 701470L),
+
+  # Pulmonary antifibrotics
   nintedanib         = c(44818493L),
-  pirfenidone        = c(45776887L)
+  pirfenidone        = c(45776887L),
+
+  # Other
+  sirolimus          = c(1594587L)
 )
 
-# Drug family groupings for UI checkboxes and concept ID resolution
+# Drug family groupings aligned to standard DMARD class taxonomy.
+# Used for UI checkboxes, toxicity rule drug_selector matching, and taper detection.
 .DRUG_FAMILY_MAP <- list(
-  Corticosteroids    = c("prednisone", "prednisolone", "methylprednisolone",
-                         "dexamethasone", "hydrocortisone", "triamcinolone",
-                         "budesonide"),
-  IVIG               = c("ivig"),
-  Azathioprine       = c("azathioprine"),
-  Methotrexate       = c("methotrexate"),
-  Mycophenolate      = c("mycophenolate"),
-  Hydroxychloroquine = c("hydroxychloroquine", "chloroquine"),
-  Leflunomide        = c("leflunomide"),
-  Sulfasalazine      = c("sulfasalazine"),
-  Cyclosporine       = c("cyclosporine"),
-  Cyclophosphamide   = c("cyclophosphamide"),
-  Tacrolimus         = c("tacrolimus"),
-  Sirolimus          = c("sirolimus"),
-  Rituximab          = c("rituximab"),
-  Tocilizumab        = c("tocilizumab"),
-  Abatacept          = c("abatacept"),
-  Belimumab          = c("belimumab"),
-  Anifrolumab        = c("anifrolumab"),
-  Voclosporin        = c("voclosporin"),
-  `JAK inhibitors`   = c("tofacitinib", "baricitinib", "ruxolitinib", "upadacitinib",
-                          "filgotinib"),
-  `Anti-TNF`         = c("infliximab", "adalimumab", "etanercept",
-                          "secukinumab", "ixekizumab"),
-  Nintedanib         = c("nintedanib"),
-  Pirfenidone        = c("pirfenidone")
+  Corticosteroids         = c("prednisone", "prednisolone", "methylprednisolone",
+                               "dexamethasone", "hydrocortisone", "triamcinolone",
+                               "budesonide"),
+  IVIG                    = c("ivig"),
+
+  # csDMARDs
+  csDMARD                 = c("methotrexate", "leflunomide", "sulfasalazine",
+                               "hydroxychloroquine", "chloroquine"),
+
+  # Antimetabolites
+  Antimetabolite          = c("azathioprine", "mycophenolate"),
+
+  # Calcineurin inhibitors
+  CNI                     = c("tacrolimus", "voclosporin", "cyclosporine"),
+
+  # Alkylating
+  Alkylating              = c("cyclophosphamide"),
+
+  # bDMARDs by target
+  `TNF inhibitors`        = c("infliximab", "adalimumab", "golimumab",
+                               "certolizumab", "etanercept"),
+  `IL-6 inhibitors`       = c("tocilizumab", "sarilumab"),
+  `IL-12/23 inhibitors`   = c("ustekinumab", "risankizumab", "guselkumab"),
+  `IL-17 inhibitors`      = c("secukinumab", "ixekizumab", "bimekizumab"),
+  `Type 1 IFN inhibitors` = c("anifrolumab"),
+  `JAK inhibitors`        = c("tofacitinib", "baricitinib", "ruxolitinib",
+                               "upadacitinib", "filgotinib"),
+  `T-cell inhibitors`     = c("abatacept"),
+  `BAFF inhibitors`       = c("belimumab"),
+  `CD19/CD20`             = c("rituximab", "obinutuzumab"),
+
+  # Pulmonary antifibrotics
+  Nintedanib              = c("nintedanib"),
+  Pirfenidone             = c("pirfenidone"),
+
+  # Other
+  Sirolimus               = c("sirolimus")
 )
 
 # ---------------------------------------------------------------------------
@@ -277,26 +317,22 @@ MYOSITIS_DRUG_CONCEPTS <- list(
   dplyr::case_when(
     grepl("prednisone|prednisolone|methylpred|dexamethasone|hydrocortisone|triamcinolone|budesonide", s) ~ "Corticosteroids",
     grepl("intravenous immunoglobulin|ivig|immune globulin", s) ~ "IVIG",
-    grepl("azathioprine", s) ~ "Azathioprine",
-    grepl("methotrexate", s) ~ "Methotrexate",
-    grepl("mycophenolate|cellcept|myfortic", s) ~ "Mycophenolate",
-    grepl("hydroxychloroquine|chloroquine", s) ~ "Hydroxychloroquine",
-    grepl("leflunomide", s) ~ "Leflunomide",
-    grepl("sulfasalazine", s) ~ "Sulfasalazine",
-    grepl("cyclosporine|ciclosporin", s) ~ "Cyclosporine",
-    grepl("cyclophosphamide", s) ~ "Cyclophosphamide",
-    grepl("tacrolimus", s) ~ "Tacrolimus",
-    grepl("sirolimus", s) ~ "Sirolimus",
-    grepl("rituximab", s) ~ "Rituximab",
-    grepl("tocilizumab", s) ~ "Tocilizumab",
-    grepl("abatacept", s) ~ "Abatacept",
-    grepl("belimumab", s) ~ "Belimumab",
-    grepl("anifrolumab", s) ~ "Anifrolumab",
-    grepl("voclosporin", s) ~ "Voclosporin",
+    grepl("methotrexate|leflunomide|sulfasalazine|hydroxychloroquine|chloroquine", s) ~ "csDMARD",
+    grepl("azathioprine|mycophenolate|cellcept|myfortic", s) ~ "Antimetabolite",
+    grepl("tacrolimus|voclosporin|cyclosporine|ciclosporin", s) ~ "CNI",
+    grepl("cyclophosphamide", s) ~ "Alkylating",
+    grepl("infliximab|adalimumab|golimumab|certolizumab|etanercept", s) ~ "TNF inhibitors",
+    grepl("tocilizumab|sarilumab", s) ~ "IL-6 inhibitors",
+    grepl("ustekinumab|risankizumab|guselkumab", s) ~ "IL-12/23 inhibitors",
+    grepl("secukinumab|ixekizumab|bimekizumab", s) ~ "IL-17 inhibitors",
+    grepl("anifrolumab", s) ~ "Type 1 IFN inhibitors",
     grepl("tofacitinib|baricitinib|ruxolitinib|upadacitinib|filgotinib", s) ~ "JAK inhibitors",
-    grepl("infliximab|adalimumab|etanercept|secukinumab|ixekizumab", s) ~ "Anti-TNF",
+    grepl("abatacept", s) ~ "T-cell inhibitors",
+    grepl("belimumab", s) ~ "BAFF inhibitors",
+    grepl("rituximab|obinutuzumab", s) ~ "CD19/CD20",
     grepl("nintedanib", s) ~ "Nintedanib",
     grepl("pirfenidone", s) ~ "Pirfenidone",
+    grepl("sirolimus", s) ~ "Sirolimus",
     TRUE ~ NA_character_
   )
 }

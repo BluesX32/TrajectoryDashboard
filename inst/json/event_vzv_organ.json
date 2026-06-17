@@ -1,11 +1,555 @@
 {
-  "name": "VZV Organ Involvement",
-  "domain": "condition_occurrence",
-  "concept_ids": [
-    4224242, 37209444, 608800,  608996,  37209445, 37209443, 761347,
-    4205455, 4171706,  4045976, 4139215, 438961,   45770924, 376028,
-    440323,  36712850, 4310159, 45757253, 37108968, 45581141, 45581142,
-    35205738, 45561737, 42484196, 45571453
-  ],
-  "include_descendants": false
+  "items": [
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15678841000119100",
+        "CONCEPT_ID": 608800,
+        "CONCEPT_NAME": "Bilateral herpes zoster iridocyclitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2021-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15680281000119103",
+        "CONCEPT_ID": 608804,
+        "CONCEPT_NAME": "Bilateral herpes zoster keratoconjunctivitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2021-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "16000751000119105",
+        "CONCEPT_ID": 608996,
+        "CONCEPT_NAME": "Bilateral herpes zoster scleritis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2021-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "12551000132107",
+        "CONCEPT_ID": 36712849,
+        "CONCEPT_NAME": "Cranial neuropathy due to Herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2017-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "55560002",
+        "CONCEPT_ID": 4205455,
+        "CONCEPT_NAME": "Disseminated herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "422471006",
+        "CONCEPT_ID": 4307553,
+        "CONCEPT_NAME": "Herpes zoster acute retinal necrosis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2007-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "410509003",
+        "CONCEPT_ID": 4253627,
+        "CONCEPT_NAME": "Herpes zoster conjunctivitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2004-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "230176008",
+        "CONCEPT_ID": 4045976,
+        "CONCEPT_NAME": "Herpes zoster encephalitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "10698009",
+        "CONCEPT_ID": 438961,
+        "CONCEPT_NAME": "Herpes zoster iridocyclitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "331071000119101",
+        "CONCEPT_ID": 45770924,
+        "CONCEPT_NAME": "Herpes zoster iritis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2014-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "397573005",
+        "CONCEPT_ID": 4265860,
+        "CONCEPT_NAME": "Herpes zoster keratitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2003-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "42448002",
+        "CONCEPT_ID": 376028,
+        "CONCEPT_NAME": "Herpes zoster keratoconjunctivitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "240474001",
+        "CONCEPT_ID": 4345800,
+        "CONCEPT_NAME": "Multidermatomal herpes zoster infection",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "5-char billing code",
+        "CONCEPT_CODE": "B00.81",
+        "CONCEPT_ID": 45605217,
+        "CONCEPT_NAME": "Herpesviral hepatitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "N",
+        "STANDARD_CONCEPT_CAPTION": "Non-Standard",
+        "VOCABULARY_ID": "ICD10CM",
+        "VALID_START_DATE": "1969-12-31",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Clinical Finding",
+        "CONCEPT_CODE": "12571000132104",
+        "CONCEPT_ID": 3315700,
+        "CONCEPT_NAME": "Pneumonitis due to Herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "N",
+        "STANDARD_CONCEPT_CAPTION": "Non-Standard",
+        "VOCABULARY_ID": "Nebraska Lexicon",
+        "VALID_START_DATE": "2017-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Clinical Finding",
+        "CONCEPT_CODE": "31920006",
+        "CONCEPT_ID": 3303107,
+        "CONCEPT_NAME": "Haemorrhagic varicella pneumonitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "N",
+        "STANDARD_CONCEPT_CAPTION": "Non-Standard",
+        "VOCABULARY_ID": "Nebraska Lexicon",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Read",
+        "CONCEPT_CODE": "A521.00",
+        "CONCEPT_ID": 45466444,
+        "CONCEPT_NAME": "Varicella pneumonitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "N",
+        "STANDARD_CONCEPT_CAPTION": "Non-Standard",
+        "VOCABULARY_ID": "Read",
+        "VALID_START_DATE": "1969-12-31",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "10491005",
+        "CONCEPT_ID": 440323,
+        "CONCEPT_NAME": "Herpes zoster meningitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "98541000119101",
+        "CONCEPT_ID": 45770836,
+        "CONCEPT_NAME": "Herpes zoster myelitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2015-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "87513003",
+        "CONCEPT_ID": 372828,
+        "CONCEPT_NAME": "Herpes zoster ophthalmicus",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "421029004",
+        "CONCEPT_ID": 4224242,
+        "CONCEPT_NAME": "Herpes zoster retinitis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2006-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "1087131000119102",
+        "CONCEPT_ID": 45757253,
+        "CONCEPT_NAME": "Herpes zoster scleritis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2015-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "111861003",
+        "CONCEPT_ID": 436336,
+        "CONCEPT_NAME": "Herpes zoster with nervous system complication",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15991791000119104",
+        "CONCEPT_ID": 37209448,
+        "CONCEPT_NAME": "Iritis of left eye caused by herpes zoster virus",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2019-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15991711000119108",
+        "CONCEPT_ID": 37209447,
+        "CONCEPT_NAME": "Iritis of right eye caused by herpes zoster virus",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2019-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15992311000119100",
+        "CONCEPT_ID": 37108969,
+        "CONCEPT_NAME": "Keratitis of left eye due to herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2017-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15992271000119100",
+        "CONCEPT_ID": 37108968,
+        "CONCEPT_NAME": "Keratitis of right eye due to herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2017-07-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15680241000119108",
+        "CONCEPT_ID": 761329,
+        "CONCEPT_NAME": "Keratoconjunctivitis of left eye due to herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2017-02-28",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "15680201000119106",
+        "CONCEPT_ID": 761328,
+        "CONCEPT_NAME": "Keratoconjunctivitis of right eye due to herpes zoster",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2017-02-28",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": false,
+      "includeMapped": false
+    }
+  ]
 }

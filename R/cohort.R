@@ -8,8 +8,8 @@
 # Reference them with:
 #   system.file("json", "cohort_VZV_antivirals.json", package = "TrajectoryDashboard")
 #
-# A fixed SqlRender SQL version is also in inst/sql/cohort_VZV_antivirals.sql
-# for direct use with DatabaseConnector::renderTranslateQuerySql().
+# JSON is the single authoritative cohort format. SQL is always generated at
+# runtime via build_cohort_sql() — users provide JSON files only.
 #
 # Supported ATLAS JSON patterns
 # -----------------------------
@@ -20,9 +20,11 @@
 #      DemographicCriteria age >= N
 #      DrugExposure   (anytime or windowed)
 #      ConditionOccurrence (with optional specialty filter not yet supported)
+#      VisitOccurrence: flattened to correlated ConditionOccurrence (visit
+#        type constraint is dropped; results are a superset of ATLAS)
 #
-# Patterns not yet supported: measurement criteria, visit criteria,
-# specialty filters in InclusionRules, exclusion criteria (Type = "AT_MOST").
+# Patterns not yet supported: measurement criteria, exclusion criteria
+# (Type = "AT_MOST"), specialty filters in InclusionRules.
 
 # ---------------------------------------------------------------------------
 # Public: fetch_cohort_ids
@@ -97,35 +99,16 @@ fetch_cohort_ids <- function(connector,
 
   cohort_name <- tools::file_path_sans_ext(basename(json_path))
 
-  # ---- Prefer a pre-built, SqlRender-parameterised SQL file ----------------
-  # A companion .sql file in inst/sql/ (same stem as the .json) is used
-  # directly via SqlRender::render + translate, bypassing JSON parsing entirely.
-  sql_path <- .find_companion_sql(json_path)
+  # ---- Build SQL from JSON (single authoritative path) ----------------------
+  cohort      <- .load_atlas_json(json_path)
+  cohort_name <- cohort$name %||% cohort_name
 
-  if (!is.null(sql_path)) {
-    if (verbose) message(sprintf("[cohort] Using SQL file: %s", basename(sql_path)))
-    sql_template <- SqlRender::readSql(sql_path)
-
-    .run_sql <- function(conn, actual_dbms) {
-      sql <- SqlRender::render(sql_template,
-                               cdm_schema   = cdm_schema,
-                               vocab_schema = vocab_schema)
-      sql <- SqlRender::translate(sql, targetDialect = actual_dbms)
-      .exec_sql(conn, sql)
-    }
-
-  } else {
-    # Fall back to dynamic JSON parsing
-    cohort      <- .load_atlas_json(json_path)
-    cohort_name <- cohort$name %||% cohort_name
-
-    .run_sql <- function(conn, actual_dbms) {
-      sql <- build_cohort_sql(cohort,
-                               cdm_schema   = cdm_schema,
-                               vocab_schema = vocab_schema,
-                               dbms         = actual_dbms)
-      .exec_sql(conn, sql)
-    }
+  .run_sql <- function(conn, actual_dbms) {
+    sql <- build_cohort_sql(cohort,
+                             cdm_schema   = cdm_schema,
+                             vocab_schema = vocab_schema,
+                             dbms         = actual_dbms)
+    .exec_sql(conn, sql)
   }
 
   # ---- Execute ---------------------------------------------------------------
@@ -523,26 +506,49 @@ build_cohort_sql <- function(cohort,
       crit <- cc$Criteria
       if (is.null(crit)) next
 
-      dr_dom <- if (!is.null(crit$DrugExposure))              "drug_exposure"
-                 else if (!is.null(crit$ConditionOccurrence)) "condition_occurrence"
-                 else                                           next
-
-      dr_obj   <- crit[[.atlas_domain_key(dr_dom)]]
-      dr_cs_id <- as.character(dr_obj$CodesetId)
-      dr_cs    <- cs_map[[dr_cs_id]]
-      if (is.null(dr_cs)) next
-
-      # Determine timing from StartWindow
       sw <- cc$StartWindow
       on_or_after <- !is.null(sw) &&
         !is.null(sw$Start$Days) && sw$Start$Days == 0 && sw$Start$Coeff == -1
 
-      group[[length(group) + 1L]] <- list(
-        domain              = dr_dom,
-        concept_ids         = dr_cs$concept_ids,
-        include_descendants = dr_cs$include_descendants,
-        on_or_after_index   = on_or_after
-      )
+      if (!is.null(crit$DrugExposure) || !is.null(crit$ConditionOccurrence)) {
+        dr_dom <- if (!is.null(crit$DrugExposure)) "drug_exposure" else "condition_occurrence"
+        dr_obj   <- crit[[.atlas_domain_key(dr_dom)]]
+        dr_cs_id <- as.character(dr_obj$CodesetId)
+        dr_cs    <- cs_map[[dr_cs_id]]
+        if (is.null(dr_cs)) next
+        group[[length(group) + 1L]] <- list(
+          domain              = dr_dom,
+          concept_ids         = dr_cs$concept_ids,
+          include_descendants = dr_cs$include_descendants,
+          on_or_after_index   = on_or_after
+        )
+
+      } else if (!is.null(crit$VisitOccurrence)) {
+        # Flatten to the correlated ConditionOccurrence criteria (visit constraint dropped).
+        # This is a simplification: patients with PJP in any setting qualify,
+        # not just those with an inpatient visit — results are a superset of ATLAS.
+        inner_cl <- crit$VisitOccurrence$CorrelatedCriteria$CriteriaList %||% list()
+        for (inner_cc in inner_cl) {
+          inner_crit <- inner_cc$Criteria
+          if (is.null(inner_crit$ConditionOccurrence)) next
+          cs_id <- as.character(inner_crit$ConditionOccurrence$CodesetId)
+          cs    <- cs_map[[cs_id]]
+          if (is.null(cs)) next
+          group[[length(group) + 1L]] <- list(
+            domain              = "condition_occurrence",
+            concept_ids         = cs$concept_ids,
+            include_descendants = cs$include_descendants,
+            on_or_after_index   = on_or_after
+          )
+        }
+
+      } else {
+        unsupported <- paste(names(crit), collapse = ", ")
+        rlang::warn(paste0(
+          "Skipping unsupported InclusionRule criterion type(s): ", unsupported,
+          ". Results may be broader than the ATLAS definition."
+        ))
+      }
     }
     if (length(group) > 0L) {
       drug_rules[[length(drug_rules) + 1L]] <- group
@@ -1045,24 +1051,4 @@ fetch_rheumatic_diagnoses <- function(connector, person_id,
   }
 }
 
-#' Find a companion SQL file for an ATLAS cohort JSON
-#'
-#' Looks for a pre-built SqlRender-parameterised SQL file alongside the JSON.
-#' Checks two locations (in order):
-#'   1. Same directory as json_path, .json extension swapped to .sql
-#'   2. Sibling inst/sql/ directory (json_path contains /json/)
-#'
-#' Returns the path if found, NULL otherwise.
-#' @noRd
-.find_companion_sql <- function(json_path) {
-  # 1. Same directory, .sql extension
-  sql_same <- sub("\\.json$", ".sql", json_path, ignore.case = TRUE)
-  if (file.exists(sql_same)) return(sql_same)
-
-  # 2. Sibling inst/sql/ directory (e.g. inst/json/foo.json -> inst/sql/foo.sql)
-  sql_sibling <- sub("/json/", "/sql/", sql_same, fixed = TRUE)
-  if (file.exists(sql_sibling)) return(sql_sibling)
-
-  NULL
-}
 

@@ -1,0 +1,1211 @@
+{
+  "ConceptSets": [
+    {
+      "id": 0,
+      "name": "PJP condition",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Disorder",
+              "CONCEPT_CODE": "88860002",
+              "CONCEPT_ID": 438350,
+              "CONCEPT_NAME": "Pneumocystosis",
+              "DOMAIN_ID": "Condition",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "name": "PJP treatment drugs",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "10829",
+              "CONCEPT_ID": 1705674,
+              "CONCEPT_NAME": "trimethoprim",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "ATC 3rd",
+              "CONCEPT_CODE": "J01E",
+              "CONCEPT_ID": 21602929,
+              "CONCEPT_NAME": "SULFONAMIDES AND TRIMETHOPRIM",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "ATC"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "8687",
+              "CONCEPT_ID": 1751310,
+              "CONCEPT_NAME": "primaquine",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "7994",
+              "CONCEPT_ID": 1730370,
+              "CONCEPT_NAME": "pentamidine",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "2582",
+              "CONCEPT_ID": 997881,
+              "CONCEPT_NAME": "clindamycin",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "8640",
+              "CONCEPT_ID": 1551099,
+              "CONCEPT_NAME": "prednisone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "6902",
+              "CONCEPT_ID": 1506270,
+              "CONCEPT_NAME": "methylprednisolone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "3108",
+              "CONCEPT_ID": 1711759,
+              "CONCEPT_NAME": "dapsone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "60212",
+              "CONCEPT_ID": 1781733,
+              "CONCEPT_NAME": "atovaquone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Positive test for PJP",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Procedure",
+              "CONCEPT_CODE": "415121006",
+              "CONCEPT_ID": 4187217,
+              "CONCEPT_NAME": "Pneumocystis jirovecii antigen assay",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "SNOMED"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "48055-8",
+              "CONCEPT_ID": 3048512,
+              "CONCEPT_NAME": "Pneumocystis jiroveci [Presence] in Specimen by Calcofluor white",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "LOINC Hierarchy",
+              "CONCEPT_CODE": "LP376421-6",
+              "CONCEPT_ID": 37071933,
+              "CONCEPT_NAME": "Pneumocystis jiroveci | XXX | Microbiology",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "LOINC"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Lab Test",
+              "CONCEPT_CODE": "6521-9",
+              "CONCEPT_ID": 3009595,
+              "CONCEPT_NAME": "Pneumocystis jiroveci DNA [Presence] in Specimen by NAA with probe detection",
+              "DOMAIN_ID": "Measurement",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "LOINC"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "PJP treatment procedure",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "CPT4",
+              "CONCEPT_CODE": "94642",
+              "CONCEPT_ID": 2314027,
+              "CONCEPT_NAME": "Aerosol inhalation of pentamidine for pneumocystis carinii pneumonia treatment or prophylaxis",
+              "DOMAIN_ID": "Procedure",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "CPT4"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "name": "Inpatient Visit BM",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Visit",
+              "CONCEPT_CODE": "IP",
+              "CONCEPT_ID": 9201,
+              "CONCEPT_NAME": "Inpatient Visit",
+              "DOMAIN_ID": "Visit",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "Visit"
+            },
+            "includeDescendants": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "name": "PJP_ppx_rs",
+      "expression": {
+        "items": [
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "60212",
+              "CONCEPT_ID": 1781733,
+              "CONCEPT_NAME": "atovaquone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "3108",
+              "CONCEPT_ID": 1711759,
+              "CONCEPT_NAME": "dapsone",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "7994",
+              "CONCEPT_ID": 1730370,
+              "CONCEPT_NAME": "pentamidine",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "ATC 3rd",
+              "CONCEPT_CODE": "J01E",
+              "CONCEPT_ID": 21602929,
+              "CONCEPT_NAME": "SULFONAMIDES AND TRIMETHOPRIM",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "ATC"
+            },
+            "includeDescendants": true
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Ingredient",
+              "CONCEPT_CODE": "10829",
+              "CONCEPT_ID": 1705674,
+              "CONCEPT_NAME": "trimethoprim",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Quant Branded Drug",
+              "CONCEPT_CODE": "OMOP2613867",
+              "CONCEPT_ID": 41415905,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Quant Branded Box",
+              "CONCEPT_CODE": "OMOP2616472",
+              "CONCEPT_ID": 41418510,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2620313",
+              "CONCEPT_ID": 41422351,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1 by Aca Mueller",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP3074787",
+              "CONCEPT_ID": 44198064,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1 by Ae-Media",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2614258",
+              "CONCEPT_ID": 41416296,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1 by Emra-Med",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2612583",
+              "CONCEPT_ID": 41414621,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1 by Eurim-Pharm",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Quant Branded Drug",
+              "CONCEPT_CODE": "OMOP4858039",
+              "CONCEPT_ID": 43043021,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Quant Branded Drug",
+              "CONCEPT_CODE": "OMOP427479",
+              "CONCEPT_ID": 43154177,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Quant Branded Box",
+              "CONCEPT_CODE": "OMOP2624174",
+              "CONCEPT_ID": 41426212,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim] Box of 1",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP427481",
+              "CONCEPT_ID": 43198122,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim] Box of 1 by Roche",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP4858040",
+              "CONCEPT_ID": 43043022,
+              "CONCEPT_NAME": "100 ML Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim] by Roche",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "1ba409b6-8dcd-41d2-aa9e-81b77f87ea14",
+              "CONCEPT_ID": 45653519,
+              "CONCEPT_NAME": "BACTRIM DS - sulfamethoxazole and trimethoprim tablet",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "f59d0c04-9c66-4d53-a0e1-cb55570deb62",
+              "CONCEPT_ID": 46316233,
+              "CONCEPT_NAME": "BACTRIM DS - sulfamethoxazole and trimethoprim tablet",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "0138a156-859a-48a3-bf5a-e2db0cc7f2f9",
+              "CONCEPT_ID": 45680718,
+              "CONCEPT_NAME": "BACTRIM DS - sulfamethoxazole and trimethoprim tablet",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Comp",
+              "CONCEPT_CODE": "566133",
+              "CONCEPT_ID": 19117749,
+              "CONCEPT_NAME": "sulfamethoxazole 100 MG / trimethoprim 20 MG [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "202242",
+              "CONCEPT_ID": 19026199,
+              "CONCEPT_NAME": "sulfamethoxazole 100 MG / trimethoprim 20 MG Oral Tablet [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Comp",
+              "CONCEPT_CODE": "569113",
+              "CONCEPT_ID": 19020463,
+              "CONCEPT_NAME": "sulfamethoxazole 400 MG / trimethoprim 80 MG [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "208416",
+              "CONCEPT_ID": 19038428,
+              "CONCEPT_NAME": "sulfamethoxazole 400 MG / trimethoprim 80 MG Oral Tablet [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2069204",
+              "CONCEPT_ID": 40871242,
+              "CONCEPT_NAME": "Sulfamethoxazole 400 MG / Trimethoprim 80 MG Oral Tablet [Bactrim] Box of 20",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2424414",
+              "CONCEPT_ID": 41226452,
+              "CONCEPT_NAME": "Sulfamethoxazole 400 MG / Trimethoprim 80 MG Oral Tablet [Bactrim] Box of 20 by Orifarm Leverkus",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2049670",
+              "CONCEPT_ID": 40851708,
+              "CONCEPT_NAME": "Sulfamethoxazole 400 MG / Trimethoprim 80 MG Oral Tablet [Bactrim] Box of 20 by Roche",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2412839",
+              "CONCEPT_ID": 41214877,
+              "CONCEPT_NAME": "Sulfamethoxazole 400 MG / Trimethoprim 80 MG Oral Tablet [Bactrim] Box of 50",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2424413",
+              "CONCEPT_ID": 41226451,
+              "CONCEPT_NAME": "Sulfamethoxazole 400 MG / Trimethoprim 80 MG Oral Tablet [Bactrim] Box of 50 by Roche",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Comp",
+              "CONCEPT_CODE": "849570",
+              "CONCEPT_ID": 19135630,
+              "CONCEPT_NAME": "sulfamethoxazole 40 MG/ML / trimethoprim 8 MG/ML [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "OMOP2131402",
+              "CONCEPT_ID": 40933440,
+              "CONCEPT_NAME": "Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2131401",
+              "CONCEPT_ID": 40933439,
+              "CONCEPT_NAME": "Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Solution [Bactrim] Box of 1",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "849572",
+              "CONCEPT_ID": 1836469,
+              "CONCEPT_NAME": "sulfamethoxazole 40 MG/ML / trimethoprim 8 MG/ML Oral Suspension [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2287669",
+              "CONCEPT_ID": 41089707,
+              "CONCEPT_NAME": "Sulfamethoxazole 40 MG/ML / Trimethoprim 8 MG/ML Oral Suspension [Bactrim] Box of 1",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Comp",
+              "CONCEPT_CODE": "849579",
+              "CONCEPT_ID": 19020465,
+              "CONCEPT_NAME": "sulfamethoxazole 800 MG / trimethoprim 160 MG [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "849580",
+              "CONCEPT_ID": 19135631,
+              "CONCEPT_NAME": "sulfamethoxazole 800 MG / trimethoprim 160 MG Oral Tablet [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2412849",
+              "CONCEPT_ID": 41214887,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2393336",
+              "CONCEPT_ID": 41195374,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10 by Aca Mueller",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP3062297",
+              "CONCEPT_ID": 44185574,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10 by Ae-Media",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2049672",
+              "CONCEPT_ID": 40851710,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10 by Emra-Med",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2517744",
+              "CONCEPT_ID": 41319782,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10 by Kohlpharma",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP3122188",
+              "CONCEPT_ID": 36271313,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 10 by Roche",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Box",
+              "CONCEPT_CODE": "OMOP2038093",
+              "CONCEPT_ID": 40840131,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 20",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2362030",
+              "CONCEPT_ID": 41164068,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 20 by Aca Mueller",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP3054862",
+              "CONCEPT_ID": 44178139,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 20 by Ae-Media",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2267893",
+              "CONCEPT_ID": 41069931,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 20 by Emra-Med",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Marketed Product",
+              "CONCEPT_CODE": "OMOP2299346",
+              "CONCEPT_ID": 41101384,
+              "CONCEPT_NAME": "Sulfamethoxazole 800 MG / Trimethoprim 160 MG Oral Tablet [Bactrim] Box of 20 by Kohlpharma",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Comp",
+              "CONCEPT_CODE": "849581",
+              "CONCEPT_ID": 19020466,
+              "CONCEPT_NAME": "sulfamethoxazole 80 MG/ML / trimethoprim 16 MG/ML [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug",
+              "CONCEPT_CODE": "849582",
+              "CONCEPT_ID": 1836471,
+              "CONCEPT_NAME": "sulfamethoxazole 80 MG/ML / trimethoprim 16 MG/ML Injectable Solution [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "3dba3387-f213-464d-b75d-29eeacbd888c",
+              "CONCEPT_ID": 45654279,
+              "CONCEPT_NAME": "sulfamethoxazole and trimethoprim 160mg/1 / 800mg/1 ORAL TABLET [bactrim ds]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "e4750422-45bb-4e1b-9a27-17d31bb588b2",
+              "CONCEPT_ID": 45707782,
+              "CONCEPT_NAME": "sulfamethoxazole and trimethoprim 80mg/1 / 160mg/1 / 400mg/1 / 800mg/1 ORAL TABLET [bactrim, bactrim ds]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Prescription Drug",
+              "CONCEPT_CODE": "0d3aac9e-b012-4812-9d76-6fe04235ba6e",
+              "CONCEPT_ID": 45779424,
+              "CONCEPT_NAME": "sulfamethoxazole and trimethoprim 80mg/1 / 160mg/1 / 400mg/1 / 800mg/1 ORAL TABLET [bactrim, bactrim ds]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "C",
+              "STANDARD_CONCEPT_CAPTION": "Classification",
+              "VOCABULARY_ID": "SPL"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Form",
+              "CONCEPT_CODE": "403106",
+              "CONCEPT_ID": 40081376,
+              "CONCEPT_NAME": "sulfamethoxazole / trimethoprim Injectable Solution [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Form",
+              "CONCEPT_CODE": "OMOP2216196",
+              "CONCEPT_ID": 41018234,
+              "CONCEPT_NAME": "Sulfamethoxazole / Trimethoprim Oral Solution [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm Extension"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Form",
+              "CONCEPT_CODE": "849571",
+              "CONCEPT_ID": 40160705,
+              "CONCEPT_NAME": "sulfamethoxazole / trimethoprim Oral Suspension [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          },
+          {
+            "concept": {
+              "CONCEPT_CLASS_ID": "Branded Drug Form",
+              "CONCEPT_CODE": "369244",
+              "CONCEPT_ID": 40081391,
+              "CONCEPT_NAME": "sulfamethoxazole / trimethoprim Oral Tablet [Bactrim]",
+              "DOMAIN_ID": "Drug",
+              "INVALID_REASON": "V",
+              "INVALID_REASON_CAPTION": "Valid",
+              "STANDARD_CONCEPT": "S",
+              "STANDARD_CONCEPT_CAPTION": "Standard",
+              "VOCABULARY_ID": "RxNorm"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "PrimaryCriteria": {
+    "CriteriaList": [
+      {
+        "VisitOccurrence": {
+          "CorrelatedCriteria": {
+            "Type": "ALL",
+            "CriteriaList": [
+              {
+                "Criteria": {
+                  "ConditionOccurrence": {
+                    "CodesetId": 0
+                  }
+                },
+                "StartWindow": {
+                  "Start": {
+                    "Days": 0,
+                    "Coeff": -1
+                  },
+                  "End": {
+                    "Coeff": 1
+                  },
+                  "UseEventEnd": false
+                },
+                "EndWindow": {
+                  "Start": {
+                    "Coeff": -1
+                  },
+                  "End": {
+                    "Days": 0,
+                    "Coeff": 1
+                  },
+                  "UseIndexEnd": true,
+                  "UseEventEnd": true
+                },
+                "Occurrence": {
+                  "Type": 2,
+                  "Count": 1
+                }
+              }
+            ],
+            "DemographicCriteriaList": [],
+            "Groups": []
+          },
+          "CodesetId": 4
+        }
+      },
+      {
+        "ConditionOccurrence": {
+          "CorrelatedCriteria": {
+            "Type": "ANY",
+            "CriteriaList": [
+              {
+                "Criteria": {
+                  "DrugExposure": {
+                    "CodesetId": 1
+                  }
+                },
+                "StartWindow": {
+                  "Start": {
+                    "Days": 14,
+                    "Coeff": -1
+                  },
+                  "End": {
+                    "Coeff": 1
+                  },
+                  "UseEventEnd": false
+                },
+                "Occurrence": {
+                  "Type": 2,
+                  "Count": 1
+                }
+              },
+              {
+                "Criteria": {
+                  "ProcedureOccurrence": {
+                    "CodesetId": 3
+                  }
+                },
+                "StartWindow": {
+                  "Start": {
+                    "Days": 14,
+                    "Coeff": -1
+                  },
+                  "End": {
+                    "Coeff": 1
+                  },
+                  "UseEventEnd": false
+                },
+                "Occurrence": {
+                  "Type": 2,
+                  "Count": 1
+                }
+              }
+            ],
+            "DemographicCriteriaList": [],
+            "Groups": []
+          },
+          "CodesetId": 0
+        }
+      },
+      {
+        "Measurement": {
+          "CodesetId": 2
+        }
+      }
+    ],
+    "ObservationWindow": {
+      "PriorDays": 0,
+      "PostDays": 0
+    },
+    "PrimaryCriteriaLimit": {
+      "Type": "First"
+    }
+  },
+  "QualifiedLimit": {
+    "Type": "First"
+  },
+  "ExpressionLimit": {
+    "Type": "All"
+  },
+  "InclusionRules": [
+    {
+      "name": "adult",
+      "expression": {
+        "Type": "ALL",
+        "CriteriaList": [],
+        "DemographicCriteriaList": [
+          {
+            "Age": {
+              "Value": 18,
+              "Op": "gte"
+            }
+          }
+        ],
+        "Groups": []
+      }
+    }
+  ],
+  "CensoringCriteria": [],
+  "CollapseSettings": {
+    "CollapseType": "ERA",
+    "EraPad": 0
+  },
+  "CensorWindow": {},
+  "cdmVersionRange": ">=5.0.0"
+}
