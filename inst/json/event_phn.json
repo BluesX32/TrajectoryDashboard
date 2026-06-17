@@ -1,0 +1,156 @@
+{
+  "items": [
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "230597003",
+        "CONCEPT_ID": 4044396,
+        "CONCEPT_NAME": "Intercostal post-herpetic neuralgia",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "2177002",
+        "CONCEPT_ID": 4071164,
+        "CONCEPT_NAME": "Postherpetic neuralgia",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "230597003",
+        "CONCEPT_ID": 4044396,
+        "CONCEPT_NAME": "Intercostal post-herpetic neuralgia",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "282742004",
+        "CONCEPT_ID": 4151196,
+        "CONCEPT_NAME": "Intercostal post-herpetic neuritis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "282741006",
+        "CONCEPT_ID": 4151978,
+        "CONCEPT_NAME": "Post-herpetic neuritis",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "76462000",
+        "CONCEPT_ID": 192239,
+        "CONCEPT_NAME": "Post-herpetic polyneuropathy",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "1254866003",
+        "CONCEPT_ID": 37165456,
+        "CONCEPT_NAME": "Post-herpetic pruritus",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2022-11-29",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    },
+    {
+      "concept": {
+        "CONCEPT_CLASS_ID": "Disorder",
+        "CONCEPT_CODE": "17974002",
+        "CONCEPT_ID": 381504,
+        "CONCEPT_NAME": "Post-herpetic trigeminal neuralgia",
+        "DOMAIN_ID": "Condition",
+        "INVALID_REASON": "V",
+        "INVALID_REASON_CAPTION": "Valid",
+        "STANDARD_CONCEPT": "S",
+        "STANDARD_CONCEPT_CAPTION": "Standard",
+        "VOCABULARY_ID": "SNOMED",
+        "VALID_START_DATE": "2002-01-30",
+        "VALID_END_DATE": "2099-12-30"
+      },
+      "isExcluded": false,
+      "includeDescendants": true,
+      "includeMapped": false
+    }
+  ]
+}

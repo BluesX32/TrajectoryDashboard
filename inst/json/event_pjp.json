@@ -1,0 +1,6 @@
+{
+  "name": "Pneumocystis jirovecii Pneumonia (PJP / PCP)",
+  "domain": "condition_occurrence",
+  "concept_ids": [438350],
+  "include_descendants": true
+}
