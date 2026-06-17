@@ -1,25 +1,50 @@
 # preliminary_tables_shingles_incident.R
-# ============================================================================
-# VZV / shingles preliminary tables — INCIDENT cohort definition.
+# Preliminary descriptive tables for VZV / herpes zoster (shingles) in
+# rheumatic disease (RD) patients — INCIDENT cohort design.
 #
-# Difference from preliminary_tables.R (prevalence cohort)
-# ─────────────────────────────────────────────────────────
-#  Base cohort requires TWO rheumatic disease (RD) diagnoses:
-#    1st encounter: 30–365 days before the 2nd encounter.
-#    2nd encounter: cohort INDEX DATE (earliest qualifying second encounter).
-#  All downstream events (shingles, vaccination) are restricted to
-#  on or after index_date.  Age is measured at index_date.
+# ── How to run ────────────────────────────────────────────────────────────────
+# Run sections sequentially in RStudio.  Each numbered STEP builds on the one
+# before it; do not skip steps.
 #
-# Table 1: Base cohort characteristics (patient-level)
-#   Columns: Total | No Shingles | Shingles
-#   Rows: age (at index_date), sex, race, rheumatologic Dx, vaccine doses
+# ── Three-tier cohort design ──────────────────────────────────────────────────
 #
-# Table 2: Shingles episode characteristics
-#   Columns: Overall | Pre-vaccine | Post-vaccine
-#   Post-vaccine: episode >= VACC_ONSET_DAYS (14 d) after first Shingrix dose
-#   Pre-vaccine:  episode < 14 d after first dose, or no vaccine recorded
-#   Only episodes >= index_date included.
+#   Tier 1 — cohort_ids  (incident base cohort)
+#     RD patients aged >= 18 with TWO RD diagnoses 30–365 days apart and at
+#     least one DMARD exposure (continuous DMARD, validated by ATLAS JSON).
+#     The second RD diagnosis is the cohort INDEX DATE.
+#     Built from inline SQL + filtered by json_base_ids in STEP 1.
 #
+#   Tier 2 — shingles_ids  (incident shingles sub-cohort)
+#     Patients in cohort_ids with a herpes zoster diagnosis ON OR AFTER their
+#     index_date, validated against the ATLAS VZV cohort.
+#     The SQL retrieves VZV event dates (no antiviral required); the index_date
+#     filter enforces the "incident" restriction; json_vzv_ids confirms the
+#     patient belongs to the ATLAS-validated VZV population.
+#     Derived in STEP 2.
+#
+#   Tier 3 — shingles_vaccine_ids  (vaccinated sub-cohort)
+#     Patients in shingles_ids with a herpes zoster vaccine record, validated
+#     against ATLAS JSON cohort_PrevalentRD_VZV_vaccine.json.
+#     Derived in STEP 3.
+#
+# ── Prevalent vs. incident ────────────────────────────────────────────────────
+#   This script uses an INCIDENT base cohort (two confirmed RD diagnoses).
+#   See preliminary_tables_shingles.R for the PREVALENT design (one RD Dx).
+#   Incident is more restrictive: fewer patients, higher diagnostic specificity.
+#
+# ── Table overview ────────────────────────────────────────────────────────────
+#   Table 1  Base cohort demographics (age measured at index_date)
+#              Columns: Total | No Shingles | Shingles
+#
+#   Table 2  Shingles episode characteristics (episodes >= index_date only)
+#              Columns: Overall | Pre-vaccine | Post-vaccine
+#              Post-vaccine = episode >= VACC_ONSET_DAYS after first Shingrix dose
+#
+#   Table 3  DMARDs used in the 90 days before each shingles episode
+#
+#   Table 4  DMARDs used around the herpes zoster vaccine date
+#
+# ── Dependencies ─────────────────────────────────────────────────────────────
 # Run interactively in RStudio.
 # Requires: DatabaseConnector, SqlRender, gtsummary, gt, dplyr, labelled, tidyr
 # ============================================================================
@@ -78,28 +103,45 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
-# ATLAS JSON cohort IDs — used as authoritative population filters.
-# The incident SQL (below) adds index dates and demographics; the JSON cohorts
-# confirm which patients belong to each analytical tier.
+# ATLAS JSON cohort IDs
+# These person-ID vectors come from ATLAS cohort definitions stored in
+# inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
+# the CDM.  Loading all of them upfront keeps the per-step code clean.
+#
+#   json_base_ids          → STEP 1  narrows the incident base cohort to
+#                                    patients on continuous DMARDs (at-risk pop)
+#   json_vzv_ids           → STEP 2  validates the shingles sub-cohort against
+#                                    the ATLAS VZV case definition
+#   json_vzv_morbidity_ids → Table 2 identifies post-herpetic neuralgia /
+#                                    organ-involvement episodes
+#   json_vaccine_ids       → STEP 3  validates herpes zoster vaccine recipients
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
+# Prevalent RD patients on continuous DMARDs — defines the at-risk population
+# for the incident analysis.  Applied in STEP 1 to filter the base cohort.
 json_base_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
                             package = "TrajectoryDashboard")
 )
+# All herpes zoster diagnoses in prevalent RD patients (no antiviral required).
+# Applied in STEP 2 to validate the SQL-derived VZV case set.
 json_vzv_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
                             package = "TrajectoryDashboard")
 )
+# Herpes zoster with confirmed morbidity (PHN, organ involvement).
+# Used in Table 2 to classify episode severity.
 json_vzv_morbidity_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_Morbidity.json",
                             package = "TrajectoryDashboard")
 )
+# Patients who received a herpes zoster vaccine (Shingrix or Zostavax).
+# Applied in STEP 3 to build shingles_vaccine_ids.
 json_vaccine_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_vaccine.json",
@@ -107,17 +149,19 @@ json_vaccine_ids <- fetch_cohort_ids(
 )
 
 # ============================================================================
-# STEP 1: INCIDENT base cohort
-#
-# Incident RD definition:
-#   Two RD diagnoses required.  The first must occur 30–365 days before the
-#   second.  The SECOND diagnosis date is the cohort INDEX DATE.
-#   Additional eligibility: DMARD exposure (any ever), age >= 18 at index_date.
-#
-# Returns per patient:
-#   index_date   — second RD encounter (cohort entry)
-#   first_rd_date — earliest ever RD encounter
-#   obs_start / obs_end — observation period bounds
+# STEP 1  Incident base cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    RD patients with TWO confirmed RD diagnoses (30–365 days apart),
+#         at least one DMARD exposure, and age >= 18 at cohort entry.
+# How:    Inline SQL finds the earliest qualifying second RD encounter and
+#         designates it as index_date.  After SQL, the cohort is narrowed to
+#         json_base_ids (patients on continuous DMARDs per ATLAS) — this
+#         defines the at-risk population for the incident analysis.
+# Result: base_cohort data frame (person_id, index_date, first_rd_date,
+#         year_of_birth, gender, obs_start, obs_end)
+#         cohort_ids = base_cohort$person_id
+# Note:   index_date is used throughout as the "clock start" — shingles events
+#         before index_date are excluded (STEP 2), age is measured at index_date.
 # ============================================================================
 
 message("Fetching incident base cohort (two-encounter RD, 30-365 d gap)...")
@@ -248,10 +292,21 @@ message(nrow(base_cohort), " patients in incident base cohort (intersected with 
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
-# STEP 2: Shingles cohort (incident)
-# Among base cohort, patients with a VZV diagnosis ON OR AFTER their RD
-# index_date, then validated against the ATLAS JSON VZV cohort.
-# Returns person_id + vzv_date for the per-patient index_date filter in R.
+# STEP 2  Shingles sub-cohort (incident)
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Base cohort patients with a herpes zoster diagnosis ON OR AFTER their
+#         RD index_date, confirmed by the ATLAS VZV cohort.
+# How:
+#   2a. SQL (shingles_dx_sql) retrieves all VZV condition_occurrence rows for
+#       cohort_ids, returning (person_id, vzv_date).  No antiviral required —
+#       antivirals are often under-recorded and would silently drop real cases.
+#   2b. In R, restrict to vzv_date >= index_date (incident filter — only VZV
+#       events AFTER the patient entered the RD cohort).
+#   2c. filter(person_id %in% json_vzv_ids) validates against the ATLAS
+#       cohort_PrevalentRD_VZV_all.json case definition.  Patients in the SQL
+#       result but NOT in json_vzv_ids may be VZV miscodes or do not meet the
+#       ATLAS observation-window requirements.
+# Result: shingles_ids — integer vector of person_ids (incident VZV cases)
 # ============================================================================
 
 message("Identifying shingles patients (VZV Dx >= index_date, ATLAS validated)...")

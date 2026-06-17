@@ -1,26 +1,56 @@
 # preliminary_tables_pjp_incident.R
-# ============================================================================
-# PJP preliminary tables — INCIDENT cohort definition.
+# Preliminary descriptive tables for PJP (Pneumocystis jirovecii pneumonia)
+# in rheumatic disease (RD) patients on immunosuppressive therapy —
+# INCIDENT cohort design.
 #
-# Difference from preliminary_tables_pjp.R (prevalence cohort)
-# ──────────────────────────────────────────────────────────────
-#  Base cohort requires TWO rheumatic disease (RD) diagnoses:
-#    1st encounter: 30–365 days before the 2nd encounter.
-#    2nd encounter: cohort RD INDEX DATE (rd_index_date).
-#  first_rd_date (earliest-ever RD encounter) is returned from the same
-#  base cohort query — STEP 1b (separate first_rheum_dx_sql) is eliminated.
-#  PJP events are restricted to on or after rd_index_date.
-#  Age is measured at rd_index_date.
+# ── How to run ────────────────────────────────────────────────────────────────
+# Run sections sequentially in RStudio.  Each numbered STEP builds on the one
+# before it; do not skip steps.
 #
-# Table 1: Base cohort characteristics by PJP status
-#   Columns: Total | Without PJP | With PJP
-#   Rows: age (at rd_index_date), sex, race, RD Dx, PJP prophylaxis
+# ── Three-tier cohort design ──────────────────────────────────────────────────
 #
-# Table 2: Medications 90 days before PJP (PJP cohort only)
+#   Tier 1 — base_cohort  (incident base cohort)
+#     RD patients with TWO confirmed RD diagnoses (30–365 days apart), at least
+#     one DMARD exposure, age >= 18 at cohort entry, and continuous DMARD use
+#     (validated by json_base_ids from ATLAS).  The second RD diagnosis is the
+#     cohort RD INDEX DATE (rd_index_date).
+#     Built from inline SQL + filtered by json_base_ids in STEP 1.
+#     NOTE: first_rd_date (earliest-ever RD encounter) is returned in the same
+#     query; a separate first_rheum_dx_sql step (as in the prevalent script) is
+#     not needed here.
 #
-# Table 3: Prophylaxis regimen outcomes — incidence rates per 100 PY
-#   (exact Poisson Garwood 95% CI) for PJP and ADEs.
+#   Tier 2 — pjp_cohort  (PJP sub-cohort)
+#     Base cohort patients with a PJP diagnosis ON OR AFTER rd_index_date.
+#     PJP index date = earliest qualifying PJP condition_start_date >= rd_index_date.
+#     Built from inline SQL in STEP 2.  No ATLAS JSON filter — same reasoning
+#     as the prevalent script (ATLAS IR=2 over-restricts the count).
 #
+#   Tier 3 — ppx_cohort  (prophylaxis sub-cohort)
+#     Full base cohort with PJP prophylaxis exposure.  Filtered by json_ppx_ids
+#     to identify the PPX-before-PJP subgroup for Table 3.
+#     Built in STEP 6.
+#
+# ── Prevalent vs. incident ────────────────────────────────────────────────────
+#   This script uses an INCIDENT base cohort (two confirmed RD diagnoses).
+#   See preliminary_tables_pjp.R for the PREVALENT design (one RD Dx).
+#   Incident is more restrictive: fewer patients, higher diagnostic specificity.
+#
+# ── Key date fields ───────────────────────────────────────────────────────────
+#   rd_index_date   Second RD diagnosis — cohort entry clock start
+#   first_rd_date   Earliest RD diagnosis — used for PPX_RHEUM_ONSET filter
+#   index_date      PJP diagnosis date (pjp_cohort only)
+#
+# ── Table overview ────────────────────────────────────────────────────────────
+#   Table 1  Base cohort demographics by PJP status (age at rd_index_date)
+#              Columns: Total | Without PJP | With PJP
+#
+#   Table 2  Medications 90 days before PJP (PJP cohort only)
+#
+#   Table 3  Prophylaxis regimen outcomes
+#              PJP incidence rate per 100 PY (exact Poisson Garwood 95% CI)
+#              and ADE rate by regimen
+#
+# ── Dependencies ─────────────────────────────────────────────────────────────
 # Run interactively in RStudio.
 # Requires: DatabaseConnector, SqlRender, gtsummary, gt, dplyr, labelled, tidyr
 # ============================================================================
@@ -68,23 +98,38 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
-# ATLAS JSON cohort IDs — used as authoritative population filters.
-# The incident SQL (below) adds index dates and demographics; the JSON cohorts
-# confirm which patients belong to each analytical tier.
+# ATLAS JSON cohort IDs
+# These person-ID vectors come from ATLAS cohort definitions stored in
+# inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
+# the CDM.  Loading all of them upfront keeps the per-step code clean.
+#
+#   json_base_ids → STEP 1  narrows the incident base cohort to patients on
+#                           continuous DMARDs (defines the at-risk population)
+#   json_pjp_ids  → loaded for reference / cross-validation; NOT used to filter
+#                   pjp_cohort (see STEP 2 note)
+#   json_ppx_ids  → STEP 6 / Table 3  identifies patients who received PJP
+#                   prophylaxis before developing PJP
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
+# Prevalent RD patients on continuous DMARDs — defines the at-risk population.
+# Applied in STEP 1 to filter the incident base cohort.
 json_base_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
                             package = "TrajectoryDashboard")
 )
+# ATLAS-validated PJP infection cohort (RD + PJP diagnosis).
+# Available for cross-validation.  NOT applied as a filter to pjp_cohort —
+# the ATLAS cohort's IR=2 inclusion rules over-restrict the case count.
 json_pjp_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
                             package = "TrajectoryDashboard")
 )
+# Patients who received PJP prophylaxis and subsequently developed PJP.
+# Applied in STEP 6 to identify the PPX-before-PJP subgroup for Table 3.
 json_ppx_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PJP_ppx_infection.json",
@@ -92,17 +137,19 @@ json_ppx_ids <- fetch_cohort_ids(
 )
 
 # ============================================================================
-# STEP 1: INCIDENT base cohort
-#
-# Incident RD definition:
-#   Two RD diagnoses required.  The first must occur 30–365 days before the
-#   second.  The SECOND diagnosis date is the cohort RD INDEX DATE
-#   (stored as rd_index_date to distinguish it from pjp_cohort$index_date).
-#
-# first_rd_date = earliest ever RD encounter — used for PPX_RHEUM_ONSET filter
-#   (replaces the separate STEP 1b / first_rheum_dx_df from the prevalence script).
-#
-# DMARD list: same as prevalence script (no IVIG ancestor 19049029).
+# STEP 1  Incident base cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    RD patients with TWO confirmed RD diagnoses (30–365 days apart),
+#         at least one DMARD exposure (no IVIG), and age >= 18 at rd_index_date.
+#         Further narrowed to json_base_ids (continuous DMARD patients per ATLAS).
+# How:    Inline SQL identifies the earliest qualifying second RD encounter and
+#         designates it as rd_index_date.  first_rd_date (earliest-ever RD
+#         encounter) is returned by the same query — no separate Step 1b needed
+#         (contrast with the prevalent script which has a separate first_rheum_dx_sql).
+#         After SQL, base_cohort is filtered to json_base_ids.
+# Result: base_cohort data frame (person_id, rd_index_date, first_rd_date,
+#         year_of_birth, gender, obs_start, obs_end)
+#         cohort_ids = base_cohort$person_id
 # ============================================================================
 
 message("Fetching incident base cohort (two-encounter RD, 30-365 d gap)...")
@@ -237,9 +284,17 @@ first_rheum_dx_df <- base_cohort |>
   select(person_id, first_rheum_dx = first_rd_date)
 
 # ============================================================================
-# STEP 2: PJP cohort (incident)
-# Among base cohort, patients with a PJP/PCP diagnosis ON OR AFTER
-# their RD index date (rd_index_date).
+# STEP 2  PJP sub-cohort (incident)
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Base cohort patients with a PJP diagnosis ON OR AFTER rd_index_date.
+# How:    SQL finds condition_occurrence rows matching SNOMED 438350 (PJP) and
+#         descendants.  In R, restrict to index_date >= rd_index_date (incident
+#         filter — only PJP events AFTER the patient entered the RD cohort).
+#         No ATLAS JSON filter: same reasoning as the prevalent script —
+#         json_pjp_ids is available for cross-validation but its IR=2 inclusion
+#         rules over-restrict the count beyond the SQL concept-set match.
+# Result: pjp_cohort data frame (person_id, index_date = first qualifying PJP date)
+#         pjp_ids = pjp_cohort$person_id
 # ============================================================================
 
 message("Identifying PJP patients (on or after RD index date)...")

@@ -15,7 +15,8 @@ myositis, adaptable to any rheumatic or chronic disease cohort.
 5. [Connection setup](#connection-setup)
 6. [Clinical features reference](#clinical-features-reference)
 7. [Key functions](#key-functions)
-8. [Package structure](#package-structure)
+8. [Preliminary analysis scripts](#preliminary-analysis-scripts)
+9. [Package structure](#package-structure)
 
 ---
 
@@ -486,6 +487,101 @@ launch_trajectory_dashboard(
 
 ---
 
+## Preliminary analysis scripts
+
+Four stand-alone R scripts produce the descriptive tables for the shingles/VZV
+and PJP infection studies.  Run them interactively in RStudio — each script is
+self-contained and follows the same numbered STEP structure.
+
+### Cohort design: prevalent vs. incident
+
+| Term | Base cohort definition |
+|---|---|
+| **Prevalent** | One rheumatic disease (RD) diagnosis ever + any DMARD. Larger cohort, lower specificity. |
+| **Incident** | Two RD diagnoses 30–365 days apart + continuous DMARD (ATLAS-validated). Smaller cohort, higher specificity. |
+
+Prevalent scripts will always produce a larger base cohort than their incident counterparts. Use incident results when you need confirmed RD diagnosis; use prevalent when sample size matters.
+
+---
+
+### Shingles / VZV scripts
+
+#### `preliminary_tables_shingles.R` — prevalent cohort
+
+| STEP | What it does |
+|---|---|
+| STEP 1 | Builds the **base cohort** — adults with ≥1 RD diagnosis + any DMARD (inline SQL) |
+| STEP 2 | Identifies **shingles patients** — base cohort ∩ ATLAS VZV cohort (`cohort_PrevalentRD_VZV_all.json`). No antiviral required — antiviral records are under-documented in most EHR systems |
+| STEP 3 | Identifies **vaccinated patients** — shingles patients with a Shingrix/Zostavax record (SQL + ATLAS JSON cross-validation) |
+| STEP 3b | Fetches race and vaccine dose count for the base cohort |
+| STEP 4 | Fetches disease category flags (SLE / myositis / SSc / GCA / RA / SpA) |
+| STEP 5 | Fetches drug exposure flags (any-ever, base cohort) |
+| STEP 6 | Assembles the analysis dataset |
+| Table 1 | Base cohort demographics: Total \| No Shingles \| Shingles |
+| Table 2 | Shingles episode characteristics: Overall \| Pre-vaccine \| Post-vaccine |
+| Table 3 | DMARDs used in the 90 days before each shingles episode |
+| Table 4 | DMARDs used around the herpes zoster vaccine date |
+
+#### `preliminary_tables_shingles_incident.R` — incident cohort
+
+Same table structure as above, with these differences:
+
+| STEP | Difference from prevalent script |
+|---|---|
+| STEP 1 | Base cohort requires **two RD diagnoses 30–365 days apart** + continuous DMARD (`json_base_ids` filter from ATLAS). The second diagnosis is the cohort INDEX DATE. |
+| STEP 2 | Shingles events must occur **on or after index_date**. SQL retrieves all VZV dates (no antiviral); ATLAS `json_vzv_ids` validates the case set. |
+| STEP 3 | Same vaccine logic; only post-index_date episodes are counted. |
+| STEP 7 | Extra section: post-vaccine shingles summary (shingles occurring after vaccination). |
+
+---
+
+### PJP (Pneumocystis jirovecii pneumonia) scripts
+
+#### `preliminary_tables_pjp.R` — prevalent cohort
+
+| STEP | What it does |
+|---|---|
+| STEP 1 | Builds the **base cohort** — adults with ≥1 RD diagnosis + DMARD (no IVIG), inline SQL |
+| STEP 1b | Fetches the **first RD diagnosis date** per patient (needed for prophylaxis timing rule) |
+| STEP 2 | Identifies **PJP patients** — base cohort patients with SNOMED 438350 (PJP) + descendants. No ATLAS JSON filter: the ATLAS cohort's inclusion rules (IR=2) over-restrict the case count beyond the SQL concept-set match |
+| STEP 2b | Fetches race for base cohort |
+| STEP 3 | Fetches disease category flags |
+| STEP 4 | Fetches **30-day in-hospital mortality** (death within 30 days of PJP index AND overlapping inpatient visit) |
+| STEP 5 | Fetches DMARD exposures for PJP patients (90-day window before PJP index) |
+| STEP 6 | Fetches **PJP prophylaxis** (TMP-SMX / Dapsone / Atovaquone / Pentamidine) for the full base cohort |
+| STEP 7 | Assembles analysis datasets |
+| Table 1 | Base cohort demographics: Total \| Without PJP \| With PJP |
+| Table 2 | Medications 90 days before PJP (PJP cohort only) |
+| Table 3 | Prophylaxis regimen outcomes — PJP incidence rate per 100 person-years (exact Poisson 95% CI) and ADE rate |
+
+#### `preliminary_tables_pjp_incident.R` — incident cohort
+
+Same table structure as above, with these differences:
+
+| STEP | Difference from prevalent script |
+|---|---|
+| STEP 1 | Base cohort requires **two RD diagnoses 30–365 days apart** + continuous DMARD (`json_base_ids` filter). The second RD date is `rd_index_date`. `first_rd_date` is returned by the same SQL — no separate Step 1b needed. |
+| STEP 2 | PJP events must occur **on or after `rd_index_date`**. Same concept set (SNOMED 438350); same no-JSON-filter rationale. |
+
+---
+
+### ATLAS JSON cohort definitions
+
+All JSON files live in `inst/json/` and are parsed at run time by `fetch_cohort_ids()`.
+
+| File | Used in | Purpose |
+|---|---|---|
+| `cohort_PrevalentRD_VZV_all.json` | Shingles prevalent STEP 2, incident STEP 2 | All herpes zoster in prevalent RD patients (authoritative VZV case definition) |
+| `cohort_PrevalentRD_VZV_Morbidity.json` | Shingles Table 2 | VZV with PHN / organ involvement (episode severity classifier) |
+| `cohort_PrevalentRD_VZV_vaccine.json` | Shingles STEP 3 | Herpes zoster vaccine recipients (Shingrix / Zostavax) |
+| `cohort_PrevalentRD_continuous_DMARDs.json` | Shingles incident STEP 1, PJP incident STEP 1 | Incident base cohort — at-risk population on continuous DMARDs |
+| `cohort_PrevalentRD_PJP_infection.json` | PJP (loaded; not applied as filter) | ATLAS-validated PJP cohort — available for cross-validation |
+| `cohort_PJP_ppx_infection.json` | PJP STEP 6 / Table 3 | Patients who received PPX before developing PJP |
+| `cohort_PJP_infection.json` | (available) | PJP without RD restriction |
+| `cohort_PJP_infection_PJP_ppx.json` | (available) | PJP with PPX history |
+
+---
+
 ## Package structure
 
 ```
@@ -509,16 +605,16 @@ R/
   report.R              generate_patient_report() — HTML clinical summary
 
 inst/sql/               SqlRender-parameterized SQL templates
-inst/json/              ATLAS cohort JSON definitions
+inst/json/              ATLAS cohort JSON definitions (see table above)
 inst/extdata/           synthetic_patient_data.rds (demo)
 inst/app/www/           trajectory_styles.css
 
-launch_dashboard.R      ← Start here for live OMOP (OHDSI-standard)
-test_dashboard.R        Env-file connection approach (existing deployments)
-preliminary_tables.R            Shingles / VZV analysis tables (prevalence cohort)
-preliminary_tables_shingles_incident.R   Shingles tables (incident cohort)
-preliminary_tables_pjp.R                PJP analysis tables (prevalence cohort)
-preliminary_tables_pjp_incident.R       PJP tables (incident cohort)
+launch_dashboard.R                       ← Start here for live OMOP (OHDSI-standard)
+test_dashboard.R                         Env-file connection approach (existing deployments)
+preliminary_tables_shingles.R            Shingles / VZV analysis tables — prevalent cohort
+preliminary_tables_shingles_incident.R   Shingles / VZV analysis tables — incident cohort
+preliminary_tables_pjp.R                 PJP analysis tables — prevalent cohort
+preliminary_tables_pjp_incident.R        PJP analysis tables — incident cohort
 ```
 
 ---

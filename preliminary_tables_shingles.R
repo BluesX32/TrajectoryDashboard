@@ -1,33 +1,51 @@
-# preliminary_tables.R
-# Preliminary descriptive tables for VZV/shingles in rheumatic disease patients.
+# preliminary_tables_shingles.R
+# Preliminary descriptive tables for VZV / herpes zoster (shingles) in
+# rheumatic disease (RD) patients — PREVALENT cohort design.
 #
-# Three-tier cohort design
-# ------------------------
-#   cohort_ids            -- Base cohort: rheumatic disease + DMARD, age >= 18
-#                            Concept sets and criteria follow
-#                            inst/sql/templates/rheum-dmard-cohort-omop.sql
-#   shingles_ids          -- Treated shingles: VZV / herpes zoster diagnosis
-#                            + antiviral (acyclovir/valacyclovir/famciclovir)
-#                            on or after diagnosis, within cohort_ids
-#   shingles_vaccine_ids  -- Received zoster vaccine (Shingrix/Zostavax),
-#                            among shingles_ids
+# ── How to run ────────────────────────────────────────────────────────────────
+# Run sections sequentially in RStudio.  Each numbered STEP builds on the one
+# before it; do not skip steps.
 #
-# Table 1: Base cohort characteristics (patient-level, no p-value)
-#   Columns: Total | No Shingles | Shingles
-#   Rows: age, sex, race, rheumatologic Dx, shingles vaccine doses (0/1/2+)
+# ── Three-tier cohort design ──────────────────────────────────────────────────
 #
-# Table 2: Shingles episode characteristics (patients who ever had shingles)
-#   Columns: Overall | Pre-vaccine | Post-vaccine
-#   Post-vaccine: episode >= 14 days after first Shingrix dose (VACC_ONSET_DAYS)
-#   Pre-vaccine:  episode < 14 days after first dose, or no vaccine recorded
-#   Rows: total incidence, unique patients (episode-weighted), avg episodes/person,
-#         post-herpetic neuralgia, VZV organ involvement
+#   Tier 1 — cohort_ids  (base cohort)
+#     All RD patients aged >= 18 with at least one DMARD exposure.
+#     Requires ONE rheumatic disease diagnosis (prevalent definition).
+#     Built from inline SQL in STEP 1.
 #
-# Episode collapsing: consecutive condition occurrences for the same patient
-#   within SHINGLES_GAP_DAYS of each other are merged into one episode (earliest
-#   date kept).  Adjust SHINGLES_GAP_DAYS below to change the window.
-#   The same parameter controls episode collapsing in the Trajectory Dashboard.
+#   Tier 2 — shingles_ids  (shingles sub-cohort)
+#     Patients in cohort_ids who also appear in the ATLAS VZV cohort.
+#     Source: ATLAS JSON cohort_PrevalentRD_VZV_all.json (validated in OHDSI
+#     ATLAS; captures all herpes zoster diagnoses, no antiviral required).
+#     Derived in STEP 2 as: intersect(json_vzv_ids, cohort_ids).
 #
+#   Tier 3 — shingles_vaccine_ids  (vaccinated sub-cohort)
+#     Patients in shingles_ids with a herpes zoster vaccine record (Shingrix
+#     or Zostavax), validated against ATLAS JSON cohort_PrevalentRD_VZV_vaccine.json.
+#     Derived in STEP 3.
+#
+# ── Prevalent vs. incident ────────────────────────────────────────────────────
+#   This script uses a PREVALENT base cohort: one RD diagnosis suffices.
+#   See preliminary_tables_shingles_incident.R for the INCIDENT design (two RD
+#   diagnoses 30–365 days apart), which is more restrictive but higher specificity.
+#   Prevalent produces more patients; incident produces a more confirmed RD cohort.
+#
+# ── Table overview ────────────────────────────────────────────────────────────
+#   Table 1  Base cohort demographics
+#              Columns: Total | No Shingles | Shingles
+#              Rows: age, sex, race, RD diagnosis, vaccine dose count (0/1/2+)
+#
+#   Table 2  Shingles episode characteristics
+#              Columns: Overall | Pre-vaccine | Post-vaccine
+#              Post-vaccine = episode >= VACC_ONSET_DAYS after first Shingrix dose
+#              Pre-vaccine  = episode before that threshold, or no vaccine recorded
+#              Episodes within SHINGLES_GAP_DAYS of each other are merged into one
+#
+#   Table 3  DMARDs used in the 90 days before each shingles episode
+#
+#   Table 4  DMARDs used around the herpes zoster vaccine date
+#
+# ── Dependencies ─────────────────────────────────────────────────────────────
 # Run interactively in RStudio.  Requires DatabaseConnector, SqlRender,
 # gtsummary, gt, dplyr, labelled.
 # ============================================================================
@@ -99,21 +117,34 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
-# ATLAS JSON cohort IDs — used as authoritative population filters.
+# ATLAS JSON cohort IDs
+# These person-ID vectors come from ATLAS cohort definitions stored in
+# inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
+# the CDM.  Loading all of them upfront keeps the per-step code clean.
+#
+#   json_vzv_ids           → STEP 2  shingles sub-cohort (primary case definition)
+#   json_vzv_morbidity_ids → Table 2 post-herpetic neuralgia / organ involvement
+#   json_vaccine_ids       → STEP 3  herpes zoster vaccine recipients
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
+# All herpes zoster diagnoses in prevalent RD patients (no antiviral required).
+# This is the authoritative shingles case definition used in STEP 2.
 json_vzv_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_all.json",
                             package = "TrajectoryDashboard")
 )
+# Herpes zoster with confirmed morbidity (post-herpetic neuralgia, organ
+# involvement).  Used in Table 2 to classify episode severity.
 json_vzv_morbidity_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_Morbidity.json",
                             package = "TrajectoryDashboard")
 )
+# Patients who received a herpes zoster vaccine (Shingrix or Zostavax).
+# Used in STEP 3 to build shingles_vaccine_ids.
 json_vaccine_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_VZV_vaccine.json",
@@ -121,10 +152,15 @@ json_vaccine_ids <- fetch_cohort_ids(
 )
 
 # ============================================================================
-# STEP 1: Identify base cohort
-# Follows inst/sql/templates/rheum-dmard-cohort-omop.sql:
-#   rheumatic disease diagnosis + DMARD exposure (codeset 8) + age >= 18
-# No specialist filter; DMARD only (prednisone/IVIG not required here).
+# STEP 1  Base cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Adults (age >= 18) with at least one rheumatic disease (RD) diagnosis
+#         and at least one DMARD exposure (IVIG not required).
+# How:    Inline SQL queries condition_occurrence and drug_exposure.
+#         RD diagnosis spans SLE, myositis, SSc, GCA, RA, SpA, and vasculitis
+#         using both direct SNOMED concept IDs and concept ancestor expansion.
+# Result: base_cohort data frame (person_id, year_of_birth, gender, obs_start)
+#         cohort_ids = base_cohort$person_id (used to scope all downstream SQL)
 # ============================================================================
 
 message("Fetching base cohort person IDs (rheum disease + DMARD, age > 18)...")
@@ -228,9 +264,17 @@ message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis 
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
-# STEP 2: Shingles cohort
-# Use ATLAS JSON VZV cohort directly — it has already validated herpes zoster
-# diagnoses without restricting to antiviral-treated cases.
+# STEP 2  Shingles sub-cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Base cohort patients who appear in the ATLAS VZV cohort.
+# How:    json_vzv_ids (from cohort_PrevalentRD_VZV_all.json) is the case
+#         definition.  It captures all herpes zoster diagnoses in prevalent RD
+#         patients without requiring antiviral documentation (antivirals are
+#         often prescribed outside the system or under formulations not easily
+#         mapped, so requiring them would silently discard real cases).
+#         We intersect with cohort_ids to ensure every shingles patient is also
+#         in the base cohort.
+# Result: shingles_ids — integer vector of person_ids
 # ============================================================================
 
 shingles_ids <- intersect(json_vzv_ids, cohort_ids)
@@ -239,10 +283,15 @@ message(sprintf("%d / %d base cohort patients had shingles (ATLAS JSON VZV cohor
                 length(shingles_ids), length(cohort_ids)))
 
 # ============================================================================
-# STEP 3: Shingles vaccine cohort
-# Among shingles_ids, who received the herpes zoster vaccine?
-# Concept set matches inst/sql/templates/def_shingrix_vaccine.sql:
-#   ancestors 44808679/21601361/706103, minus live-zoster exclusions.
+# STEP 3  Shingles vaccine sub-cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Patients in shingles_ids who received a herpes zoster vaccine.
+# How:    SQL finds vaccine drug exposures (Shingrix and Zostavax ancestors
+#         44808679/21601361/706103, minus live-zoster formulations) among
+#         shingles_ids.  Result is intersected with json_vaccine_ids from
+#         ATLAS cohort_PrevalentRD_VZV_vaccine.json for cross-validation.
+# Result: shingles_vaccine_ids — integer vector of person_ids
+#         Used in Table 2 to split episodes into pre-vaccine vs. post-vaccine.
 # ============================================================================
 
 message("Identifying shingles vaccine patients (Shingrix/Zostavax)...")

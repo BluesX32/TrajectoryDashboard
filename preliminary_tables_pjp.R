@@ -1,46 +1,71 @@
 # preliminary_tables_pjp.R
 # Preliminary descriptive tables for PJP (Pneumocystis jirovecii pneumonia)
-# in rheumatic disease patients on immunosuppressive therapy.
+# in rheumatic disease (RD) patients on immunosuppressive therapy —
+# PREVALENT cohort design.
 #
-# Three-tier cohort design
-# ------------------------
-#   base_cohort   -- Rheumatic disease + DMARD (no IVIG), age >= 18
-#                    Follows inst/sql/templates/rheum-dmard-nonivig-cohort-omop.sql
-#   pjp_cohort    -- Subset of base cohort with PJP/PCP diagnosis (ICD → SNOMED 438350)
-#                    Follows inst/sql/templates/cohort_PJP.sql
-#   ppx_cohort    -- Full base cohort with PJP prophylaxis exposure (for Table 3)
-#                    Follows inst/sql/templates/cohort_PJP_prophylaxis.sql
+# ── How to run ────────────────────────────────────────────────────────────────
+# Run sections sequentially in RStudio.  Each numbered STEP builds on the one
+# before it; do not skip steps.
 #
-# Table 1: PJP patient demographics
-#   Rows: age at PJP dx, sex, rheumatic diagnosis, 30-day in-hospital mortality,
-#         DMARD count within 90d of PJP, prophylaxis exposure (TMP-SMX / Dapsone /
-#         Atovaquone / Pentamidine) in 90d before or at PJP diagnosis
+# ── Three-tier cohort design ──────────────────────────────────────────────────
 #
-# Table 2: Medications 90 days before / at PJP infection (episode-level)
-#   Rows: drug class / drug name, n (%) with that drug in the 90d window
+#   Tier 1 — base_cohort  (base cohort)
+#     Adults (age >= 18) with at least one RD diagnosis and at least one DMARD
+#     exposure.  IVIG is explicitly excluded (too broad for immunosuppression).
+#     Requires ONE RD diagnosis (prevalent definition).
+#     Built from inline SQL in STEP 1.
 #
-# Table 3: Prophylaxis regimen outcomes
-#   Incidence rate of PJP infection (per 100 person-years, exact Poisson 95% CI)
-#   and adverse drug event rate by regimen: TMP-SMX, Dapsone, Atovaquone,
-#   Pentamidine in rheumatic disease patients.
+#   Tier 2 — pjp_cohort  (PJP sub-cohort)
+#     Base cohort patients with a PJP / PCP diagnosis (SNOMED 438350 and
+#     descendants).  Index date = earliest PJP condition_start_date.
+#     Built from inline SQL in STEP 2.  No ATLAS JSON filter is applied here —
+#     the SQL concept set (SNOMED 438350 + descendants) already captures all
+#     mapped PJP diagnoses; the ATLAS cohort's additional inclusion rules would
+#     over-restrict the count.
 #
-# 30-day in-hospital mortality definition
-#   Death date within 30 days of PJP index date AND an inpatient visit that
-#   overlaps the PJP index date (visit_start <= index_date <= visit_end).
+#   Tier 3 — ppx_cohort  (prophylaxis sub-cohort)
+#     Full base cohort patients with any PJP prophylaxis exposure (TMP-SMX,
+#     Dapsone, Atovaquone, Pentamidine).  Used for Table 3 incidence rates.
+#     Built from inline SQL in STEP 6.  Filtered by json_ppx_ids (ATLAS cohort
+#     cohort_PJP_ppx_infection.json) to identify patients who received PPX
+#     BEFORE developing PJP — the relevant at-risk sub-group.
 #
-# Prophylaxis definition for Table 1
-#   All patients:     ppx_start >= first rheumatic disease diagnosis + 8 weeks
-#                     (ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET).
-#   PJP patients:     additionally ppx_start <= index_date - 28 days
-#                     (ppx_start <= index_date - PPX_TABLE1_ONSET).
-#   Non-PJP patients: criterion (a) only — no PJP date to reference.
-#   Prophylaxis window for Table 2 (PJP patients only) remains 90 days before
-#   index date (PJP_PPX_WINDOW) and is not subject to these constraints.
+# ── Prevalent vs. incident ────────────────────────────────────────────────────
+#   This script uses a PREVALENT base cohort: one RD diagnosis suffices.
+#   See preliminary_tables_pjp_incident.R for the INCIDENT design (two RD
+#   diagnoses 30–365 days apart).
 #
-# ADE window for Table 3
-#   Any condition occurrence for a pre-specified serious adverse event within
-#   ADE_WINDOW days after the first prophylaxis prescription for that regimen.
+# ── Time windows ─────────────────────────────────────────────────────────────
+#   PJP_DMARD_WINDOW  90 days before PJP index to count DMARDs (Table 1/2)
+#   PJP_PPX_WINDOW    90 days before PJP index to classify PPX (Table 2)
+#   PPX_TABLE1_ONSET  PPX must start >= 28 days before PJP to count in Table 1
+#   PPX_RHEUM_ONSET   PPX must start >= 8 weeks after first RD Dx (PPX timing rule)
+#   ADE_WINDOW        90 days after first PPX Rx to look for adverse events
+#   MORTALITY_DAYS    30-day in-hospital mortality window
 #
+# ── 30-day in-hospital mortality ─────────────────────────────────────────────
+#   Death date within MORTALITY_DAYS of PJP index date AND an inpatient visit
+#   that overlaps the PJP index date (visit_start <= index_date <= visit_end).
+#
+# ── Prophylaxis classification (Table 1) ─────────────────────────────────────
+#   All patients:     ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET (8 weeks)
+#   PJP patients:     also require ppx_start <= index_date − PPX_TABLE1_ONSET
+#   Non-PJP patients: criterion above only (no PJP date to reference)
+#   Table 2 window:   90 days before PJP index (PJP_PPX_WINDOW), no onset rule
+#
+# ── Table overview ────────────────────────────────────────────────────────────
+#   Table 1  Base cohort demographics by PJP status
+#              Columns: Total | Without PJP | With PJP
+#              Rows: age, sex, race, RD Dx, mortality, DMARD count, PPX exposure
+#
+#   Table 2  Medications 90 days before PJP (PJP cohort only)
+#              Rows: drug class / drug name, n (%) with that drug in window
+#
+#   Table 3  Prophylaxis regimen outcomes
+#              PJP incidence rate per 100 person-years (exact Poisson 95% CI)
+#              and ADE rate by regimen: TMP-SMX, Dapsone, Atovaquone, Pentamidine
+#
+# ── Dependencies ─────────────────────────────────────────────────────────────
 # Run interactively in RStudio.  Requires DatabaseConnector, SqlRender,
 # gtsummary, gt, dplyr, labelled, tidyr.
 # ============================================================================
@@ -90,16 +115,30 @@ cdm   <- con$cdm_schema
 vocab <- con$vocab_schema %||% con$cdm_schema
 
 # ============================================================================
-# ATLAS JSON cohort IDs — used as authoritative population filters.
+# ATLAS JSON cohort IDs
+# These person-ID vectors come from ATLAS cohort definitions stored in
+# inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
+# the CDM.  Loading all of them upfront keeps the per-step code clean.
+#
+#   json_pjp_ids → loaded for reference / cross-validation; NOT used to filter
+#                  pjp_cohort (see STEP 2 note below)
+#   json_ppx_ids → STEP 6 / Table 3  identifies patients who received PJP
+#                  prophylaxis before developing PJP (PPX-before-PJP subgroup)
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
+# ATLAS-validated PJP infection cohort (RD + PJP diagnosis).
+# Available for cross-validation or sensitivity analyses.
+# NOT applied as a filter to pjp_cohort: the ATLAS cohort's additional
+# inclusion rules (IR=2) over-restrict the count beyond what the SQL finds.
 json_pjp_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
                             package = "TrajectoryDashboard")
 )
+# Patients who received PJP prophylaxis and subsequently developed PJP.
+# Applied in STEP 6 to identify the PPX-before-PJP subgroup for Table 3.
 json_ppx_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PJP_ppx_infection.json",
@@ -107,10 +146,17 @@ json_ppx_ids <- fetch_cohort_ids(
 )
 
 # ============================================================================
-# STEP 1: Base cohort
-# Rheumatic disease + DMARD (no IVIG), age >= 18.
-# Follows inst/sql/templates/rheum-dmard-nonivig-cohort-omop.sql (prefix nxw3dm5k).
-# IVIG (35603563) deliberately excluded from the DMARD ancestor list.
+# STEP 1  Base cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Adults (age >= 18) with at least one RD diagnosis and at least one
+#         DMARD exposure.  IVIG is explicitly excluded — its broad immunologic
+#         use would pull in patients not on disease-modifying therapy.
+# How:    Inline SQL queries condition_occurrence (RD Dx) and drug_exposure
+#         (DMARD ancestor concept IDs).  Ancestor concept 35603563 (IVIG)
+#         is omitted from the DMARD list.
+# Result: base_cohort data frame (person_id, year_of_birth, gender,
+#         obs_start, obs_end)
+#         cohort_ids = base_cohort$person_id
 # ============================================================================
 
 message("Fetching base cohort (rheum disease + DMARD, no IVIG, age >= 18)...")
@@ -317,10 +363,18 @@ message(sprintf(
 ))
 
 # ============================================================================
-# STEP 2: PJP cohort
-# Among base cohort, patients with a PJP / PCP diagnosis.
-# Concept set follows cohort_PJP.sql codeset 0: SNOMED 438350 + descendants.
-# Index date = earliest PJP condition_start_date.
+# STEP 2  PJP sub-cohort
+# ─────────────────────────────────────────────────────────────────────────────
+# Who:    Base cohort patients with a PJP / PCP diagnosis.
+# How:    SQL finds condition_occurrence rows matching SNOMED 438350
+#         (Pneumocystis jirovecii pneumonia) and all its descendants.
+#         The earliest matching date becomes the patient's PJP index date.
+#         No ATLAS JSON filter is applied: json_pjp_ids is available for
+#         cross-validation but the ATLAS cohort's two inclusion rules (IR=2)
+#         impose additional constraints (e.g. observation-window requirements)
+#         that go beyond the SQL's concept-set match and would under-count cases.
+# Result: pjp_cohort data frame (person_id, index_date)
+#         pjp_ids = pjp_cohort$person_id
 # ============================================================================
 
 message("Identifying PJP patients in base cohort...")
