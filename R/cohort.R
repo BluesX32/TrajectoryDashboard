@@ -421,34 +421,46 @@ build_cohort_sql <- function(cohort,
   crit_list <- pc$CriteriaList
   if (is.data.frame(crit_list)) crit_list <- lapply(seq_len(nrow(crit_list)), function(i) as.list(crit_list[i, ]))
 
-  first <- crit_list[[1]]
+  # Find first supported primary criterion (ConditionOccurrence or DrugExposure).
+  # ATLAS cohorts may list VisitOccurrence or Measurement as additional OR'd
+  # primary criteria — skip those and use the first condition/drug entry.
+  first  <- NULL
+  domain <- NULL
+  for (entry in crit_list) {
+    if (!is.null(entry$ConditionOccurrence)) { first <- entry; domain <- "condition_occurrence"; break }
+    if (!is.null(entry$DrugExposure))        { first <- entry; domain <- "drug_exposure";        break }
+  }
+  if (is.null(first)) {
+    unsupported <- paste(unique(unlist(lapply(crit_list, names))), collapse = ", ")
+    rlang::warn(paste0(
+      "No supported PrimaryCriteria domain found (saw: ", unsupported,
+      "). Results may be incorrect."
+    ))
+    first  <- crit_list[[1]]
+    domain <- "condition_occurrence"
+  }
 
-  # Determine domain from the first criteria key
-  domain <- if (!is.null(first$ConditionOccurrence)) "condition_occurrence"
-             else if (!is.null(first$DrugExposure))   "drug_exposure"
-             else if (!is.null(first$Measurement))     "measurement"
-             else                                       "condition_occurrence"
+  domain_obj <- first[[.atlas_domain_key(domain)]]
+  codeset_id <- as.character(domain_obj$CodesetId)
+  cs         <- cs_map[[codeset_id]]
 
-  domain_obj  <- first[[.atlas_domain_key(domain)]]
-  codeset_id  <- as.character(domain_obj$CodesetId)
-  cs          <- cs_map[[codeset_id]]
-
-  # Co-criteria (e.g. required drug on/after index)
+  # Co-criteria (e.g. required drug on/after index). Skip unsupported domains
+  # such as ProcedureOccurrence, Measurement, VisitOccurrence.
   co_raw <- domain_obj$CorrelatedCriteria$CriteriaList
   if (is.null(co_raw)) co_raw <- list()
   if (is.data.frame(co_raw)) co_raw <- lapply(seq_len(nrow(co_raw)), function(i) as.list(co_raw[i, ]))
 
-  co_criteria <- lapply(co_raw, function(cc) {
-    crit <- cc$Criteria
-    co_dom <- if (!is.null(crit$DrugExposure))        "drug_exposure"
+  co_criteria <- Filter(Negate(is.null), lapply(co_raw, function(cc) {
+    crit   <- cc$Criteria
+    co_dom <- if (!is.null(crit$DrugExposure))              "drug_exposure"
                else if (!is.null(crit$ConditionOccurrence)) "condition_occurrence"
-               else                                         "drug_exposure"
+               else                                          return(NULL)
     co_obj   <- crit[[.atlas_domain_key(co_dom)]]
     co_cs_id <- as.character(co_obj$CodesetId)
     co_cs    <- cs_map[[co_cs_id]]
+    if (is.null(co_cs)) return(NULL)
 
-    # StartWindow: Start$Coeff=-1 + End$Coeff=1 means any; Days=0 means on index
-    sw     <- cc$StartWindow
+    sw          <- cc$StartWindow
     on_or_after <- !is.null(sw$Start$Days) && sw$Start$Days == 0 && sw$Start$Coeff == -1
 
     list(
@@ -457,7 +469,7 @@ build_cohort_sql <- function(cohort,
       include_descendants = co_cs$include_descendants,
       on_or_after_index   = on_or_after
     )
-  })
+  }))
 
   list(
     domain              = domain,
