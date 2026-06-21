@@ -156,6 +156,20 @@ launch_trajectory_dashboard(
 #             per 100 person-years (exact Poisson 95% CI, Garwood method)
 # source("preliminary_tables_pjp.R")
 
+# ── CLINICAL RISK FACTOR ANALYSES ────────────────────────────────────────────
+# analysis_risk_factors_vzv.R
+#   Compares clinical factors (RD type, DMARD class 90d pre- and 30d post-
+#   vaccination, N DMARDs, lymphopenia) across three VZV outcomes: PHN,
+#   organ invasive/disseminated VZV, and post-vaccine breakthrough.
+#   Run after preliminary_tables_shingles.R (reuses its environment objects).
+# source("analysis_risk_factors_vzv.R")
+#
+# analysis_risk_factors_pjp.R
+#   Compares clinical factors (age, RD type, lymphopenia, neutropenia, HbA1c,
+#   ILD, steroid-months, N DMARDs 90d pre, PPX 14–42d before PJP) between
+#   PJP and non-PJP patients.  Run after preliminary_tables_pjp.R.
+# source("analysis_risk_factors_pjp.R")
+
 # ── AGE CUTOFF SENSITIVITY TESTS ─────────────────────────────────────────────
 # test_shingles_no_age_cutoff.R
 #   Removes the age >= 18 filter from the shingles base cohort and compares
