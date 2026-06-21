@@ -298,8 +298,9 @@ make_vzv_table <- function(data, outcome_col, outcome_labels,
       any_biologic_post_vacc, any_jak_post_vacc, any_csdmard_post_vacc,
       n_dmards_pre_vacc_cat, n_dmards_post_vacc_cat,
       lymphopenia
-    ) |>
-    set_variable_labels(.labels = VAR_LABELS[intersect(names(VAR_LABELS), names(.))])
+    )
+  tbl_data <- set_variable_labels(tbl_data,
+    .labels = VAR_LABELS[intersect(names(VAR_LABELS), names(tbl_data))])
 
   tbl <- tbl_data |>
     tbl_summary(
@@ -328,10 +329,10 @@ make_vzv_table <- function(data, outcome_col, outcome_labels,
     modify_header(
       label  ~ "**Characteristic**",
       stat_0 ~ "**Overall**\n(N = {N})",
-      stat_1 ~ glue::glue("**{outcome_labels[1]}**\n(n = {{n}})"),
-      stat_2 ~ glue::glue("**{outcome_labels[2]}**\n(n = {{n}})")
+      stat_1 ~ paste0("**", outcome_labels[1], "**\n(n = {n})"),
+      stat_2 ~ paste0("**", outcome_labels[2], "**\n(n = {n})")
     ) |>
-    modify_spanning_header(c(stat_1, stat_2) ~ glue::glue("**{title}**")) |>
+    modify_spanning_header(c(stat_1, stat_2) ~ paste0("**", title, "**")) |>
     modify_table_body(
       \(x) x |> mutate(groupname_col = case_when(
         variable == "age"                              ~ "Demographics",
