@@ -156,6 +156,23 @@ launch_trajectory_dashboard(
 #             per 100 person-years (exact Poisson 95% CI, Garwood method)
 # source("preliminary_tables_pjp.R")
 
+# ── AGE CUTOFF SENSITIVITY TEST ──────────────────────────────────────────────
+# test_shingles_no_age_cutoff.R
+#   Removes the age >= 18 filter from the shingles base cohort and compares
+#   patient counts at all three tiers (base / shingles / vaccinated) vs. the
+#   current definition.  Reports a summary table and the age distribution of
+#   newly added patients.
+# source("test_shingles_no_age_cutoff.R")
+
+# ── PJP PROPHYLAXIS BREAKTHROUGH DASHBOARD ───────────────────────────────────
+# test_pjp_ppx_dashboard.R
+#   Identifies patients who were on PJP prophylaxis and still developed PJP
+#   (PPX breakthrough, sourced from ATLAS cohort_PJP_ppx_infection.json).
+#   Builds a per-patient clinical summary (demographics, PPX regimen, DMARDs,
+#   lymphocytes, 30-day in-hospital mortality) and launches the Trajectory
+#   Dashboard pre-loaded with those patients for clinical note review.
+# source("test_pjp_ppx_dashboard.R")
+
 # ── INCIDENT COHORT VERSIONS ─────────────────────────────────────────────────
 # Cohort entry requires TWO RD diagnoses, with the first occurring 30–365 days
 # before the second.  The second diagnosis date is the INDEX DATE.
