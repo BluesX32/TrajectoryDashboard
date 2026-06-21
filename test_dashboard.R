@@ -156,13 +156,18 @@ launch_trajectory_dashboard(
 #             per 100 person-years (exact Poisson 95% CI, Garwood method)
 # source("preliminary_tables_pjp.R")
 
-# ── AGE CUTOFF SENSITIVITY TEST ──────────────────────────────────────────────
+# ── AGE CUTOFF SENSITIVITY TESTS ─────────────────────────────────────────────
 # test_shingles_no_age_cutoff.R
 #   Removes the age >= 18 filter from the shingles base cohort and compares
 #   patient counts at all three tiers (base / shingles / vaccinated) vs. the
 #   current definition.  Reports a summary table and the age distribution of
 #   newly added patients.
 # source("test_shingles_no_age_cutoff.R")
+#
+# test_pjp_no_age_cutoff.R
+#   Same test for the PJP cohort: base / PJP sub-cohort / PPX breakthrough.
+#   Reports counts at each tier with vs. without the age >= 18 filter.
+# source("test_pjp_no_age_cutoff.R")
 
 # ── PJP PROPHYLAXIS BREAKTHROUGH DASHBOARD ───────────────────────────────────
 # test_pjp_ppx_dashboard.R
