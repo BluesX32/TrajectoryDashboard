@@ -19,9 +19,13 @@
 #
 # ── How to run ────────────────────────────────────────────────────────────────
 # Option A: run preliminary_tables_shingles.R first — this script reuses its
-#   objects (shingles_ids, phn_pts, organ_pts, ep_post, vacc_bulk, etc.).
+#   objects (shingles_ids, phn_pts, organ_pts, json_phn_ids,
+#   json_vzv_morbidity_ids, ep_post, vacc_bulk, etc.).
 #   Guards with exists() skip re-fetching if already in environment.
 # Option B: set STANDALONE <- TRUE to build everything from scratch.
+#
+# NOTE: phn_pts uses a 2-arm definition (PHN diagnosis OR shingles + PHN
+#   treatment drug within 120 days) per cohort_PrevalenceRD_VZV_PHN.json.
 # ============================================================================
 
 devtools::load_all("~/Myositis/TrajectoryDashboard")
@@ -70,7 +74,7 @@ run_sql <- function(con, sql_template, ...) {
   result
 }
 
-if (STANDALONE || !exists("shingles_ids")) {
+if (STANDALONE || !exists("shingles_ids") || !exists("phn_pts")) {
   message("Building shingles cohort (run preliminary_tables_shingles.R first to skip this)...")
   source("preliminary_tables_shingles.R")
 }
