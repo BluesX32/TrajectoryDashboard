@@ -1,18 +1,18 @@
 # test_pjp_ppx_dashboard.R
-# Identifies the PJP patients who were on PJP prophylaxis (the 12 patients in
-# Table 1, "With PJP" × "Any PJP prophylaxis") and launches the Trajectory
-# Dashboard pre-loaded with those patients for clinical note review.
+# Identifies PJP patients who were on PJP prophylaxis (Table 1, "With PJP" ×
+# "Any PJP prophylaxis") and launches the Trajectory Dashboard pre-loaded with
+# those patients for clinical note review.
 #
-# ── How the 12 patients are identified ───────────────────────────────────────
+# ── How patients are identified ───────────────────────────────────────────────
 # Replicates the Table 1 prophylaxis definition from preliminary_tables_pjp.R
-# (STEPs 1 → 1b → 2 → 6) exactly:
+# (STEPs 1 → 2 → 6) exactly:
 #
-#   ppx_for_pjp = PJP patients whose PPX prescription satisfies BOTH:
-#     (a) ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET  (>= 8 weeks after RD dx)
-#     (b) ppx_start <= pjp_index_date - PPX_TABLE1_ONSET (>= 28 days before PJP)
+#   ppx_for_pjp = PJP patients whose PPX prescription falls in the window
+#     ppx_start in [index_date − PPX_PJP_EARLY, index_date − PPX_PJP_LATE]
+#     i.e. T=−42 to T=−14 days relative to PJP index date
 #
 # This is NOT json_ppx_ids (the ATLAS cohort used only for Table 3 incidence
-# rates).  The 12 patients are the SQL-derived set above.
+# rates).  Qualifying patients are the SQL-derived set above.
 #
 # ── Dashboard research panel ─────────────────────────────────────────────────
 # Injects a per-patient clinical summary into the "PPX Breakthrough PJP"
@@ -29,8 +29,8 @@ library(dplyr, lib.loc = "C:/Program Files/RPackages")
 library(tidyr, lib.loc = "C:/Program Files/RPackages")
 
 # ── Time windows (must match preliminary_tables_pjp.R) ───────────────────────
-PPX_RHEUM_ONSET  <- 56L   # PPX must start >= 8 weeks after first RD Dx
-PPX_TABLE1_ONSET <- 28L   # PPX must start >= 28 days before PJP (Table 1 rule)
+PPX_PJP_EARLY    <- 42L   # PPX window opens: prescription must start >= 42 days before PJP (T=−42)
+PPX_PJP_LATE     <- 14L   # PPX window closes: prescription must start <= 14 days before PJP (T=−14)
 PJP_DMARD_WINDOW <- 90L   # days before PJP index for DMARD exposure
 LYMPH_WINDOW     <- 90L   # days around PJP index for lymphocyte lookup
 MORTALITY_DAYS   <- 30L   # in-hospital death within this many days of PJP index
@@ -272,11 +272,9 @@ message(sprintf("%d / %d base cohort patients had PJP.", length(pjp_ids), length
 # STEP 3  PPX exposure for PJP patients
 #         (replicates STEP 6 ppx_for_pjp from preliminary_tables_pjp.R)
 #
-# Table 1 criteria for PJP patients:
-#   (a) ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET  (>= 8 weeks after RD dx)
-#   (b) ppx_start <= index_date - PPX_TABLE1_ONSET     (>= 28 days before PJP)
-#
-# Patients satisfying both (a) and (b) are the 12 in Table 1.
+# Table 1 window for PJP patients:
+#   ppx_start in [index_date − PPX_PJP_EARLY, index_date − PPX_PJP_LATE]
+#   i.e. T=−42 to T=−14 days relative to PJP index date
 # ============================================================================
 
 message("Fetching PPX exposure for PJP patients...")
@@ -304,23 +302,23 @@ ppx_pjp_raw <- run_sql(con, ppx_sql,
            ppx_ancestor == 1751310L                  ~ "Pentamidine"
          ))
 
-# Apply the Table 1 two-criterion filter — identical to ppx_for_pjp in STEP 6
+# Apply the Table 1 PJP filter — identical to ppx_for_pjp in STEP 6
+# Window: T=−PPX_PJP_EARLY to T=−PPX_PJP_LATE relative to PJP index date
 ppx_for_pjp <- ppx_pjp_raw |>
-  inner_join(pjp_cohort        |> select(person_id, index_date),    by = "person_id") |>
-  inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx), by = "person_id") |>
-  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET,
-         ppx_start <= index_date     - PPX_TABLE1_ONSET) |>
+  inner_join(pjp_cohort |> select(person_id, index_date), by = "person_id") |>
+  filter(ppx_start >= index_date - PPX_PJP_EARLY,
+         ppx_start <= index_date - PPX_PJP_LATE) |>
   distinct(person_id, ppx_group)
 
 review_ids <- unique(ppx_for_pjp$person_id)
 message(sprintf(
-  "%d PJP patients had qualifying PPX (>=%d days after RD dx; >=%d days before PJP).",
-  length(review_ids), PPX_RHEUM_ONSET, PPX_TABLE1_ONSET
+  "%d PJP patients had qualifying PPX (T=-%d to T=-%d days before PJP).",
+  length(review_ids), PPX_PJP_EARLY, PPX_PJP_LATE
 ))
 
-if (length(review_ids) != 12L) {
+if (length(review_ids) == 0L) {
   warning(sprintf(
-    "Expected 12 patients (matching Table 1) but found %d. Check windows or base cohort.",
+    "No qualifying PPX patients found. Check windows or base cohort.",
     length(review_ids)
   ))
 }
