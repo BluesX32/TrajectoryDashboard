@@ -141,6 +141,14 @@ json_vzv_morbidity_ids <- fetch_cohort_ids(
   json_path = system.file("json", "cohort_PrevalentRD_VZV_Morbidity.json",
                             package = "TrajectoryDashboard")
 )
+# PHN cohort: PHN diagnosis OR shingles + PHN treatment medication within
+# 120 days.  Expands the diagnosis-only definition to capture treated patients
+# without a formal PHN code.
+json_phn_ids <- fetch_cohort_ids(
+  con,
+  json_path = system.file("json", "cohort_PrevalenceRD_VZV_PHN.json",
+                            package = "TrajectoryDashboard")
+)
 # Patients who received a herpes zoster vaccine (Shingrix or Zostavax).
 # Applied in STEP 3 to build shingles_vaccine_ids.
 json_vaccine_ids <- fetch_cohort_ids(
@@ -823,22 +831,57 @@ WHERE co.person_id IN (@person_ids)
   )
 "
 
+# Two arms (matching cohort_PrevalenceRD_VZV_PHN.json inclusion rule "VZV PHN"):
+#   ARM 1 – PHN diagnosis code (CS 7: 7 ancestor roots, all +desc)
+#   ARM 2 – any shingles condition + PHN treatment drug within 120 days
+#            drugs (CS 10): gabapentin, pregabalin, capsaicin,
+#            amitriptyline, nortriptyline, lidocaine patch/gel/ointment
 phn_sql <- "
-SELECT co.person_id,
-  CAST(MIN(co.condition_start_date) AS DATE) AS complication_date
-FROM @cdm_schema.condition_occurrence co
-WHERE co.person_id IN (@person_ids)
-  AND co.condition_concept_id IN (
-    SELECT DISTINCT concept_id FROM @vocab_schema.concept
-    WHERE concept_id IN (4044396, 4071164)
-    UNION
-    SELECT DISTINCT ca.descendant_concept_id
-    FROM @vocab_schema.concept_ancestor ca
-    JOIN @vocab_schema.concept cv ON ca.descendant_concept_id = cv.concept_id
-    WHERE ca.ancestor_concept_id IN (4044396, 4071164)
-      AND cv.invalid_reason IS NULL
-  )
-GROUP BY co.person_id
+SELECT person_id, CAST(MIN(complication_date) AS DATE) AS complication_date
+FROM (
+
+  /* ARM 1: PHN diagnosis (CS 7, all +desc) */
+  SELECT co.person_id, co.condition_start_date AS complication_date
+  FROM @cdm_schema.condition_occurrence co
+  JOIN @vocab_schema.concept_ancestor ca
+    ON co.condition_concept_id = ca.descendant_concept_id
+  JOIN @vocab_schema.concept cv
+    ON co.condition_concept_id = cv.concept_id
+  WHERE co.person_id IN (@person_ids)
+    AND ca.ancestor_concept_id IN (
+      4044396, 4071164, 4151196, 4151978, 192239, 37165456, 381504
+    )
+    AND cv.invalid_reason IS NULL
+
+  UNION ALL
+
+  /* ARM 2: shingles condition + PHN treatment drug within 120 days */
+  SELECT co.person_id, co.condition_start_date AS complication_date
+  FROM @cdm_schema.condition_occurrence co
+  JOIN @vocab_schema.concept_ancestor ca_shingles
+    ON co.condition_concept_id = ca_shingles.descendant_concept_id
+  WHERE co.person_id IN (@person_ids)
+    AND ca_shingles.ancestor_concept_id = 443943  -- Herpes zoster
+    AND EXISTS (
+      SELECT 1
+      FROM @cdm_schema.drug_exposure de
+      JOIN @vocab_schema.concept_ancestor ca_drug
+        ON de.drug_concept_id = ca_drug.descendant_concept_id
+      JOIN @vocab_schema.concept cv_drug
+        ON de.drug_concept_id = cv_drug.concept_id
+      WHERE de.person_id = co.person_id
+        AND de.drug_exposure_start_date
+              BETWEEN co.condition_start_date
+                  AND DATEADD(day, 120, co.condition_start_date)
+        AND ca_drug.ancestor_concept_id IN (
+          797399, 734354, 939881, 710062, 721724,
+          42629129, 40000233, 40000239
+        )
+        AND cv_drug.invalid_reason IS NULL
+    )
+
+) t
+GROUP BY person_id
 "
 
 vzv_organ_sql <- "
