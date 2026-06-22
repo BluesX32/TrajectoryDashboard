@@ -424,97 +424,95 @@ vacc_count_df <- run_sql(con, vacc_count_sql,
 
 message("Fetching disease category flags...")
 
+# Disease flags derived from inst/json/conceptSets_*.json.
+# Concept IDs with includeDescendants: false → PART 1 direct match.
+# Concept IDs with includeDescendants: true  → PART 2 ancestor traversal.
+# (In OMOP concept_ancestor a concept is its own ancestor at level 0, so the
+# ancestor traversal in PART 2 catches the parent concept itself too.)
 disease_flags_sql <- "
 SELECT
-  co.person_id,
-  -- SLE (codeset 0 — direct SNOMED concepts)
-  MAX(CASE WHEN co.condition_concept_id IN (
-    37016279, 4319305, 4300204, 4324123, 4066824, 432919, 606388, 46273369,
-    4055640, 35208699, 45562709, 45567545, 257628, 606386, 255891, 46270384,
-    35208826, 35208701, 45606214, 3321233, 45601434, 606430, 4145240, 4343923,
-    35208700, 44819941, 4344158, 4149913, 45582126, 35208827, 45591820
-  ) THEN 1 ELSE 0 END) AS dx_sle,
-  -- Myositis / IIM (codeset 3 — direct SNOMED concepts)
-  MAX(CASE WHEN co.condition_concept_id IN (
-    45548265, 45586838, 45606052, 45543436, 45572339, 45553046, 45591705,
-    45562599, 45543443, 45562600, 45567422, 45567423, 45586845, 725373,
-    45606064, 45538639, 45606063, 45543442, 45601289, 45572346, 45577117,
-    45567425, 45577119, 45548271, 45548270, 45567426, 80809, 4117687,
-    4115161, 4116440, 4116150, 4116151, 4117686, 4114439, 4116441, 45591700,
-    45572337, 45596437, 45538633, 45548263, 45543435, 45582014, 45553045,
-    725370, 45596438, 45548261, 45606051, 45572338, 45548262, 45596436,
-    45606050, 45596439, 45562591, 45582015, 45567419, 45533697, 45567418,
-    45543434, 45553044, 35208750, 37160562, 45567420, 45577104, 45572340,
-    45533702, 45553051, 45533701, 45562593, 45572341, 725372, 45577109,
-    45557762, 45606055, 45557763, 45601284, 45606053, 45606054, 45533703,
-    45577105, 45577107, 45538635, 45591701, 45596442, 45606056, 35208753,
-    45586836, 45557754, 45591686, 45572332, 45538631, 45567415, 45591694,
-    45548258, 45548257, 45567413, 45596428, 45596427, 45572327, 4083556,
-    37207809, 4035611
-  ) THEN 1 ELSE 0 END) AS dx_dm_myositis,
-  -- SSc (codeset 4 — direct SNOMED concepts)
-  MAX(CASE WHEN co.condition_concept_id IN (
-    36716891, 37017494, 1077506, 766408, 766409, 766411, 766410, 766402,
-    37110375, 37205058, 40319772, 45548197, 46274123, 4064048, 437082,
-    45548419, 45533841, 45586969, 45601454, 45548418, 45533840, 45553184,
-    45543577, 45582150, 45567561
-  ) THEN 1 ELSE 0 END) AS dx_ssc,
-  -- GCA (codeset 5 — direct SNOMED concepts)
-  MAX(CASE WHEN co.condition_concept_id IN (
-    4126439, 37397763, 4337524, 4128222, 134442, 4331739, 441928, 4105026,
-    44811612, 40352976, 4027230
-  ) THEN 1 ELSE 0 END) AS dx_gca,
-  -- SpA direct (codeset 6); spondylitis ancestor traversal added via spa_flag_sql
-  MAX(CASE WHEN co.condition_concept_id IN (
-    314963, 35208820, 4343935, 35208821
-  ) THEN 1 ELSE 0 END) AS dx_spa_direct,
-  -- ANCA-associated vasculitis
-  MAX(CASE WHEN co.condition_concept_id IN (
-    42535714, 4146124, 4096220, 37166813, 4236160, 37110370, 4137275,
-    37110368, 37110369, 37167489
-  ) THEN 1 ELSE 0 END) AS dx_vasculitis
-FROM @cdm_schema.condition_occurrence co
-WHERE co.person_id IN (@person_ids)
-GROUP BY co.person_id
-"
+  person_id,
+  MAX(dx_sle)         AS dx_sle,
+  MAX(dx_dm_myositis) AS dx_dm_myositis,
+  MAX(dx_ssc)         AS dx_ssc,
+  MAX(dx_gca)         AS dx_gca,
+  MAX(dx_ra)          AS dx_ra,
+  MAX(dx_spa)         AS dx_spa,
+  MAX(dx_vasculitis)  AS dx_vasculitis
+FROM (
 
-# RA via concept_ancestor (codesets 1/2 — 'RA and related' ancestors used in
-# the base cohort WHERE clause; same ancestor set, outputs dx_ra).
-ra_flag_sql <- "
-SELECT DISTINCT co.person_id, 1 AS dx_ra
-FROM @cdm_schema.condition_occurrence co
-JOIN @vocab_schema.concept_ancestor ca ON co.condition_concept_id = ca.descendant_concept_id
-JOIN @vocab_schema.concept cv          ON co.condition_concept_id = cv.concept_id
-WHERE co.person_id IN (@person_ids)
-  AND ca.ancestor_concept_id IN (4270868, 4005037, 80182, 4081250, 4344161, 42535714)
-  AND cv.invalid_reason IS NULL
-"
+  /* PART 1 – direct concept match (includeDescendants: false) */
+  SELECT
+    co.person_id,
+    CASE WHEN co.condition_concept_id IN (
+      255891, 4319305                                    -- SLE (no-desc)
+    ) THEN 1 ELSE 0 END AS dx_sle,
+    CASE WHEN co.condition_concept_id IN (
+      4005037, 4081250, 4344161, 606434, 37395588, 606385, 36674477  -- DM (no-desc)
+    ) THEN 1 ELSE 0 END AS dx_dm_myositis,
+    CASE WHEN co.condition_concept_id IN (
+      4291432, 37399445, 40483692                        -- SSc (no-desc)
+    ) THEN 1 ELSE 0 END AS dx_ssc,
+    0 AS dx_gca,
+    0 AS dx_ra,
+    CASE WHEN co.condition_concept_id IN (
+      37205058                                           -- SpA (no-desc)
+    ) THEN 1 ELSE 0 END AS dx_spa,
+    CASE WHEN co.condition_concept_id IN (
+      4218161                                            -- AAV (no-desc)
+    ) THEN 1 ELSE 0 END AS dx_vasculitis
+  FROM @cdm_schema.condition_occurrence co
+  WHERE co.person_id IN (@person_ids)
 
-# SpA ancestor traversal (codeset 7 — ankylosing spondylitis and related).
-# Combined with dx_spa_direct below to form the final dx_spa flag.
-spa_flag_sql <- "
-SELECT DISTINCT co.person_id, 1 AS dx_spa_anc
-FROM @cdm_schema.condition_occurrence co
-JOIN @vocab_schema.concept_ancestor ca ON co.condition_concept_id = ca.descendant_concept_id
-JOIN @vocab_schema.concept cv          ON co.condition_concept_id = cv.concept_id
-WHERE co.person_id IN (@person_ids)
-  AND ca.ancestor_concept_id IN (4305666, 313223, 4344493, 606328, 320749)
-  AND cv.invalid_reason IS NULL
+  UNION ALL
+
+  /* PART 2 – ancestor traversal (includeDescendants: true) */
+  SELECT
+    co.person_id,
+    CASE WHEN ca.ancestor_concept_id IN (
+      46273369, 37016279, 4145240, 4300204               -- SLE (+desc)
+    ) THEN 1 ELSE 0 END AS dx_sle,
+    CASE WHEN ca.ancestor_concept_id IN (
+      4270868, 80182                                     -- DM (+desc)
+    ) THEN 1 ELSE 0 END AS dx_dm_myositis,
+    CASE WHEN ca.ancestor_concept_id IN (
+      4126439, 37397763, 4337524, 4128222, 134442        -- SSc (+desc)
+    ) THEN 1 ELSE 0 END AS dx_ssc,
+    CASE WHEN ca.ancestor_concept_id IN (
+      314963, 4347064, 4343935                           -- GCA (+desc)
+    ) THEN 1 ELSE 0 END AS dx_gca,
+    CASE WHEN ca.ancestor_concept_id IN (
+      80809, 4083556, 4035611                            -- RA (+desc)
+    ) THEN 1 ELSE 0 END AS dx_ra,
+    CASE WHEN ca.ancestor_concept_id IN (
+      36716891, 37017494, 37110375, 40319772             -- SpA (+desc)
+    ) THEN 1 ELSE 0 END AS dx_spa,
+    CASE WHEN ca.ancestor_concept_id IN (
+      4305666, 313223, 4344493, 606328                   -- AAV (+desc)
+    ) THEN 1 ELSE 0 END AS dx_vasculitis
+  FROM @cdm_schema.condition_occurrence co
+  JOIN @vocab_schema.concept_ancestor ca ON co.condition_concept_id = ca.descendant_concept_id
+  JOIN @vocab_schema.concept cv          ON co.condition_concept_id = cv.concept_id
+  WHERE co.person_id IN (@person_ids)
+    AND ca.ancestor_concept_id IN (
+      46273369, 37016279, 4145240, 4300204,
+      4270868, 80182,
+      4126439, 37397763, 4337524, 4128222, 134442,
+      314963, 4347064, 4343935,
+      80809, 4083556, 4035611,
+      36716891, 37017494, 37110375, 40319772,
+      4305666, 313223, 4344493, 606328
+    )
+    AND cv.invalid_reason IS NULL
+
+) t
+GROUP BY person_id
 "
 
 disease_flags <- run_sql(con, disease_flags_sql,
-                         cdm_schema  = cdm,
-                         person_ids  = cohort_ids)
-
-ra_flags <- run_sql(con, ra_flag_sql,
-                    cdm_schema   = cdm,
-                    vocab_schema = vocab,
-                    person_ids   = cohort_ids)
-
-spa_flags <- run_sql(con, spa_flag_sql,
-                     cdm_schema   = cdm,
-                     vocab_schema = vocab,
-                     person_ids   = cohort_ids)
+                         cdm_schema   = cdm,
+                         vocab_schema = vocab,
+                         person_ids   = cohort_ids)
 
 # ============================================================================
 # STEP 5: Drug exposure flags
@@ -619,11 +617,8 @@ analysis_df <- base_cohort |>
     )
   ) |>
   left_join(disease_flags, by = "person_id") |>
-  left_join(ra_flags,      by = "person_id") |>
-  left_join(spa_flags,     by = "person_id") |>
   left_join(drug_flags,    by = "person_id") |>
   mutate(across(starts_with("dx_") | starts_with("drug_"), \(x) coalesce(as.integer(x), 0L))) |>
-  mutate(dx_spa = pmax(dx_spa_direct, dx_spa_anc)) |>
   mutate(across(starts_with("dx_") | starts_with("drug_"), as.logical))
 
 # ============================================================================
