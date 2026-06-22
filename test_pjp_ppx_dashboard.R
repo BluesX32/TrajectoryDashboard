@@ -34,6 +34,7 @@ PPX_TABLE1_ONSET <- 28L   # PPX must start >= 28 days before PJP (Table 1 rule)
 PJP_DMARD_WINDOW <- 90L   # days before PJP index for DMARD exposure
 LYMPH_WINDOW     <- 90L   # days around PJP index for lymphocyte lookup
 MORTALITY_DAYS   <- 30L   # in-hospital death within this many days of PJP index
+PJP_NOTE_WINDOW  <- 7L    # days around PJP index for encounter note search
 
 # ----------------------------------------------------------------------------
 # Connection
@@ -575,6 +576,52 @@ ppx_pjp_summary <- demo_base |>
 
 message(sprintf("Summary ready: %d patients.", nrow(ppx_pjp_summary)))
 print(ppx_pjp_summary)
+
+# ============================================================================
+# STEP 5b  Export encounter notes at PJP diagnosis (±PJP_NOTE_WINDOW days)
+# ============================================================================
+
+message("Fetching encounter notes around PJP index dates (±", PJP_NOTE_WINDOW, " days)...")
+
+pjp_notes_sql <- "
+SELECT
+  n.note_id,
+  n.person_id,
+  CAST(n.note_date AS DATE)  AS note_date,
+  n.note_title,
+  n.note_text,
+  tc.concept_name             AS note_type,
+  nc.concept_name             AS note_class,
+  n.visit_occurrence_id
+FROM @cdm_schema.note n
+LEFT JOIN @vocab_schema.concept tc ON n.note_type_concept_id  = tc.concept_id
+LEFT JOIN @vocab_schema.concept nc ON n.note_class_concept_id = nc.concept_id
+WHERE n.person_id IN (@person_ids)
+ORDER BY n.person_id, n.note_date
+"
+
+notes_raw <- run_sql(con, pjp_notes_sql,
+                     cdm_schema   = cdm,
+                     vocab_schema = vocab,
+                     person_ids   = review_ids) |>
+  mutate(note_date = as.Date(note_date))
+
+pjp_encounter_notes <- notes_raw |>
+  inner_join(index_dates |> select(person_id, index_date), by = "person_id") |>
+  filter(abs(as.integer(note_date - index_date)) <= PJP_NOTE_WINDOW) |>
+  select(-index_date) |>
+  arrange(person_id, note_date)
+
+message(sprintf(
+  "Found %d encounter note(s) for %d patient(s) within ±%d days of PJP index.",
+  nrow(pjp_encounter_notes),
+  length(unique(pjp_encounter_notes$person_id)),
+  PJP_NOTE_WINDOW
+))
+
+out_path <- file.path(getwd(), "pjp_diagnosis_encounter_notes.csv")
+write.csv(pjp_encounter_notes, out_path, row.names = FALSE, na = "")
+message("Saved: ", out_path)
 
 # ============================================================================
 # STEP 6  Launch dashboard
