@@ -267,7 +267,7 @@ cohort_ids <- base_cohort$person_id
 #         SNOMED 443943 +descendants in CS 9 covers all standard herpes zoster
 #         presentations, including common uncomplicated shingles rash.
 #         We intersect with cohort_ids to ensure every shingles patient is also
-#         in the DMARD-exposed base cohort.
+#         in the prevalent-RD base cohort.
 # Result: shingles_ids — integer vector of person_ids
 # ============================================================================
 

@@ -421,60 +421,78 @@ build_cohort_sql <- function(cohort,
   crit_list <- pc$CriteriaList
   if (is.data.frame(crit_list)) crit_list <- lapply(seq_len(nrow(crit_list)), function(i) as.list(crit_list[i, ]))
 
-  # Find first supported primary criterion (ConditionOccurrence or DrugExposure).
+  # Collect ALL supported primary criteria of the same domain.
   # ATLAS cohorts may list VisitOccurrence or Measurement as additional OR'd
-  # primary criteria — skip those and use the first condition/drug entry.
-  first  <- NULL
-  domain <- NULL
-  for (entry in crit_list) {
-    if (!is.null(entry$ConditionOccurrence)) { first <- entry; domain <- "condition_occurrence"; break }
-    if (!is.null(entry$DrugExposure))        { first <- entry; domain <- "drug_exposure";        break }
-  }
-  if (is.null(first)) {
+  # primary criteria — skip those.  When multiple ConditionOccurrence (or
+  # DrugExposure) criteria are present they are OR'd in ATLAS: we union their
+  # concept sets so that patients qualifying through *any* criterion are included.
+  all_cond <- Filter(function(e) !is.null(e$ConditionOccurrence), crit_list)
+  all_drug <- Filter(function(e) !is.null(e$DrugExposure),        crit_list)
+
+  if (length(all_cond) > 0L) {
+    domain   <- "condition_occurrence"
+    selected <- all_cond
+  } else if (length(all_drug) > 0L) {
+    domain   <- "drug_exposure"
+    selected <- all_drug
+  } else {
     unsupported <- paste(unique(unlist(lapply(crit_list, names))), collapse = ", ")
     rlang::warn(paste0(
       "No supported PrimaryCriteria domain found (saw: ", unsupported,
       "). Results may be incorrect."
     ))
-    first  <- crit_list[[1]]
-    domain <- "condition_occurrence"
+    domain   <- "condition_occurrence"
+    selected <- crit_list[1L]
   }
 
-  domain_obj <- first[[.atlas_domain_key(domain)]]
-  codeset_id <- as.character(domain_obj$CodesetId)
-  cs         <- cs_map[[codeset_id]]
+  # Union concept_ids and include_descendants across all selected criteria.
+  all_ids  <- unique(unlist(lapply(selected, function(e) {
+    obj <- e[[.atlas_domain_key(domain)]]
+    cs_map[[as.character(obj$CodesetId)]]$concept_ids
+  })))
+  any_desc <- any(vapply(selected, function(e) {
+    obj <- e[[.atlas_domain_key(domain)]]
+    isTRUE(cs_map[[as.character(obj$CodesetId)]]$include_descendants)
+  }, logical(1L)))
 
-  # Co-criteria (e.g. required drug on/after index). Skip unsupported domains
-  # such as ProcedureOccurrence, Measurement, VisitOccurrence.
-  co_raw <- domain_obj$CorrelatedCriteria$CriteriaList
-  if (is.null(co_raw)) co_raw <- list()
-  if (is.data.frame(co_raw)) co_raw <- lapply(seq_len(nrow(co_raw)), function(i) as.list(co_raw[i, ]))
+  # Co-criteria: preserved only when there is exactly one primary criterion.
+  # With multiple OR'd criteria co-criteria differ per branch; rather than
+  # incorrectly AND-ing them across branches we drop them.  The downstream
+  # inclusion rules (e.g. VZV, DMARD) supply the real filters.
+  co_criteria <- list()
+  if (length(selected) == 1L) {
+    first      <- selected[[1L]]
+    domain_obj <- first[[.atlas_domain_key(domain)]]
+    co_raw     <- domain_obj$CorrelatedCriteria$CriteriaList
+    if (is.null(co_raw)) co_raw <- list()
+    if (is.data.frame(co_raw)) co_raw <- lapply(seq_len(nrow(co_raw)), function(i) as.list(co_raw[i, ]))
 
-  co_criteria <- Filter(Negate(is.null), lapply(co_raw, function(cc) {
-    crit   <- cc$Criteria
-    co_dom <- if (!is.null(crit$DrugExposure))              "drug_exposure"
-               else if (!is.null(crit$ConditionOccurrence)) "condition_occurrence"
-               else                                          return(NULL)
-    co_obj   <- crit[[.atlas_domain_key(co_dom)]]
-    co_cs_id <- as.character(co_obj$CodesetId)
-    co_cs    <- cs_map[[co_cs_id]]
-    if (is.null(co_cs)) return(NULL)
+    co_criteria <- Filter(Negate(is.null), lapply(co_raw, function(cc) {
+      crit   <- cc$Criteria
+      co_dom <- if (!is.null(crit$DrugExposure))              "drug_exposure"
+                 else if (!is.null(crit$ConditionOccurrence)) "condition_occurrence"
+                 else                                          return(NULL)
+      co_obj   <- crit[[.atlas_domain_key(co_dom)]]
+      co_cs_id <- as.character(co_obj$CodesetId)
+      co_cs    <- cs_map[[co_cs_id]]
+      if (is.null(co_cs)) return(NULL)
 
-    sw          <- cc$StartWindow
-    on_or_after <- !is.null(sw$Start$Days) && sw$Start$Days == 0 && sw$Start$Coeff == -1
+      sw          <- cc$StartWindow
+      on_or_after <- !is.null(sw$Start$Days) && sw$Start$Days == 0 && sw$Start$Coeff == -1
 
-    list(
-      domain              = co_dom,
-      concept_ids         = co_cs$concept_ids,
-      include_descendants = co_cs$include_descendants,
-      on_or_after_index   = on_or_after
-    )
-  }))
+      list(
+        domain              = co_dom,
+        concept_ids         = co_cs$concept_ids,
+        include_descendants = co_cs$include_descendants,
+        on_or_after_index   = on_or_after
+      )
+    }))
+  }
 
   list(
     domain              = domain,
-    concept_ids         = cs$concept_ids,
-    include_descendants = cs$include_descendants,
+    concept_ids         = all_ids,
+    include_descendants = any_desc,
     co_criteria         = co_criteria
   )
 }
