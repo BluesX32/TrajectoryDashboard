@@ -9,9 +9,9 @@
 # ── Three-tier cohort design ──────────────────────────────────────────────────
 #
 #   Tier 1 — cohort_ids  (base cohort)
-#     All RD patients aged >= 18 with at least one DMARD exposure.
+#     All RD patients aged >= 18.
 #     Requires ONE rheumatic disease diagnosis (prevalent definition).
-#     Built from inline SQL in STEP 1.
+#     No DMARD exposure required. Built from inline SQL in STEP 1.
 #
 #   Tier 2 — shingles_ids  (shingles sub-cohort)
 #     Patients in cohort_ids who also appear in the ATLAS VZV cohort.
@@ -156,16 +156,17 @@ json_vaccine_ids <- fetch_cohort_ids(
 # ============================================================================
 # STEP 1  Base cohort
 # ─────────────────────────────────────────────────────────────────────────────
-# Who:    Adults (age >= 18) with at least one rheumatic disease (RD) diagnosis
-#         and at least one DMARD exposure (IVIG not required).
-# How:    Inline SQL queries condition_occurrence and drug_exposure.
+# Who:    Adults (age >= 18) with at least one rheumatic disease (RD) diagnosis.
+#         DMARD exposure is NOT required for cohort entry; it is captured as a
+#         covariate downstream (drug_flags, Table 3/4 DMARD windows).
+# How:    Inline SQL queries condition_occurrence.
 #         RD diagnosis spans SLE, myositis, SSc, GCA, RA, SpA, and vasculitis
 #         using both direct SNOMED concept IDs and concept ancestor expansion.
 # Result: base_cohort data frame (person_id, year_of_birth, gender, obs_start)
 #         cohort_ids = base_cohort$person_id (used to scope all downstream SQL)
 # ============================================================================
 
-message("Fetching base cohort person IDs (rheum disease + DMARD, age > 18)...")
+message("Fetching base cohort person IDs (rheumatic disease diagnosis, age >= 18)...")
 
 base_cohort_sql <- "
 SELECT DISTINCT
@@ -242,19 +243,6 @@ WHERE
         AND cv.invalid_reason IS NULL
     )
   )
-  -- Has DMARD / immunosuppressant (codeset 8) with descendants
-  AND EXISTS (
-    SELECT 1
-    FROM @cdm_schema.drug_exposure de
-    JOIN @vocab_schema.concept_ancestor ca ON de.drug_concept_id = ca.descendant_concept_id
-    WHERE de.person_id = p.person_id
-      AND ca.ancestor_concept_id IN (
-        19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
-        1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
-        746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
-        1186087,  1777087
-      )
-  )
 GROUP BY p.person_id, p.year_of_birth, p.gender_concept_id
 "
 
@@ -262,7 +250,7 @@ base_cohort <- run_sql(con, base_cohort_sql,
                        cdm_schema   = cdm,
                        vocab_schema = vocab)
 
-message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis + any DMARD).")
+message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis, age >= 18).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
