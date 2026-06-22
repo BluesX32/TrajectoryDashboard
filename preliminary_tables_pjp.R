@@ -38,8 +38,9 @@
 # ── Time windows ─────────────────────────────────────────────────────────────
 #   PJP_DMARD_WINDOW  90 days before PJP index to count DMARDs (Table 1/2)
 #   PJP_PPX_WINDOW    90 days before PJP index to classify PPX (Table 2)
-#   PPX_TABLE1_ONSET  PPX must start >= 28 days before PJP to count in Table 1
-#   PPX_RHEUM_ONSET   PPX must start >= 8 weeks after first RD Dx (PPX timing rule)
+#   PPX_PJP_EARLY     42 days — PPX window opens at T=−42 relative to PJP index
+#   PPX_PJP_LATE      14 days — PPX window closes at T=−14 relative to PJP index
+#   PPX_NOPJP_ONSET   30 days — non-PJP PPX: prescription duration must be > 30 days
 #   ADE_WINDOW        90 days after first PPX Rx to look for adverse events
 #   MORTALITY_DAYS    30-day in-hospital mortality window
 #
@@ -48,9 +49,10 @@
 #   that overlaps the PJP index date (visit_start <= index_date <= visit_end).
 #
 # ── Prophylaxis classification (Table 1) ─────────────────────────────────────
-#   All patients:     ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET (8 weeks)
-#   PJP patients:     also require ppx_start <= index_date − PPX_TABLE1_ONSET
-#   Non-PJP patients: criterion above only (no PJP date to reference)
+#   PJP patients:     ppx_start in [index_date − PPX_PJP_EARLY, index_date − PPX_PJP_LATE]
+#                     (T=−42 to T=−14 days before PJP index)
+#   Non-PJP patients: ppx_start >= first_rheum_dx AND ppx_duration > PPX_NOPJP_ONSET
+#                     (prescription on/after first RD diagnosis with duration > 30 days)
 #   Table 2 window:   90 days before PJP index (PJP_PPX_WINDOW), no onset rule
 #
 # ── Table overview ────────────────────────────────────────────────────────────
@@ -83,8 +85,9 @@ library(labelled)
 # ── Time windows ─────────────────────────────────────────────────────────────
 PJP_DMARD_WINDOW  <- 90L   # days before PJP index to count DMARD use
 PJP_PPX_WINDOW    <- 90L   # days before PJP index to classify prophylaxis (Table 2)
-PPX_TABLE1_ONSET  <- 28L   # min days before PJP index for prophylaxis to count in Table 1
-PPX_RHEUM_ONSET   <- 56L   # prophylaxis must start >= this many days after rheum dx (8 weeks)
+PPX_PJP_EARLY     <- 42L   # PJP patients: PPX window opens — prescription <= 42 days before PJP (T=−42)
+PPX_PJP_LATE      <- 14L   # PJP patients: PPX window closes — prescription >= 14 days before PJP (T=−14)
+PPX_NOPJP_ONSET   <- 30L   # non-PJP patients: prescription duration (days_supply or end−start) must be > 30 days
 ADE_WINDOW        <- 90L   # days after first prophylaxis Rx to look for ADEs
 MORTALITY_DAYS    <- 30L   # in-hospital death within this many days of PJP index
 
@@ -264,8 +267,8 @@ cohort_ids <- base_cohort$person_id
 #   (1) direct concept_id list  (SLE, myositis, SSc, GCA, SpA/Lupus)
 #   (2) concept_ancestor set A  (broader rheumatic disease ancestors)
 #   (3) concept_ancestor set B  (RA / spondyloarthropathy ancestors)
-# Used to enforce PPX_RHEUM_ONSET: prophylaxis must start >= 8 weeks after
-# the first rheumatic disease diagnosis.
+# Used to enforce PPX_NOPJP_ONSET: non-PJP prophylaxis must have duration > 30 days
+# (days_supply or end_date − start_date) and start on or after first RD diagnosis.
 # ============================================================================
 
 message("Fetching first rheumatic disease diagnosis date per patient...")
@@ -610,8 +613,8 @@ dmard_count_df <- dmard_exposures_pjp |>
 #   ppx_flags_pjp — window-restricted (≤ PJP_PPX_WINDOW before PJP index date);
 #                   used in PJP-specific analysis (Table 2) and STEP 7 analysis_pjp
 #   ppx_flags_all — Table 1 definition:
-#                     PJP patients:     ppx_start <= index_date - PPX_TABLE1_ONSET
-#                     non-PJP patients: any ever exposure (no PJP date to reference)
+#                     PJP patients:     ppx_start in [index_date − PPX_PJP_EARLY, index_date − PPX_PJP_LATE]
+#                     non-PJP patients: ppx_start >= first_rheum_dx AND ppx_duration > PPX_NOPJP_ONSET
 #                   reused as ppx_base_raw for Table 3 (avoids second DB round-trip)
 #
 # Drug concept ancestors:
@@ -626,7 +629,9 @@ message("Fetching PJP prophylaxis exposure for full base cohort...")
 ppx_sql <- "
 SELECT de.person_id,
   ca.ancestor_concept_id AS ppx_ancestor,
-  CAST(de.drug_exposure_start_date AS DATE) AS ppx_start
+  CAST(de.drug_exposure_start_date AS DATE) AS ppx_start,
+  CAST(de.drug_exposure_end_date   AS DATE) AS ppx_end,
+  de.days_supply
 FROM @cdm_schema.drug_exposure de
 JOIN @vocab_schema.concept_ancestor ca
   ON de.drug_concept_id = ca.descendant_concept_id
@@ -643,7 +648,11 @@ ppx_all_raw <- run_sql(con, ppx_sql,
                        cdm_schema   = cdm,
                        vocab_schema = vocab,
                        person_ids   = cohort_ids) |>
-  mutate(ppx_start = as.Date(ppx_start),
+  mutate(ppx_start    = as.Date(ppx_start),
+         ppx_end      = as.Date(ppx_end),
+         ppx_duration = coalesce(as.integer(days_supply),
+                                  as.integer(ppx_end - ppx_start),
+                                  0L),
          ppx_group = case_when(
            ppx_ancestor %in% c(21602929L, 1705674L) ~ "TMP-SMX",
            ppx_ancestor == 1711759L                  ~ "Dapsone",
@@ -673,23 +682,22 @@ for (col in c("ppx_tmp-smx", "ppx_dapsone", "ppx_atovaquone", "ppx_pentamidine")
 names(ppx_flags_pjp) <- gsub("-", "_", names(ppx_flags_pjp), fixed = TRUE)
 
 # ── Full-cohort flags (Table 1) ─────────────────────────────────────────────
-# Two criteria applied to all patients:
-#   (a) ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET  (>= 8 weeks after rheum dx)
-# Additional criterion for PJP patients only:
-#   (b) ppx_start <= index_date - PPX_TABLE1_ONSET     (>= 28 days before PJP)
-# Non-PJP patients: criterion (a) only — no PJP date to reference for (b).
+# PJP patients:     ppx_start in [index_date − PPX_PJP_EARLY, index_date − PPX_PJP_LATE]
+#                   (T=−42 to T=−14 days before PJP index)
+# Non-PJP patients: ppx_start >= first_rheum_dx AND ppx_duration > PPX_NOPJP_ONSET
+#                   (prescription on/after first RD diagnosis with duration > 30 days)
 ppx_for_pjp <- ppx_all_raw |>
   filter(person_id %in% pjp_ids) |>
-  inner_join(pjp_cohort        |> select(person_id, index_date),    by = "person_id") |>
-  inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx), by = "person_id") |>
-  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET,
-         ppx_start <= index_date     - PPX_TABLE1_ONSET) |>
+  inner_join(pjp_cohort |> select(person_id, index_date), by = "person_id") |>
+  filter(ppx_start >= index_date - PPX_PJP_EARLY,
+         ppx_start <= index_date - PPX_PJP_LATE) |>
   distinct(person_id, ppx_group)
 
 ppx_for_nopjp <- ppx_all_raw |>
   filter(!person_id %in% pjp_ids) |>
   inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx), by = "person_id") |>
-  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET) |>
+  filter(ppx_start >= first_rheum_dx,
+         ppx_duration > PPX_NOPJP_ONSET) |>
   distinct(person_id, ppx_group)
 
 ppx_flags_all <- bind_rows(ppx_for_pjp, ppx_for_nopjp) |>
@@ -888,11 +896,12 @@ table1_pjp <- tbl1_pjp_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
-      "PJP prophylaxis criteria — all patients: prescription start at least ",
-      PPX_RHEUM_ONSET, " days (", PPX_RHEUM_ONSET %/% 7L, " weeks) after first ",
-      "rheumatic disease diagnosis. With PJP group: additionally, prescription start ",
-      "at least ", PPX_TABLE1_ONSET, " days before PJP index date. ",
-      "Without PJP group: 8-week post-diagnosis criterion only (no PJP reference date)."
+      "PJP prophylaxis criteria — With PJP group: prescription started T=−",
+      PPX_PJP_EARLY, " to T=−", PPX_PJP_LATE,
+      " days relative to PJP index date (", PPX_PJP_EARLY, " to ", PPX_PJP_LATE,
+      " days before PJP). Without PJP group: any prescription on or after first ",
+      "rheumatic disease diagnosis with duration > ", PPX_NOPJP_ONSET,
+      " days (days_supply; end−start if days_supply missing)."
     ),
     locations = cells_row_groups(groups = "PJP Prophylaxis")
   )
@@ -1073,9 +1082,8 @@ print(table2_pjp)
 
 # ============================================================================
 # STEP 8: Prophylaxis exposure for entire base cohort (Table 3 setup)
-# Aligned with Table 1 definition: only prescriptions that started at least
-# PPX_RHEUM_ONSET days (8 weeks) after the patient's first rheumatic disease
-# diagnosis are counted.
+# Aligned with the non-PJP Table 1 criterion: only prescriptions on or after
+# first RD diagnosis with duration > PPX_NOPJP_ONSET days are counted.
 # Determines:
 #   (a) who qualifies for each regimen group (incidence rate denominator)
 #   (b) first qualifying prescription date per regimen per patient (ADE anchor)
@@ -1084,12 +1092,13 @@ print(table2_pjp)
 message("Setting up Table 3 prophylaxis data (reusing full-cohort fetch from STEP 6)...")
 
 # ppx_all_raw already contains the full base-cohort prophylaxis data.
-# Filter to qualifying prescriptions only: >= PPX_RHEUM_ONSET days after
-# first rheumatic disease diagnosis (aligned with Table 1 definition).
+# Filter to qualifying prescriptions: > PPX_NOPJP_ONSET days after first RD
+# diagnosis (aligned with the non-PJP Table 1 definition).
 ppx_base_raw <- ppx_all_raw |>
   inner_join(first_rheum_dx_df |> select(person_id, first_rheum_dx),
              by = "person_id") |>
-  filter(ppx_start >= first_rheum_dx + PPX_RHEUM_ONSET)
+  filter(ppx_start >= first_rheum_dx,
+         ppx_duration > PPX_NOPJP_ONSET)
 
 # Per patient, per regimen: first qualifying prescription date (ADE anchor)
 first_ppx_base <- ppx_base_raw |>
@@ -1107,8 +1116,8 @@ ever_on_ppx <- first_ppx_base |>
 no_ppx_ids <- setdiff(cohort_ids, ever_on_ppx$person_id)
 
 message(sprintf(
-  "Qualifying prophylaxis users (>= %d days after rheum dx) — TMP-SMX: %d | Dapsone: %d | Atovaquone: %d | Pentamidine: %d | None: %d",
-  PPX_RHEUM_ONSET,
+  "Qualifying prophylaxis users (> %d days after rheum dx) — TMP-SMX: %d | Dapsone: %d | Atovaquone: %d | Pentamidine: %d | None: %d",
+  PPX_NOPJP_ONSET,
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "TMP-SMX"]),
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "Dapsone"]),
   n_distinct(ever_on_ppx$person_id[ever_on_ppx$ppx_group == "Atovaquone"]),
@@ -1379,9 +1388,10 @@ table3_pjp <- t3_data |>
   ) |>
   tab_footnote(
     footnote = paste0(
-      "Regimen group membership: only prescriptions starting at least ",
-      PPX_RHEUM_ONSET, " days (", PPX_RHEUM_ONSET %/% 7L, " weeks) after the ",
-      "patient’s first rheumatic disease diagnosis are counted (consistent with Table 1). ",
+      "Regimen group membership: only prescriptions on or after the patient’s first ",
+      "rheumatic disease diagnosis with duration > ", PPX_NOPJP_ONSET,
+      " days (days_supply; end−start if days_supply missing) are counted ",
+      "(consistent with the Table 1 non-PJP criterion). ",
       "Patients with no qualifying prescription are in the No prophylaxis group."
     ),
     locations = cells_column_labels(columns = regimen)
