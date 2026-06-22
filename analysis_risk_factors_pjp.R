@@ -26,7 +26,7 @@
 #
 # ── How to run ────────────────────────────────────────────────────────────────
 # Option A: run preliminary_tables_pjp.R first — this script reuses its objects
-#   (base_cohort, pjp_cohort, disease_flags, dm_flags, ppx_all_raw, etc.).
+#   (base_cohort, pjp_cohort, disease_flags, ppx_all_raw, etc.).
 # Option B: set STANDALONE <- TRUE to build everything from scratch.
 # ============================================================================
 
@@ -361,7 +361,6 @@ pjp_risk_df <- base_cohort |>
   ) |>
   left_join(ref_dates,     by = "person_id") |>
   left_join(disease_flags, by = "person_id") |>
-  left_join(dm_flags,      by = "person_id") |>
   mutate(
     across(starts_with("dx_"), \(x) coalesce(as.integer(x), 0L)),
     across(starts_with("dx_"), as.logical),

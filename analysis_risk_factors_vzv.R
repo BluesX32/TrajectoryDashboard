@@ -208,7 +208,6 @@ vzv_analysis <- base_cohort |>
   ) |>
   # Disease flags
   left_join(disease_flags, by = "person_id") |>
-  left_join(dm_flags,      by = "person_id") |>
   mutate(across(starts_with("dx_"), \(x) coalesce(as.integer(x), 0L)),
          across(starts_with("dx_"), as.logical)) |>
   # Vaccination status and DMARD windows
