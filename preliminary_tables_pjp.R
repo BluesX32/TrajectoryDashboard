@@ -1088,7 +1088,11 @@ table2_pjp <- t2_display |>
   row_group_order(groups = c(
     "No immunosuppressant/prophylaxis",
     "PJP Prophylaxis", "Glucocorticoid",
-    "Biologic", "JAK Inhibitor", "csDMARD"
+    "csDMARD", "Antimetabolite", "Alkylating", "CNI",
+    "TNF Inhibitor", "IL-6 Inhibitor", "IL-12/23 Inhibitor",
+    "IL-17 Inhibitor", "Type 1 IFN Inhibitor",
+    "T-cell Co-stim", "BAFF Inhibitor", "CD19/CD20",
+    "JAK Inhibitor"
   )) |>
   cols_label(
     drug_name = md("**Medication**"),
