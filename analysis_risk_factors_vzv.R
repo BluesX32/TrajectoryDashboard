@@ -43,11 +43,26 @@ VACC_ONSET_DAYS       <- 14L   # days after first vaccine before event = post-va
 SHINGLES_GAP_DAYS     <- 90L   # episode collapsing gap
 
 # ── DMARD ancestor → class mapping ───────────────────────────────────────────
-BIOLOGIC_ANCESTORS <- c(42904205L, 40171288L, 701470L, 40236987L, 746895L,
-                         1119119L, 937368L, 1151789L, 1511348L, 1186087L, 1777087L)
-JAK_ANCESTORS      <- c(40161532L, 45892883L)
-CSDMARD_ANCESTORS  <- c(19014878L, 19068900L, 19003999L, 1361580L, 1305058L,
-                          1101898L, 1594587L, 1310317L, 1314273L, 1593700L)
+# Biologics: TNF / IL-6 / IL12-23 / IL-17 / Type1-IFN / T-cell / BAFF / CD19-20
+BIOLOGIC_ANCESTORS <- c(
+  1119119L, 937368L, 19041065L, 912263L, 1151789L,   # TNF-i
+  1594587L, 40171288L,                                # IL-6-i
+  40161532L, 1511348L, 1593700L,                      # IL-12/23-i
+  45892883L, 35603563L, 746895L,                      # IL-17-i
+  701470L,                                            # Type1 IFN-i
+  1186087L,                                           # T-cell co-stim
+  40236987L,                                          # BAFF-i
+  1314273L, 44507676L                                 # CD19/CD20
+)
+# JAK inhibitors
+JAK_ANCESTORS <- c(1361580L, 42904205L, 40244464L, 1510627L)
+# Conventional (csDMARD + antimetabolite + CNI + alkylating)
+CSDMARD_ANCESTORS <- c(
+  1305058L, 1101898L, 964339L, 1777087L,             # csDMARD
+  19014878L, 19068900L, 19003999L,                   # antimetabolite
+  950637L, 739590L,                                  # CNI
+  1310317L                                            # alkylating
+)
 ALL_DMARD_ANCESTORS <- c(BIOLOGIC_ANCESTORS, JAK_ANCESTORS, CSDMARD_ANCESTORS)
 
 # ============================================================================

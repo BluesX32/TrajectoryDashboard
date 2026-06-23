@@ -808,30 +808,52 @@ print(table1_pjp)
 message("Building Table 2 (medications 90d before PJP)...")
 
 dmard_labels <- tibble::tribble(
-  ~ancestor_concept_id, ~drug_name,              ~drug_class,
-  19014878L, "Methotrexate",         "csDMARD",
-  19068900L, "Hydroxychloroquine",   "csDMARD",
-  19003999L, "Mycophenolate",        "csDMARD",
-  1361580L,  "Azathioprine",         "csDMARD",
-  1305058L,  "Cyclosporine",         "csDMARD",
-  1101898L,  "Cyclophosphamide",     "csDMARD",
-  1594587L,  "Tacrolimus",           "csDMARD",
-  1310317L,  "Leflunomide",          "csDMARD",
-  1314273L,  "Sulfasalazine",        "csDMARD",
-  1593700L,  "Sirolimus",            "csDMARD",
-  42904205L, "Rituximab",            "Biologic",
-  40171288L, "Belimumab",            "Biologic",
-  701470L,   "Abatacept",            "Biologic",
-  40236987L, "Tocilizumab",          "Biologic",
-  746895L,   "Etanercept",           "Biologic",
-  1119119L,  "Infliximab",           "Biologic",
-  937368L,   "Adalimumab",           "Biologic",
-  1151789L,  "Anakinra",             "Biologic",
-  1511348L,  "Ustekinumab",          "Biologic",
-  1186087L,  "Secukinumab",          "Biologic",
-  1777087L,  "Ixekizumab",           "Biologic",
-  40161532L, "Tofacitinib",          "JAK Inhibitor",
-  45892883L, "Baricitinib",          "JAK Inhibitor"
+  ~ancestor_concept_id, ~drug_name,                ~drug_class,
+  # csDMARD
+  1305058L,  "Methotrexate",            "csDMARD",
+  1101898L,  "Leflunomide",             "csDMARD",
+  964339L,   "Sulfasalazine",           "csDMARD",
+  1777087L,  "Hydroxychloroquine",      "csDMARD",
+  # Antimetabolite
+  19014878L, "Azathioprine",            "Antimetabolite",
+  19068900L, "Mycophenolate",           "Antimetabolite",
+  19003999L, "Mycophenolate mofetil",   "Antimetabolite",
+  # CNI
+  950637L,   "Tacrolimus",              "CNI",
+  739590L,   "Voclosporin",             "CNI",
+  # Alkylating
+  1310317L,  "Cyclophosphamide",        "Alkylating",
+  # TNF inhibitors
+  1119119L,  "Adalimumab",              "TNF Inhibitor",
+  937368L,   "Infliximab",              "TNF Inhibitor",
+  19041065L, "Golimumab",               "TNF Inhibitor",
+  912263L,   "Certolizumab pegol",      "TNF Inhibitor",
+  1151789L,  "Etanercept",              "TNF Inhibitor",
+  # IL-6 inhibitors
+  1594587L,  "Sarilumab",               "IL-6 Inhibitor",
+  40171288L, "Tocilizumab",             "IL-6 Inhibitor",
+  # IL-12/23 inhibitors
+  40161532L, "Ustekinumab",             "IL-12/23 Inhibitor",
+  1511348L,  "Risankizumab",            "IL-12/23 Inhibitor",
+  1593700L,  "Guselkumab",              "IL-12/23 Inhibitor",
+  # IL-17 inhibitors
+  45892883L, "Secukinumab",             "IL-17 Inhibitor",
+  35603563L, "Ixekizumab",              "IL-17 Inhibitor",
+  746895L,   "Bimekizumab",             "IL-17 Inhibitor",
+  # Type 1 IFN inhibitor
+  701470L,   "Anifrolumab",             "Type 1 IFN Inhibitor",
+  # JAK inhibitors
+  1361580L,  "Upadacitinib",            "JAK Inhibitor",
+  42904205L, "Tofacitinib",             "JAK Inhibitor",
+  40244464L, "Ruxolitinib",             "JAK Inhibitor",
+  1510627L,  "Baricitinib",             "JAK Inhibitor",
+  # T-cell co-stimulation inhibitor
+  1186087L,  "Abatacept",               "T-cell Co-stim",
+  # BAFF inhibitor
+  40236987L, "Belimumab",               "BAFF Inhibitor",
+  # CD19/CD20
+  1314273L,  "Rituximab",               "CD19/CD20",
+  44507676L, "Obinutuzumab",            "CD19/CD20"
 )
 
 steroid_labels <- tibble::tribble(
@@ -861,12 +883,21 @@ JOIN @vocab_schema.concept_ancestor ca
   ON de.drug_concept_id = ca.descendant_concept_id
 WHERE de.person_id IN (@person_ids)
   AND ca.ancestor_concept_id IN (
-    19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
-    1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
-    746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
-    1186087,  1777087,
-    1551099, 1506270, 1518254,
-    21602929, 1705674, 1711759, 1730370, 1751310
+    1305058,  1101898,  964339,   1777087,
+    19014878, 19068900, 19003999,
+    950637,   739590,
+    1310317,
+    1119119,  937368,   19041065, 912263,   1151789,
+    1594587,  40171288,
+    40161532, 1511348,  1593700,
+    45892883, 35603563, 746895,
+    701470,
+    1361580,  42904205, 40244464, 1510627,
+    1186087,
+    40236987,
+    1314273,  44507676,
+    1551099,  1506270,  1518254,
+    21602929, 1705674,  1711759,  1730370, 1751310
   )
 "
 

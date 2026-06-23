@@ -53,12 +53,34 @@ PPX_EARLY_HI          <- 42L   # (upper bound from index date)
 # Steroid ancestor concept IDs
 STEROID_ANCESTORS <- c(1551099L, 1506270L, 1518254L)  # prednisone, methylpred, dex
 
-# DMARD ancestors (excluding IVIG, matching preliminary script)
+# DMARD ancestors (excluding IVIG)
 ALL_DMARD_ANCESTORS <- c(
-  19014878L, 19068900L, 19003999L, 1361580L, 42904205L, 40171288L, 1305058L,
-  1101898L,  1594587L,  1310317L,  1314273L, 701470L,   40236987L, 45892883L,
-  746895L,   1119119L,  937368L,   1151789L, 1593700L,  40161532L, 1511348L,
-  1186087L,  1777087L
+  # csDMARD
+  1305058L, 1101898L, 964339L, 1777087L,
+  # antimetabolite
+  19014878L, 19068900L, 19003999L,
+  # CNI
+  950637L, 739590L,
+  # alkylating
+  1310317L,
+  # TNF-i
+  1119119L, 937368L, 19041065L, 912263L, 1151789L,
+  # IL-6-i
+  1594587L, 40171288L,
+  # IL-12/23-i
+  40161532L, 1511348L, 1593700L,
+  # IL-17-i
+  45892883L, 35603563L, 746895L,
+  # Type1 IFN-i
+  701470L,
+  # JAK-i
+  1361580L, 42904205L, 40244464L, 1510627L,
+  # T-cell co-stim
+  1186087L,
+  # BAFF-i
+  40236987L,
+  # CD19/CD20
+  1314273L, 44507676L
 )
 
 # ============================================================================
