@@ -1094,11 +1094,18 @@ fmt_pts <- function(n_raw, n_ovlp) {
     as.character(n_raw)
 }
 
+fmt_range <- function(ep_df) {
+  n <- ep_df |> count(person_id) |> pull(n)
+  if (length(n) == 0L) return("—")
+  sprintf("%d–%d", min(n), max(n))
+}
+
 table2_data <- tibble(
   Characteristic = c(
     "Total shingles episodes (all occurrences)",
     "Unique patients with ≥1 episode, n",
     "Average episodes per patient",
+    "Episodes per patient, range (min–max)",
     "Post-herpetic neuralgia (PHN), n (%)",
     "VZV organ involvement¹, n (%)"
   ),
@@ -1106,6 +1113,7 @@ table2_data <- tibble(
     as.character(nrow(shingles_episodes)),
     as.character(n_pts_all),
     as.character(round(nrow(shingles_episodes) / max(n_pts_all, 1L), 2)),
+    fmt_range(shingles_episodes),
     fmt_np(n_distinct(phn_pts$person_id),   n_pts_all),
     fmt_np(n_distinct(organ_pts$person_id), n_pts_all)
   ),
@@ -1113,6 +1121,7 @@ table2_data <- tibble(
     as.character(nrow(ep_pre)),
     fmt_pts(n_pts_pre_raw, n_overlap),
     as.character(round(nrow(ep_pre) / max(w_pts_pre, 0.01), 2)),
+    fmt_range(ep_pre),
     fmt_np(w_phn_pre,  w_pts_pre),
     fmt_np(w_org_pre,  w_pts_pre)
   ),
@@ -1120,6 +1129,7 @@ table2_data <- tibble(
     as.character(nrow(ep_post)),
     fmt_pts(n_pts_post_raw, n_overlap),
     as.character(round(nrow(ep_post) / max(w_pts_post, 0.01), 2)),
+    fmt_range(ep_post),
     fmt_np(w_phn_post, w_pts_post),
     fmt_np(w_org_post, w_pts_post)
   )
