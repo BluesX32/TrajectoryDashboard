@@ -388,6 +388,28 @@ pjp_risk_df <- base_cohort |>
     across(starts_with("dx_"), as.logical),
     ild = person_id %in% ild_ids
   ) |>
+  mutate(
+    n_dx = rowSums(across(starts_with("dx_"))),
+    rd_category = factor(
+      case_when(
+        n_dx > 1L      ~ "More than 1 diagnosis",
+        dx_sle         ~ "SLE",
+        dx_dm_myositis ~ "Dermatomyositis / Myositis",
+        dx_ssc         ~ "Systemic Sclerosis (SSc)",
+        dx_gca         ~ "Giant Cell Arteritis (GCA)",
+        dx_ra          ~ "Rheumatoid Arthritis (RA)",
+        dx_spa         ~ "Spondyloarthropathy (SpA)",
+        dx_vasculitis  ~ "ANCA-Associated Vasculitis",
+        TRUE           ~ NA_character_
+      ),
+      levels = c(
+        "SLE", "Dermatomyositis / Myositis", "Systemic Sclerosis (SSc)",
+        "Giant Cell Arteritis (GCA)", "Rheumatoid Arthritis (RA)",
+        "Spondyloarthropathy (SpA)", "ANCA-Associated Vasculitis",
+        "More than 1 diagnosis"
+      )
+    )
+  ) |>
   left_join(lymph_flags,    by = "person_id") |>
   left_join(anc_flags,      by = "person_id") |>
   left_join(a1c_flags,      by = "person_id") |>
@@ -427,7 +449,7 @@ tbl_data <- pjp_risk_df |>
   select(
     pjp_group,
     age, sex,
-    dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
+    rd_category,
     lymphopenia, neutropenia, elevated_a1c, ild,
     steroid_months, n_dmards_cat,
     ppx_14_42d_pre_pjp
@@ -435,13 +457,7 @@ tbl_data <- pjp_risk_df |>
   set_variable_labels(
     age                  = "Age at reference date, years",
     sex                  = "Sex",
-    dx_sle               = "Systemic Lupus Erythematosus (SLE)",
-    dx_dm_myositis       = "Dermatomyositis / Myositis",
-    dx_ssc               = "Systemic Sclerosis (SSc)",
-    dx_gca               = "Giant Cell Arteritis (GCA)",
-    dx_ra                = "Rheumatoid Arthritis (RA)",
-    dx_spa               = "Spondyloarthropathy (SpA)",
-    dx_vasculitis        = "ANCA-Associated Vasculitis",
+    rd_category          = "Rheumatologic Diagnosis",
     lymphopenia          = "Lymphopenia (<1.0 × 10⁹/L, nearest ±90d)",
     neutropenia          = "Neutropenia (<1.5 × 10⁹/L, nearest ±90d)",
     elevated_a1c         = "HbA1c ≥6.5% (ever before reference date)",
@@ -468,6 +484,7 @@ table_pjp_rf <- tbl_data |>
       age              ~ "continuous",
       steroid_months   ~ "continuous",
       sex              ~ "categorical",
+      rd_category      ~ "categorical",
       n_dmards_cat     ~ "categorical",
       where(is.logical) ~ "dichotomous"
     ),
@@ -492,7 +509,7 @@ table_pjp_rf <- tbl_data |>
   modify_table_body(
     \(x) x |> mutate(groupname_col = case_when(
       variable %in% c("age", "sex")            ~ "Demographics",
-      grepl("^dx_", variable)                   ~ "Rheumatologic Diagnosis",
+      variable == "rd_category"                 ~ "Rheumatologic Diagnosis",
       variable %in% c("lymphopenia", "neutropenia",
                       "elevated_a1c", "ild")    ~ "Comorbidities & Immune Status",
       variable %in% c("steroid_months",

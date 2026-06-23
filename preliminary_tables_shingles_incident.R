@@ -709,7 +709,29 @@ analysis_df <- base_cohort |>
   left_join(disease_flags, by = "person_id") |>
   left_join(drug_flags,    by = "person_id") |>
   mutate(across(starts_with("dx_") | starts_with("drug_"), \(x) coalesce(as.integer(x), 0L))) |>
-  mutate(across(starts_with("dx_") | starts_with("drug_"), as.logical))
+  mutate(across(starts_with("dx_") | starts_with("drug_"), as.logical)) |>
+  mutate(
+    n_dx = rowSums(across(starts_with("dx_"))),
+    rd_category = factor(
+      case_when(
+        n_dx > 1L      ~ "More than 1 diagnosis",
+        dx_sle         ~ "SLE",
+        dx_dm_myositis ~ "Dermatomyositis / Myositis",
+        dx_ssc         ~ "Systemic Sclerosis (SSc)",
+        dx_gca         ~ "Giant Cell Arteritis (GCA)",
+        dx_ra          ~ "Rheumatoid Arthritis (RA)",
+        dx_spa         ~ "Spondyloarthropathy (SpA)",
+        dx_vasculitis  ~ "ANCA-Associated Vasculitis",
+        TRUE           ~ NA_character_
+      ),
+      levels = c(
+        "SLE", "Dermatomyositis / Myositis", "Systemic Sclerosis (SSc)",
+        "Giant Cell Arteritis (GCA)", "Rheumatoid Arthritis (RA)",
+        "Spondyloarthropathy (SpA)", "ANCA-Associated Vasculitis",
+        "More than 1 diagnosis"
+      )
+    )
+  )
 
 # ============================================================================
 # TABLE 1: Base cohort characteristics
@@ -721,21 +743,15 @@ tbl1_data <- analysis_df |>
   select(
     shingles_group,
     age, sex, race,
-    dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
+    rd_category,
     vaccine_doses
   ) |>
   set_variable_labels(
-    age            = "Age at index date, years",
-    sex            = "Sex",
-    race           = "Race",
-    dx_sle         = "Systemic Lupus Erythematosus (SLE)",
-    dx_dm_myositis = "Dermatomyositis / Myositis",
-    dx_ssc         = "Systemic Sclerosis (SSc)",
-    dx_gca         = "Giant Cell Arteritis (GCA)",
-    dx_ra          = "Rheumatoid Arthritis (RA)",
-    dx_spa         = "Spondyloarthropathy (SpA)",
-    dx_vasculitis  = "ANCA-Associated Vasculitis",
-    vaccine_doses  = "Shingles vaccine doses received"
+    age           = "Age at index date, years",
+    sex           = "Sex",
+    race          = "Race",
+    rd_category   = "Rheumatologic Diagnosis",
+    vaccine_doses = "Shingles vaccine doses received"
   )
 
 table1 <- tbl1_data |>
@@ -751,13 +767,12 @@ table1 <- tbl1_data |>
     ),
     missing   = "no",
     type      = list(
-      age               ~ "continuous",
-      sex               ~ "categorical",
-      race              ~ "categorical",
-      vaccine_doses     ~ "categorical",
-      where(is.logical) ~ "dichotomous"
-    ),
-    value     = list(where(is.logical) ~ TRUE)
+      age           ~ "continuous",
+      sex           ~ "categorical",
+      race          ~ "categorical",
+      vaccine_doses ~ "categorical",
+      rd_category   ~ "categorical"
+    )
   ) |>
   add_overall(last = FALSE) |>
   bold_labels() |>
@@ -777,7 +792,7 @@ table1 <- tbl1_data |>
     \(x) x |>
       mutate(groupname_col = case_when(
         variable %in% c("age", "sex", "race") ~ "Demographics",
-        grepl("^dx_", variable)               ~ "Rheumatologic Diagnosis",
+        variable == "rd_category"              ~ "Rheumatologic Diagnosis",
         variable == "vaccine_doses"            ~ "Shingles Vaccination",
         TRUE ~ NA_character_
       ))

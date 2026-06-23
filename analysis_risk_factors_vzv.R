@@ -229,6 +229,28 @@ vzv_analysis <- base_cohort |>
   left_join(disease_flags, by = "person_id") |>
   mutate(across(starts_with("dx_"), \(x) coalesce(as.integer(x), 0L)),
          across(starts_with("dx_"), as.logical)) |>
+  mutate(
+    n_dx = rowSums(across(starts_with("dx_"))),
+    rd_category = factor(
+      case_when(
+        n_dx > 1L      ~ "More than 1 diagnosis",
+        dx_sle         ~ "SLE",
+        dx_dm_myositis ~ "Dermatomyositis / Myositis",
+        dx_ssc         ~ "Systemic Sclerosis (SSc)",
+        dx_gca         ~ "Giant Cell Arteritis (GCA)",
+        dx_ra          ~ "Rheumatoid Arthritis (RA)",
+        dx_spa         ~ "Spondyloarthropathy (SpA)",
+        dx_vasculitis  ~ "ANCA-Associated Vasculitis",
+        TRUE           ~ NA_character_
+      ),
+      levels = c(
+        "SLE", "Dermatomyositis / Myositis", "Systemic Sclerosis (SSc)",
+        "Giant Cell Arteritis (GCA)", "Rheumatoid Arthritis (RA)",
+        "Spondyloarthropathy (SpA)", "ANCA-Associated Vasculitis",
+        "More than 1 diagnosis"
+      )
+    )
+  ) |>
   # Vaccination status and DMARD windows
   left_join(ref_dates |> select(person_id, is_vaccinated, first_vacc_date), by = "person_id") |>
   left_join(dmard_pre_vacc,  by = "person_id") |>
@@ -261,7 +283,7 @@ vzv_analysis <- base_cohort |>
     age, sex,
     outcome_phn, outcome_organ, outcome_post_vacc,
     is_vaccinated,
-    dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
+    rd_category,
     any_biologic_pre_vacc, any_jak_pre_vacc, any_csdmard_pre_vacc,
     any_biologic_post_vacc, any_jak_post_vacc, any_csdmard_post_vacc,
     n_dmards_pre_vacc_cat, n_dmards_post_vacc_cat,
@@ -281,13 +303,7 @@ message(sprintf("  PHN: %d | Organ invasive: %d | Post-vaccine: %d",
 # shared variable labels
 VAR_LABELS <- list(
   age                     = "Age, years",
-  dx_sle                  = "SLE",
-  dx_dm_myositis          = "Dermatomyositis / Myositis",
-  dx_ssc                  = "Systemic Sclerosis (SSc)",
-  dx_gca                  = "Giant Cell Arteritis (GCA)",
-  dx_ra                   = "Rheumatoid Arthritis (RA)",
-  dx_spa                  = "Spondyloarthropathy (SpA)",
-  dx_vasculitis           = "ANCA-Associated Vasculitis",
+  rd_category             = "Rheumatologic Diagnosis",
   any_biologic_pre_vacc   = "Any biologic (90d pre-vaccine)",
   any_jak_pre_vacc        = "Any JAK inhibitor (90d pre-vaccine)",
   any_csdmard_pre_vacc    = "Any csDMARD (90d pre-vaccine)",
@@ -311,7 +327,7 @@ make_vzv_table <- function(data, outcome_col, outcome_labels,
     select(
       !!sym(factor_col),
       age,
-      dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
+      rd_category,
       any_biologic_pre_vacc, any_jak_pre_vacc, any_csdmard_pre_vacc,
       any_biologic_post_vacc, any_jak_post_vacc, any_csdmard_post_vacc,
       n_dmards_pre_vacc_cat, n_dmards_post_vacc_cat,
@@ -331,6 +347,7 @@ make_vzv_table <- function(data, outcome_col, outcome_labels,
       missing   = "ifany",
       type      = list(
         age               ~ "continuous",
+        rd_category       ~ "categorical",
         where(is.logical) ~ "dichotomous",
         where(is.factor)  ~ "categorical"
       ),
@@ -354,7 +371,7 @@ make_vzv_table <- function(data, outcome_col, outcome_labels,
     modify_table_body(
       \(x) x |> mutate(groupname_col = case_when(
         variable == "age"                              ~ "Demographics",
-        grepl("^dx_", variable)                        ~ "Rheumatologic Diagnosis",
+        variable == "rd_category"                      ~ "Rheumatologic Diagnosis",
         grepl("_pre_vacc",  variable)                  ~ "DMARD Use – 90d Pre-Vaccination¹",
         grepl("_post_vacc", variable)                  ~ "DMARD Use – 30d Post-Vaccination¹",
         variable == "lymphopenia"                      ~ "Immunologic Status",

@@ -651,6 +651,28 @@ analysis_pjp_full <- base_cohort |>
     ppx_atovaquone  = as.logical(coalesce(ppx_atovaquone,  0L)),
     ppx_pentamidine = as.logical(coalesce(ppx_pentamidine, 0L)),
     ppx_any         = ppx_tmp_smx | ppx_dapsone | ppx_atovaquone | ppx_pentamidine
+  ) |>
+  mutate(
+    n_dx = rowSums(across(starts_with("dx_"))),
+    rd_category = factor(
+      case_when(
+        n_dx > 1L      ~ "More than 1 diagnosis",
+        dx_sle         ~ "SLE",
+        dx_dm_myositis ~ "Dermatomyositis / Myositis",
+        dx_ssc         ~ "Systemic Sclerosis (SSc)",
+        dx_gca         ~ "Giant Cell Arteritis (GCA)",
+        dx_ra          ~ "Rheumatoid Arthritis (RA)",
+        dx_spa         ~ "Spondyloarthropathy (SpA)",
+        dx_vasculitis  ~ "ANCA-Associated Vasculitis",
+        TRUE           ~ NA_character_
+      ),
+      levels = c(
+        "SLE", "Dermatomyositis / Myositis", "Systemic Sclerosis (SSc)",
+        "Giant Cell Arteritis (GCA)", "Rheumatoid Arthritis (RA)",
+        "Spondyloarthropathy (SpA)", "ANCA-Associated Vasculitis",
+        "More than 1 diagnosis"
+      )
+    )
   )
 
 analysis_pjp <- pjp_cohort |>
@@ -685,20 +707,14 @@ tbl1_pjp_data <- analysis_pjp_full |>
   select(
     pjp_group,
     age, sex, race,
-    dx_sle, dx_dm_myositis, dx_ssc, dx_gca, dx_ra, dx_spa, dx_vasculitis,
+    rd_category,
     ppx_any, ppx_tmp_smx, ppx_dapsone, ppx_atovaquone, ppx_pentamidine
   ) |>
   set_variable_labels(
     age             = "Age at RD index date, years",
     sex             = "Sex",
     race            = "Race",
-    dx_sle          = "Systemic Lupus Erythematosus (SLE)",
-    dx_dm_myositis  = "Dermatomyositis / Myositis",
-    dx_ssc          = "Systemic Sclerosis (SSc)",
-    dx_gca          = "Giant Cell Arteritis (GCA)",
-    dx_ra           = "Rheumatoid Arthritis (RA)",
-    dx_spa          = "Spondyloarthropathy (SpA)",
-    dx_vasculitis   = "ANCA-Associated Vasculitis",
+    rd_category     = "Rheumatologic Diagnosis",
     ppx_any         = "Any PJP prophylaxis",
     ppx_tmp_smx     = "TMP-SMX",
     ppx_dapsone     = "Dapsone",
@@ -722,6 +738,7 @@ table1_pjp <- tbl1_pjp_data |>
       age               ~ "continuous",
       sex               ~ "categorical",
       race              ~ "categorical",
+      rd_category       ~ "categorical",
       where(is.logical) ~ "dichotomous"
     ),
     value     = list(where(is.logical) ~ TRUE)
@@ -744,7 +761,7 @@ table1_pjp <- tbl1_pjp_data |>
     \(x) x |>
       mutate(groupname_col = case_when(
         variable %in% c("age", "sex", "race") ~ "Demographics",
-        grepl("^dx_", variable)               ~ "Rheumatologic Diagnosis",
+        variable == "rd_category"              ~ "Rheumatologic Diagnosis",
         grepl("^ppx_", variable)              ~ "PJP Prophylaxis",
         TRUE                                  ~ NA_character_
       ))
