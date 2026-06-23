@@ -1333,7 +1333,14 @@ t3_display <- bind_rows(
 
 table3 <- t3_display |>
   gt(groupname_col = "drug_class") |>
-  row_group_order(groups = c("No DMARD Use", "Biologic", "JAK Inhibitor", "csDMARD")) |>
+  row_group_order(groups = c(
+    "No DMARD Use",
+    "csDMARD", "Antimetabolite", "Alkylating", "CNI",
+    "TNF Inhibitor", "IL-6 Inhibitor", "IL-12/23 Inhibitor",
+    "IL-17 Inhibitor", "Type 1 IFN Inhibitor",
+    "T-cell Co-stim", "BAFF Inhibitor", "CD19/CD20",
+    "JAK Inhibitor"
+  )) |>
   cols_label(
     drug_name = md("**DMARD**"),
     cell      = md(sprintf("**Episodes with DMARD use**<br><small>N episodes = %d</small>",
@@ -1433,7 +1440,14 @@ t4_display <- bind_rows(
 
 table4 <- t4_display |>
   gt(groupname_col = "drug_class") |>
-  row_group_order(groups = c("No DMARD Use", "Biologic", "JAK Inhibitor", "csDMARD")) |>
+  row_group_order(groups = c(
+    "No DMARD Use",
+    "csDMARD", "Antimetabolite", "Alkylating", "CNI",
+    "TNF Inhibitor", "IL-6 Inhibitor", "IL-12/23 Inhibitor",
+    "IL-17 Inhibitor", "Type 1 IFN Inhibitor",
+    "T-cell Co-stim", "BAFF Inhibitor", "CD19/CD20",
+    "JAK Inhibitor"
+  )) |>
   cols_label(
     drug_name = md("**DMARD**"),
     cell      = md(sprintf("**Vaccine episodes with DMARD use**<br><small>N vaccine episodes = %d</small>",
