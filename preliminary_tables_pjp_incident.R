@@ -10,11 +10,9 @@
 # ── Three-tier cohort design ──────────────────────────────────────────────────
 #
 #   Tier 1 — base_cohort  (incident base cohort)
-#     RD patients with TWO confirmed RD diagnoses (30–365 days apart), at least
-#     one DMARD exposure, age >= 18 at cohort entry, and continuous DMARD use
-#     (validated by json_base_ids from ATLAS).  The second RD diagnosis is the
-#     cohort RD INDEX DATE (rd_index_date).
-#     Built from inline SQL + filtered by json_base_ids in STEP 1.
+#     RD patients with TWO confirmed RD diagnoses (30–365 days apart), age >= 18
+#     at cohort entry.  The second RD diagnosis is the cohort RD INDEX DATE
+#     (rd_index_date).  No DMARD requirement for cohort entry.
 #     NOTE: first_rd_date (earliest-ever RD encounter) is returned in the same
 #     query; a separate first_rheum_dx_sql step (as in the prevalent script) is
 #     not needed here.
@@ -104,8 +102,6 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 # inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
 # the CDM.  Loading all of them upfront keeps the per-step code clean.
 #
-#   json_base_ids → STEP 1  narrows the incident base cohort to patients on
-#                           continuous DMARDs (defines the at-risk population)
 #   json_pjp_ids  → loaded for reference / cross-validation; NOT used to filter
 #                   pjp_cohort (see STEP 2 note)
 #   json_ppx_ids  → STEP 6 / Table 3  identifies patients who received PJP
@@ -114,13 +110,6 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-# Prevalent RD patients on continuous DMARDs — defines the at-risk population.
-# Applied in STEP 1 to filter the incident base cohort.
-json_base_ids <- fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
-                            package = "TrajectoryDashboard")
-)
 # ATLAS-validated PJP infection cohort (RD + PJP diagnosis).
 # Available for cross-validation.  NOT applied as a filter to pjp_cohort —
 # the ATLAS cohort's IR=2 inclusion rules over-restrict the case count.
@@ -141,13 +130,11 @@ json_ppx_ids <- fetch_cohort_ids(
 # STEP 1  Incident base cohort
 # ─────────────────────────────────────────────────────────────────────────────
 # Who:    RD patients with TWO confirmed RD diagnoses (30–365 days apart),
-#         at least one DMARD exposure (no IVIG), and age >= 18 at rd_index_date.
-#         Further narrowed to json_base_ids (continuous DMARD patients per ATLAS).
+#         age >= 18 at rd_index_date. No DMARD requirement for cohort entry.
 # How:    Inline SQL identifies the earliest qualifying second RD encounter and
 #         designates it as rd_index_date.  first_rd_date (earliest-ever RD
 #         encounter) is returned by the same query — no separate Step 1b needed
 #         (contrast with the prevalent script which has a separate first_rheum_dx_sql).
-#         After SQL, base_cohort is filtered to json_base_ids.
 # Result: base_cohort data frame (person_id, rd_index_date, first_rd_date,
 #         year_of_birth, gender, obs_start, obs_end)
 #         cohort_ids = base_cohort$person_id
@@ -251,18 +238,6 @@ JOIN @cdm_schema.person p ON ri.person_id = p.person_id
 JOIN @cdm_schema.observation_period op ON ri.person_id = op.person_id
 WHERE
   YEAR(ri.rd_index_date) - p.year_of_birth >= 18
-  AND EXISTS (
-    SELECT 1
-    FROM @cdm_schema.drug_exposure de
-    JOIN @vocab_schema.concept_ancestor ca ON de.drug_concept_id = ca.descendant_concept_id
-    WHERE de.person_id = ri.person_id
-      AND ca.ancestor_concept_id IN (
-        19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
-        1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
-        746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
-        1186087,  1777087
-      )
-  )
 GROUP BY ri.person_id, ri.rd_index_date, rfe.first_rd_date,
          p.year_of_birth, p.gender_concept_id
 "
@@ -273,10 +248,9 @@ base_cohort <- run_sql(con, base_cohort_sql,
   mutate(rd_index_date = as.Date(rd_index_date),
          first_rd_date = as.Date(first_rd_date),
          obs_start     = as.Date(obs_start),
-         obs_end       = as.Date(obs_end)) |>
-  filter(person_id %in% json_base_ids)
+         obs_end       = as.Date(obs_end))
 
-message(nrow(base_cohort), " patients in incident base cohort (intersected with ATLAS JSON).")
+message(nrow(base_cohort), " patients in incident base cohort (two-encounter RD, age >= 18).")
 cohort_ids <- base_cohort$person_id
 
 # first_rheum_dx_df — same interface as the prevalence script's STEP 1b,

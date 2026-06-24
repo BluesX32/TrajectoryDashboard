@@ -9,10 +9,9 @@
 # ── Three-tier cohort design ──────────────────────────────────────────────────
 #
 #   Tier 1 — cohort_ids  (incident base cohort)
-#     RD patients aged >= 18 with TWO RD diagnoses 30–365 days apart and at
-#     least one DMARD exposure (continuous DMARD, validated by ATLAS JSON).
+#     RD patients aged >= 18 with TWO RD diagnoses 30–365 days apart.
 #     The second RD diagnosis is the cohort INDEX DATE.
-#     Built from inline SQL + filtered by json_base_ids in STEP 1.
+#     No DMARD requirement for cohort entry. Built from inline SQL in STEP 1.
 #
 #   Tier 2 — shingles_ids  (incident shingles sub-cohort)
 #     Patients in cohort_ids with a herpes zoster diagnosis ON OR AFTER their
@@ -108,8 +107,6 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 # inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
 # the CDM.  Loading all of them upfront keeps the per-step code clean.
 #
-#   json_base_ids          → STEP 1  narrows the incident base cohort to
-#                                    patients on continuous DMARDs (at-risk pop)
 #   json_vzv_ids           → STEP 2  validates the shingles sub-cohort against
 #                                    the ATLAS VZV case definition
 #   json_vzv_morbidity_ids → Table 2 identifies post-herpetic neuralgia /
@@ -119,13 +116,6 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-# Prevalent RD patients on continuous DMARDs — defines the at-risk population
-# for the incident analysis.  Applied in STEP 1 to filter the base cohort.
-json_base_ids <- fetch_cohort_ids(
-  con,
-  json_path = system.file("json", "cohort_PrevalentRD_continuous_DMARDs.json",
-                            package = "TrajectoryDashboard")
-)
 # All herpes zoster in prevalent RD patients (CS 9 includes SNOMED 443943
 # Herpes zoster +descendants, covering common shingles through complications).
 # Applied in STEP 2 to cross-validate the SQL-derived VZV case set.
@@ -161,11 +151,9 @@ json_vaccine_ids <- fetch_cohort_ids(
 # STEP 1  Incident base cohort
 # ─────────────────────────────────────────────────────────────────────────────
 # Who:    RD patients with TWO confirmed RD diagnoses (30–365 days apart),
-#         at least one DMARD exposure, and age >= 18 at cohort entry.
+#         age >= 18 at cohort entry. No DMARD requirement for cohort entry.
 # How:    Inline SQL finds the earliest qualifying second RD encounter and
-#         designates it as index_date.  After SQL, the cohort is narrowed to
-#         json_base_ids (patients on continuous DMARDs per ATLAS) — this
-#         defines the at-risk population for the incident analysis.
+#         designates it as index_date.
 # Result: base_cohort data frame (person_id, index_date, first_rd_date,
 #         year_of_birth, gender, obs_start, obs_end)
 #         cohort_ids = base_cohort$person_id
@@ -272,18 +260,6 @@ JOIN @cdm_schema.person p ON ri.person_id = p.person_id
 JOIN @cdm_schema.observation_period op ON ri.person_id = op.person_id
 WHERE
   YEAR(ri.index_date) - p.year_of_birth >= 18
-  AND EXISTS (
-    SELECT 1
-    FROM @cdm_schema.drug_exposure de
-    JOIN @vocab_schema.concept_ancestor ca ON de.drug_concept_id = ca.descendant_concept_id
-    WHERE de.person_id = ri.person_id
-      AND ca.ancestor_concept_id IN (
-        19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
-        1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
-        746895,   1119119,  937368,   1151789, 1511348,  1186087,  1777087,
-        40161532
-      )
-  )
 GROUP BY ri.person_id, ri.index_date, rfe.first_rd_date,
          p.year_of_birth, p.gender_concept_id
 "
@@ -294,10 +270,9 @@ base_cohort <- run_sql(con, base_cohort_sql,
   mutate(index_date    = as.Date(index_date),
          first_rd_date = as.Date(first_rd_date),
          obs_start     = as.Date(obs_start),
-         obs_end       = as.Date(obs_end)) |>
-  filter(person_id %in% json_base_ids)
+         obs_end       = as.Date(obs_end))
 
-message(nrow(base_cohort), " patients in incident base cohort (intersected with ATLAS JSON).")
+message(nrow(base_cohort), " patients in incident base cohort (two-encounter RD, age >= 18).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================

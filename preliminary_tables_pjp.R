@@ -10,9 +10,8 @@
 # ── Three-tier cohort design ──────────────────────────────────────────────────
 #
 #   Tier 1 — base_cohort  (base cohort)
-#     Adults (age >= 18) with at least one RD diagnosis and at least one DMARD
-#     exposure.  IVIG is explicitly excluded (too broad for immunosuppression).
-#     Requires ONE RD diagnosis (prevalent definition).
+#     Adults (age >= 18) with at least one RD diagnosis (prevalent definition).
+#     No DMARD requirement for cohort entry; DMARD is a covariate downstream.
 #     Built from inline SQL in STEP 1.
 #
 #   Tier 2 — pjp_cohort  (PJP sub-cohort)
@@ -151,12 +150,10 @@ json_ppx_ids <- fetch_cohort_ids(
 # ============================================================================
 # STEP 1  Base cohort
 # ─────────────────────────────────────────────────────────────────────────────
-# Who:    Adults (age >= 18) with at least one RD diagnosis and at least one
-#         DMARD exposure.  IVIG is explicitly excluded — its broad immunologic
-#         use would pull in patients not on disease-modifying therapy.
-# How:    Inline SQL queries condition_occurrence (RD Dx) and drug_exposure
-#         (DMARD ancestor concept IDs).  Ancestor concept 35603563 (IVIG)
-#         is omitted from the DMARD list.
+# Who:    Adults (age >= 18) with at least one RD diagnosis.
+#         No DMARD requirement — DMARD exposure is a covariate, not an entry
+#         criterion.
+# How:    Inline SQL queries condition_occurrence for RD concept IDs.
 # Result: base_cohort data frame (person_id, year_of_birth, gender,
 #         obs_start, obs_end)
 #         cohort_ids = base_cohort$person_id
@@ -237,18 +234,6 @@ WHERE
         AND cv.invalid_reason IS NULL
     )
   )
-  AND EXISTS (
-    SELECT 1
-    FROM @cdm_schema.drug_exposure de
-    JOIN @vocab_schema.concept_ancestor ca ON de.drug_concept_id = ca.descendant_concept_id
-    WHERE de.person_id = p.person_id
-      AND ca.ancestor_concept_id IN (
-        19014878, 19068900, 19003999, 1361580, 42904205, 40171288, 1305058,
-        1101898,  1594587,  1310317,  1314273, 701470,   40236987, 45892883,
-        746895,   1119119,  937368,   1151789, 1593700,  40161532, 1511348,
-        1186087,  1777087
-      )
-  )
 GROUP BY p.person_id, p.year_of_birth, p.gender_concept_id
 "
 
@@ -258,7 +243,7 @@ base_cohort <- run_sql(con, base_cohort_sql,
   mutate(obs_start = as.Date(obs_start),
          obs_end   = as.Date(obs_end))
 
-message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis + any DMARD).")
+message(nrow(base_cohort), " patients in prevalent base cohort (1+ RD diagnosis, age >= 18).")
 cohort_ids <- base_cohort$person_id
 
 # ============================================================================
