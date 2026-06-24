@@ -119,6 +119,12 @@ first_vacc <- vacc_bulk |>
 
 # ── rd_category derivation helper ────────────────────────────────────────────
 add_rd_category <- function(df) {
+  lvls <- c(
+    "SLE", "Dermatomyositis / Myositis", "Systemic Sclerosis (SSc)",
+    "Giant Cell Arteritis (GCA)", "Rheumatoid Arthritis (RA)",
+    "Spondyloarthropathy (SpA)", "ANCA-Associated Vasculitis",
+    "More than 1 diagnosis"
+  )
   df |>
     left_join(disease_flags, by = "person_id") |>
     mutate(across(starts_with("dx_"), \(x) coalesce(as.integer(x), 0L)),
@@ -135,7 +141,7 @@ add_rd_category <- function(df) {
         dx_spa         ~ "Spondyloarthropathy (SpA)",
         dx_vasculitis  ~ "ANCA-Associated Vasculitis",
         TRUE           ~ NA_character_
-      ), levels = RD_LEVELS)
+      ), levels = lvls)
     )
 }
 
