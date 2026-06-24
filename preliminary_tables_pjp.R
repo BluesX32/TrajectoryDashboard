@@ -15,12 +15,10 @@
 #     Built from inline SQL in STEP 1.
 #
 #   Tier 2 — pjp_cohort  (PJP sub-cohort)
-#     Base cohort patients with a PJP / PCP diagnosis (SNOMED 438350 and
-#     descendants).  Index date = earliest PJP condition_start_date.
-#     Built from inline SQL in STEP 2.  No ATLAS JSON filter is applied here —
-#     the SQL concept set (SNOMED 438350 + descendants) already captures all
-#     mapped PJP diagnoses; the ATLAS cohort's additional inclusion rules would
-#     over-restrict the count.
+#     Base cohort patients meeting the cohort_PJP_infection.json definition.
+#     Index date = earliest PJP condition_start_date from condition_occurrence.
+#     Built from inline SQL in STEP 2, then filtered by json_pjp_ids (ATLAS
+#     3-arm definition: inpatient+Dx, Dx+treatment, or positive lab test).
 #
 #   Tier 3 — ppx_cohort  (prophylaxis sub-cohort)
 #     Full base cohort patients with any PJP prophylaxis exposure (TMP-SMX,
@@ -122,21 +120,22 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 # inst/json/.  fetch_cohort_ids() parses each JSON and runs it as SQL against
 # the CDM.  Loading all of them upfront keeps the per-step code clean.
 #
-#   json_pjp_ids → loaded for reference / cross-validation; NOT used to filter
-#                  pjp_cohort (see STEP 2 note below)
+#   json_pjp_ids → STEP 2  filters pjp_cohort to ATLAS-validated PJP cases
+#                  (3-arm definition: inpatient+Dx, Dx+treatment, or lab test)
 #   json_ppx_ids → STEP 6 / Table 3  identifies patients who received PJP
 #                  prophylaxis before developing PJP (PPX-before-PJP subgroup)
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-# ATLAS-validated PJP infection cohort (RD + PJP diagnosis).
-# Available for cross-validation or sensitivity analyses.
-# NOT applied as a filter to pjp_cohort: the ATLAS cohort's additional
-# inclusion rules (IR=2) over-restrict the count beyond what the SQL finds.
+# ATLAS-validated PJP infection cohort — 3-arm definition:
+#   (1) inpatient visit + PJP diagnosis, OR
+#   (2) PJP diagnosis + treatment drug/procedure within 14d, OR
+#   (3) positive PJP lab test (antigen assay, Calcofluor, PCR).
+# Used in STEP 2 to filter pjp_cohort to clinically-validated cases.
 json_pjp_ids <- fetch_cohort_ids(
   con,
-  json_path = system.file("json", "cohort_PrevalentRD_PJP_infection.json",
+  json_path = system.file("json", "cohort_PJP_infection.json",
                             package = "TrajectoryDashboard")
 )
 # Patients who received PJP prophylaxis and subsequently developed PJP.
@@ -353,14 +352,14 @@ message(sprintf(
 # ============================================================================
 # STEP 2  PJP sub-cohort
 # ─────────────────────────────────────────────────────────────────────────────
-# Who:    Base cohort patients with a PJP / PCP diagnosis.
-# How:    SQL finds condition_occurrence rows matching SNOMED 438350
-#         (Pneumocystis jirovecii pneumonia) and all its descendants.
-#         The earliest matching date becomes the patient's PJP index date.
-#         No ATLAS JSON filter is applied: json_pjp_ids is available for
-#         cross-validation but the ATLAS cohort's two inclusion rules (IR=2)
-#         impose additional constraints (e.g. observation-window requirements)
-#         that go beyond the SQL's concept-set match and would under-count cases.
+# Who:    Base cohort patients meeting the cohort_PJP_infection.json definition:
+#         (1) inpatient visit with overlapping PJP diagnosis, OR
+#         (2) PJP diagnosis + treatment drug/procedure within 14 days, OR
+#         (3) positive PJP lab test (antigen, Calcofluor, PCR).
+# How:    SQL finds all condition_occurrence rows matching SNOMED 438350
+#         (Pneumocystosis) and descendants; earliest qualifying date = index_date.
+#         Result is then intersected with json_pjp_ids (ATLAS-validated case set)
+#         to enforce the 3-arm clinical definition.
 # Result: pjp_cohort data frame (person_id, index_date)
 #         pjp_ids = pjp_cohort$person_id
 # ============================================================================
@@ -392,9 +391,11 @@ pjp_cohort <- run_sql(con, pjp_events_sql,
                       cdm_schema   = cdm,
                       vocab_schema = vocab,
                       person_ids   = cohort_ids) |>
-  mutate(index_date = as.Date(index_date))
+  mutate(index_date = as.Date(index_date)) |>
+  filter(person_id %in% json_pjp_ids)
 
-message(sprintf("%d / %d base cohort patients had PJP.", nrow(pjp_cohort), length(cohort_ids)))
+message(sprintf("%d / %d base cohort patients had PJP (ATLAS-validated 3-arm definition).",
+                nrow(pjp_cohort), length(cohort_ids)))
 pjp_ids <- pjp_cohort$person_id
 
 # ============================================================================
