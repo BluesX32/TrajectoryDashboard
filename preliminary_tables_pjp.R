@@ -18,7 +18,7 @@
 #     Base cohort patients meeting the cohort_PJP_infection.json definition.
 #     Index date = earliest PJP condition_start_date from condition_occurrence.
 #     Built from inline SQL in STEP 2, then filtered by json_pjp_ids (ATLAS
-#     3-arm definition: inpatient+Dx, Dx+treatment, or positive lab test).
+#     3-arm definition: any PJP Dx, Dx+treatment, or positive lab test).
 #
 #   Tier 3 — ppx_cohort  (prophylaxis sub-cohort)
 #     Full base cohort patients with any PJP prophylaxis exposure (TMP-SMX,
@@ -121,7 +121,7 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 # the CDM.  Loading all of them upfront keeps the per-step code clean.
 #
 #   json_pjp_ids → STEP 2  filters pjp_cohort to ATLAS-validated PJP cases
-#                  (3-arm definition: inpatient+Dx, Dx+treatment, or lab test)
+#                  (3-arm: any PJP Dx, Dx+treatment, or positive lab test)
 #   json_ppx_ids → STEP 6 / Table 3  identifies patients who received PJP
 #                  prophylaxis before developing PJP (PPX-before-PJP subgroup)
 # ============================================================================
@@ -129,10 +129,11 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
 # ATLAS-validated PJP infection cohort — 3-arm definition:
-#   (1) inpatient visit + PJP diagnosis, OR
+#   (1) any PJP condition occurrence (SNOMED 438350 + descendants), OR
 #   (2) PJP diagnosis + treatment drug/procedure within 14d, OR
 #   (3) positive PJP lab test (antigen assay, Calcofluor, PCR).
-# Used in STEP 2 to filter pjp_cohort to clinically-validated cases.
+# No inpatient visit requirement. Used in STEP 2 to filter pjp_cohort.
+
 json_pjp_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PJP_infection.json",
@@ -353,13 +354,13 @@ message(sprintf(
 # STEP 2  PJP sub-cohort
 # ─────────────────────────────────────────────────────────────────────────────
 # Who:    Base cohort patients meeting the cohort_PJP_infection.json definition:
-#         (1) inpatient visit with overlapping PJP diagnosis, OR
+#         (1) any PJP condition occurrence (SNOMED 438350 + descendants), OR
 #         (2) PJP diagnosis + treatment drug/procedure within 14 days, OR
 #         (3) positive PJP lab test (antigen, Calcofluor, PCR).
 # How:    SQL finds all condition_occurrence rows matching SNOMED 438350
 #         (Pneumocystosis) and descendants; earliest qualifying date = index_date.
 #         Result is then intersected with json_pjp_ids (ATLAS-validated case set)
-#         to enforce the 3-arm clinical definition.
+#         to enforce the 3-arm clinical definition (no inpatient visit required).
 # Result: pjp_cohort data frame (person_id, index_date)
 #         pjp_ids = pjp_cohort$person_id
 # ============================================================================

@@ -1066,47 +1066,8 @@
   "PrimaryCriteria": {
     "CriteriaList": [
       {
-        "VisitOccurrence": {
-          "CorrelatedCriteria": {
-            "Type": "ALL",
-            "CriteriaList": [
-              {
-                "Criteria": {
-                  "ConditionOccurrence": {
-                    "CodesetId": 0
-                  }
-                },
-                "StartWindow": {
-                  "Start": {
-                    "Days": 0,
-                    "Coeff": -1
-                  },
-                  "End": {
-                    "Coeff": 1
-                  },
-                  "UseEventEnd": false
-                },
-                "EndWindow": {
-                  "Start": {
-                    "Coeff": -1
-                  },
-                  "End": {
-                    "Days": 0,
-                    "Coeff": 1
-                  },
-                  "UseIndexEnd": true,
-                  "UseEventEnd": true
-                },
-                "Occurrence": {
-                  "Type": 2,
-                  "Count": 1
-                }
-              }
-            ],
-            "DemographicCriteriaList": [],
-            "Groups": []
-          },
-          "CodesetId": 4
+        "ConditionOccurrence": {
+          "CodesetId": 0
         }
       },
       {

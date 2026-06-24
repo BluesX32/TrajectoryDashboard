@@ -18,8 +18,8 @@
 #     not needed here.
 #
 #   Tier 2 — pjp_cohort  (PJP sub-cohort)
-#     Base cohort patients meeting cohort_PJP_infection.json (3-arm clinical
-#     definition) with PJP diagnosis ON OR AFTER rd_index_date.
+#     Base cohort patients meeting cohort_PJP_infection.json (3-arm: any PJP Dx,
+#     Dx+treatment, or positive lab test) with PJP ON OR AFTER rd_index_date.
 #     PJP index date = earliest qualifying PJP condition_start_date >= rd_index_date,
 #     then filtered through json_pjp_ids (ATLAS-validated case set).
 #
@@ -103,18 +103,18 @@ vocab <- con$vocab_schema %||% con$cdm_schema
 # the CDM.  Loading all of them upfront keeps the per-step code clean.
 #
 #   json_pjp_ids  → STEP 2  filters pjp_cohort to ATLAS-validated PJP cases
-#                   (3-arm definition: inpatient+Dx, Dx+treatment, or lab test)
+#                   (3-arm: any PJP Dx, Dx+treatment, or positive lab test)
 #   json_ppx_ids  → STEP 6 / Table 3  identifies patients who received PJP
 #                   prophylaxis before developing PJP
 # ============================================================================
 
 message("Fetching ATLAS-defined cohort IDs from JSON definitions...")
 
-# ATLAS-validated PJP infection cohort — 3-arm clinical definition:
-#   (1) inpatient visit + PJP diagnosis, OR
+# ATLAS-validated PJP infection cohort — 3-arm definition:
+#   (1) any PJP condition occurrence (SNOMED 438350 + descendants), OR
 #   (2) PJP diagnosis + treatment drug/procedure within 14d, OR
 #   (3) positive PJP lab test (antigen assay, Calcofluor, PCR).
-# Applied in STEP 2 to intersect with SQL-derived PJP events.
+# No inpatient visit requirement. Applied in STEP 2 to intersect with SQL events.
 json_pjp_ids <- fetch_cohort_ids(
   con,
   json_path = system.file("json", "cohort_PJP_infection.json",
